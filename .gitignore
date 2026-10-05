@@ -1,0 +1,5 @@
+# 수집 결과·세션 정보는 절대 커밋하지 않음 (공개 저장소)
+output/
+*.state.json
+.env
+__pycache__/
