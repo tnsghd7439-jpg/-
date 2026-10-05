@@ -402,7 +402,19 @@ def append_sheet(today, res):
     print("시트 기록:", result["added"])
 
 
+def check_url_env(name, prefix):
+    """환경변수 URL에 가림 문자(•)·한글·공백이 섞이면 원인을 알려주고 멈춘다."""
+    v = os.environ.get(name)
+    if not v:
+        return
+    if not v.startswith(prefix) or any(ord(c) > 126 or ord(c) < 33 for c in v):
+        raise SystemExit(f"{name} 값이 올바른 주소가 아닙니다. '{prefix}'로 시작하고 가림 문자(•)·한글·공백이 "
+                         f"없는 원래 주소 전체를 환경 설정에 다시 넣어 주세요.")
+
+
 async def main():
+    check_url_env("GCHAT_WEBHOOK", "https://chat.googleapis.com/")
+    check_url_env("GSHEET_WEBAPP", "https://script.google.com/")
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--out", default="output")
