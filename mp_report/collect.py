@@ -182,7 +182,33 @@ async def tax_requests(api: Intra, fr: date, to: date):
 
 
 def norm(s):
-    return re.sub(r"[\s_\-()（）/]|주식회사|\(주\)", "", s or "").lower()
+    return re.sub(r"[\s_\-()（）/.,]|주식회사|㈜", "", s or "").lower()
+
+
+TITLE_MEDIA = [("쿠팡", "쿠팡"), ("메타", "메타"), ("페이스북", "메타"), ("구글", "구글"), ("유튜브", "구글")]
+
+
+def parse_request(r):
+    """업무요청의 연결 광고주는 잘못 입력된 경우가 많아 제목 기준으로 매체·광고주를 판단한다.
+    제목 형식 예: '8월_쿠팡 대행사수수료 세금계산서+수수료 발행요청_오슬로우'"""
+    title = r["title"] or ""
+    media = next((m for k, m in TITLE_MEDIA if k in title), None)
+    if not media:
+        medias = {FEE_MEDIA.get(m.strip()) for m in (r["media_ids"] or "").split(",")} - {None}
+        media = medias.pop() if len(medias) == 1 else None
+    parts = [p.strip() for p in title.split("_") if p.strip()]
+    name = parts[-1] if len(parts) >= 2 else ""
+    m = re.match(r"\s*(\d{1,2})월", title)
+    return {"매체": media, "광고주명": name, "월": int(m[1]) if m else None,
+            "담당자": r["jreq_name"], "제목": title}
+
+
+def aliases(name):
+    return {norm(x) for x in re.split(r"[/,]", name or "") + [name or ""] if len(norm(x)) >= 2}
+
+
+def same_advertiser(a, b):
+    return any(x in y or y in x for x in aliases(a) for y in aliases(b))
 
 
 async def collect_fee_requests(api: Intra, today: date):
@@ -190,60 +216,44 @@ async def collect_fee_requests(api: Intra, today: date):
     prev_month = add_months(this_month, -1)
     prev_end = this_month - timedelta(days=1)
 
-    # 추적 대상: 전월 쿠팡 매출 광고주 + 최근 3개월 메타/구글/쿠팡 세금계산서 요청 광고주
-    targets = {}
+    history = [parse_request(r) for r in await tax_requests(
+        api, add_months(this_month, -TRACK_MONTHS), prev_end)]
+    history = [h for h in history if h["매체"] and h["광고주명"]]
+
+    # 추적 대상 1) 전월 쿠팡(등) 매출 광고주
+    targets = []
     for r in await sales_range(api, prev_month, prev_end):
         media = FEE_MEDIA.get(r["media_id"])
         if media and float(r["tot_amt"] or 0) > 0:
-            targets[(media, r["cust_id"])] = {
-                "매체": media, "cust_id": r["cust_id"], "광고주ID": r["customer_id"],
-                "광고주명": r["customer_nm"] or r["cust_nm"], "담당자": r["mng_name"],
-                "전월광고비": int(float(r["tot_amt"])), "근거": "전월매출"}
-    history = await tax_requests(api, add_months(this_month, -TRACK_MONTHS), prev_end)
-    for r in history:
-        for mid in (r["media_ids"] or "").split(","):
-            media = FEE_MEDIA.get(mid.strip())
-            if not media:
-                continue
-            key = (media, r["cust_id"])
-            targets.setdefault(key, {
-                "매체": media, "cust_id": r["cust_id"], "광고주ID": r["customer_id"],
-                "광고주명": r["cust_nm"], "담당자": r["jreq_name"], "전월광고비": "",
-                "근거": "과거요청이력"})
+            name = r["customer_nm"] or r["cust_nm"]
+            if r["cust_nm"] and r["cust_nm"] != name:
+                name = f"{name}/{r['cust_nm']}"
+            had = any(h["매체"] == media and same_advertiser(name, h["광고주명"]) for h in history)
+            targets.append({"매체": media, "광고주명": r["customer_nm"] or r["cust_nm"], "별칭": name,
+                            "담당자": r["mng_name"], "전월광고비": int(float(r["tot_amt"])),
+                            "근거": "전월매출", "신규": not had})
+    # 추적 대상 2) 최근 3개월 동안 수수료/세금계산서를 요청했던 광고주 (메타·구글 포함)
+    for h in sorted(history, key=lambda x: x["제목"]):
+        if any(t["매체"] == h["매체"] and same_advertiser(t["별칭"], h["광고주명"]) for t in targets):
+            continue
+        targets.append({"매체": h["매체"], "광고주명": h["광고주명"], "별칭": h["광고주명"],
+                        "담당자": h["담당자"], "전월광고비": "", "근거": "과거요청이력", "신규": False})
 
-    # 이번 달 요청 (전월 말일 요청분도 인정)
-    current = await tax_requests(api, prev_end - timedelta(days=5), today)
-    done = []
-    for r in current:
-        medias = {FEE_MEDIA.get(m.strip()) for m in (r["media_ids"] or "").split(",")} - {None}
-        done.append((medias, r["cust_id"], norm(r["customer_id"]), norm(r["title"]), norm(r["cust_nm"])))
-
-    def requested(t, reqs=done):
-        nm, cid = norm(t["광고주명"]), norm(t["광고주ID"])
-        for medias, rc, rcid, title, rnm in reqs:
-            if t["매체"] not in medias:
-                continue
-            if rc == t["cust_id"] or (cid and cid == rcid) or (nm and (nm in title or nm == rnm)):
-                return True
-        return False
-
-    hist_done = []
-    for r in history:
-        medias = {FEE_MEDIA.get(m.strip()) for m in (r["media_ids"] or "").split(",")} - {None}
-        hist_done.append((medias, r["cust_id"], norm(r["customer_id"]), norm(r["title"]), norm(r["cust_nm"])))
+    # 이번 달 요청분 (전월 말일 무렵 요청분 포함, 제목의 'N월'이 전월인 것만 인정)
+    current = [parse_request(r) for r in await tax_requests(api, prev_end - timedelta(days=5), today)]
+    current = [c for c in current if c["매체"] and c["월"] in (None, prev_month.month)]
 
     status = "기한초과" if today.day > FEE_DEADLINE_DAY else f"미요청(D-{FEE_DEADLINE_DAY - today.day})"
     out = []
-    for key, t in targets.items():
-        if requested(t):
+    for t in targets:
+        if any(c["매체"] == t["매체"] and (same_advertiser(t["별칭"], c["광고주명"])
+                                         or any(a in norm(c["제목"]) for a in aliases(t["별칭"])))
+               for c in current):
             continue
-        # 과거 3개월 요청 이력이 전혀 없는 광고주 = 새로 추적 시작
-        is_new = t["근거"] == "전월매출" and not requested(t, hist_done)
         out.append({"대상월": prev_month.strftime("%Y-%m"), "상태": status, "매체": t["매체"],
-                    "담당자": t["담당자"], "광고주명": t["광고주명"], "광고주ID": t["광고주ID"],
-                    "전월광고비": t["전월광고비"], "추적근거": t["근거"],
-                    "신규추적": "신규" if is_new else ""})
-    out.sort(key=lambda x: (x["담당자"], x["매체"]))
+                    "담당자": t["담당자"], "광고주명": t["광고주명"], "전월광고비": t["전월광고비"],
+                    "추적근거": t["근거"], "신규추적": "신규" if t["신규"] else ""})
+    out.sort(key=lambda x: (x["담당자"], x["매체"], x["광고주명"]))
     return out
 
 
@@ -276,11 +286,12 @@ def fmt_when(s):
     return f"{m[2]}/{m[3]} {m[4]}:{m[5]}" if m else s
 
 
-def build_summary(today, res, limit=8):
-    L = [f"*[6팀 일일 점검] {today:%Y-%m-%d (%a)} 기준*", ""]
+MANAGER_ORDER = ["박송희", "정순홍", "차효림"]
 
-    def more(n):
-        return [f"   …외 {n - limit}건"] if n > limit else []
+
+def build_messages(today, res):
+    """팀 공통(1·2·5번) 메시지 1개 + 담당자별(3·4번) 메시지를 만든다."""
+    L = [f"*[6팀 일일 점검] {today:%Y-%m-%d (%a)} 기준*", ""]
 
     t = res["transfers"]
     cnt = defaultdict(int)
@@ -288,45 +299,49 @@ def build_summary(today, res, limit=8):
         cnt[r["구분"]] += 1
     L.append(f"*1. 신규/이관 (당월 누적 {len(t)}건)* — "
              + " / ".join(f"{k} {cnt[k]}" for k in TRNS_TARGET.values()))
-    for r in t[:limit]:
+    for r in t:
         L.append(f" • [{r['구분']}·{r['상태']}] {r['담당자']} | {r['매체']} | {r['광고주명']}")
-    L += more(len(t)) + [""]
+    L.append("")
 
     m = res["missing_info"]
     L.append(f"*2. 전월 매출 발생·정보 미입력 ({len(m)}건)*")
-    by = defaultdict(int)
-    for r in m:
-        by[r["담당자"]] += 1
-    if by:
-        L.append(" • 담당자별: " + ", ".join(f"{k} {v}" for k, v in sorted(by.items(), key=lambda x: -x[1])))
+    for r in sorted(m, key=lambda x: x["담당자"]):
+        L.append(f" • {r['담당자']} | {r['매체']} | {r['광고주명']} | 누락: {r['누락항목']}")
     L.append("")
-
-    s = res["spend_drop"]
-    stop = [r for r in s if r["구분"] == "소진중단"]
-    drop = [r for r in s if r["구분"] == "하락"]
-    L.append(f"*3. 광고비 이상 (소진중단 {len(stop)} / 하락 {len(drop)})* — "
-             f"{s[0]['기준일'] if s else ''} vs 직전 7일 평균 (일평균 1만원 미만 제외)")
-    for r in s[:limit]:
-        L.append(f" • [{r['구분']}] {r['담당자']} | {r['매체']} | {r['광고주명']} | "
-                 f"{won(r['어제광고비'])}원 (평균 {won(r['직전7일평균'])}, {r['변화율']})")
-    L += more(len(s)) + [""]
-
-    f = res["fee_requests"]
-    head = f[0]["상태"] if f else ""
-    L.append(f"*4. 쿠팡·메타·구글 전월 수수료/세금계산서 요청 누락 ({len(f)}건)* {head}")
-    for r in f[:limit]:
-        tag = " 🆕" if r["신규추적"] else ""
-        L.append(f" • {r['담당자']} | {r['매체']} | {r['광고주명']}{tag}")
-    L += more(len(f)) + [""]
 
     sc = res["schedules"]
     L.append(f"*5. 외근·근태 (오늘~이번 주, {len(sc)}건)*")
-    for r in sc[:limit]:
+    for r in sc:
         L.append(f" • {fmt_when(r['일시'])} {r['직원']} [{r['분류']}·{r['구분']}] {r['내용']}")
-    L += more(len(sc))
     if not sc:
         L.append(" • 일정 없음")
-    return "\n".join(L)
+
+    s, f = res["spend_drop"], res["fee_requests"]
+    ref = s[0]["기준일"] if s else ""
+    fee_status = f[0]["상태"] if f else ""
+    L += ["", "※ 3번(광고비 이상)·4번(수수료 요청 누락)은 담당자별 메시지로 이어집니다."]
+    messages = ["\n".join(L)]
+
+    people = {r["담당자"] for r in s} | {r["담당자"] for r in f}
+    order = [p for p in MANAGER_ORDER if p in people] + sorted(people - set(MANAGER_ORDER))
+    for person in order:
+        ps = [r for r in s if r["담당자"] == person]
+        pf = [r for r in f if r["담당자"] == person]
+        stop = sum(r["구분"] == "소진중단" for r in ps)
+        P = [f"*[{person}] {today:%m/%d} 담당 광고주 점검*", "",
+             f"*3. 광고비 이상 (소진중단 {stop} / 하락 {len(ps) - stop})* — {ref} vs 직전 7일 평균"]
+        for r in ps:
+            P.append(f" • [{r['구분']}] {r['매체']} | {r['광고주명']} | "
+                     f"{won(r['어제광고비'])}원 (평균 {won(r['직전7일평균'])}, {r['변화율']})")
+        if not ps:
+            P.append(" • 해당 없음")
+        P += ["", f"*4. 쿠팡·메타·구글 전월 수수료/세금계산서 요청 누락 ({len(pf)}건)* {fee_status}"]
+        for r in pf:
+            P.append(f" • {r['매체']} | {r['광고주명']}{' 🆕' if r['신규추적'] else ''}")
+        if not pf:
+            P.append(" • 해당 없음")
+        messages.append("\n".join(P))
+    return messages
 
 
 def save(outdir: Path, res):
@@ -340,15 +355,29 @@ def save(outdir: Path, res):
             w.writerows(rows)
 
 
+def split_message(text, size=3800):
+    """구글챗 메시지 길이 제한(4,096자)에 맞춰 줄 단위로 나눈다."""
+    parts, cur = [], ""
+    for line in text.splitlines():
+        if cur and len(cur) + len(line) + 1 > size:
+            parts.append(cur)
+            cur = ""
+        cur += line + "\n"
+    return parts + [cur] if cur.strip() else parts
+
+
 def send_chat(text):
     url = os.environ.get("GCHAT_WEBHOOK")
     if not url:
         print("GCHAT_WEBHOOK 미설정 — 전송 생략")
         return
-    req = urllib.request.Request(url, data=json.dumps({"text": text}).encode(),
-                                 headers={"Content-Type": "application/json; charset=UTF-8"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        print("구글챗 전송:", r.status)
+    parts = split_message(text)
+    for i, part in enumerate(parts, 1):
+        body = part if len(parts) == 1 else f"({i}/{len(parts)})\n{part}"
+        req = urllib.request.Request(url, data=json.dumps({"text": body}).encode(),
+                                     headers={"Content-Type": "application/json; charset=UTF-8"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            print(f"구글챗 전송 {i}/{len(parts)}:", r.status)
 
 
 async def main():
@@ -374,12 +403,13 @@ async def main():
 
     outdir = Path(args.out) / ymd(today)
     save(outdir, res)
-    summary = build_summary(today, res)
-    (outdir / "summary.txt").write_text(summary, encoding="utf-8")
+    messages = build_messages(today, res)
+    (outdir / "summary.txt").write_text("\n\n---\n\n".join(messages), encoding="utf-8")
     print(f"저장: {outdir}")
-    print(summary)
+    print("\n\n---\n\n".join(messages))
     if not args.dry_run:
-        send_chat(summary)
+        for msg in messages:
+            send_chat(msg)
 
 
 if __name__ == "__main__":
