@@ -3,6 +3,8 @@
 환경변수
   MP_ID, MP_PW        인트라넷 계정 (필수)
   GCHAT_WEBHOOK       구글챗 웹훅 URL (없으면 전송 생략)
+  GSHEET_WEBAPP       누적 시트 Apps Script 웹 앱 URL (없으면 시트 기록 생략)
+  GSHEET_TOKEN        Apps Script 의 TOKEN 과 같은 값
   MP_DEPT_CODE        부서코드 (기본: 6팀 2TCTHEJW0001)
 
 사용
@@ -380,6 +382,26 @@ def send_chat(text):
             print(f"구글챗 전송 {i}/{len(parts)}:", r.status)
 
 
+SHEET_TABS = {"transfers": "1_신규이관", "missing_info": "2_정보미입력", "spend_drop": "3_광고비이상",
+              "fee_requests": "4_수수료요청누락", "schedules": "5_외근근태"}
+
+
+def append_sheet(today, res):
+    url = os.environ.get("GSHEET_WEBAPP")
+    if not url:
+        print("GSHEET_WEBAPP 미설정 — 시트 기록 생략")
+        return
+    body = {"token": os.environ.get("GSHEET_TOKEN", ""), "date": ymd(today),
+            "tabs": {SHEET_TABS[k]: rows for k, rows in res.items()}}
+    req = urllib.request.Request(url, data=json.dumps(body, ensure_ascii=False).encode(),
+                                 headers={"Content-Type": "application/json; charset=UTF-8"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        result = json.loads(r.read().decode())
+    if not result.get("ok"):
+        raise RuntimeError(f"시트 기록 실패: {result}")
+    print("시트 기록:", result["added"])
+
+
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
@@ -408,6 +430,7 @@ async def main():
     print(f"저장: {outdir}")
     print("\n\n---\n\n".join(messages))
     if not args.dry_run:
+        append_sheet(today, res)
         for msg in messages:
             send_chat(msg)
 
