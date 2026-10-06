@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bash mp_report/setup.sh)",
+      "Bash(python3 mp_report/collect.py)"
+    ]
+  }
+}
