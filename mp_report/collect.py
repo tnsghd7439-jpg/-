@@ -283,45 +283,87 @@ async def collect_schedules(api: Intra, today: date):
 
 
 # ---------------------------------------------------------------- 출력
+WEEKDAY = "월화수목금토일"
+LINE = "━━━━━━━━━━━━━━━━"
+CONTACT_FIELDS = {"업체담당자", "일반전화", "휴대전화", "이메일", "홈페이지"}
+
+
 def fmt_when(s):
     m = re.match(r"(\d{4})(\d{2})(\d{2}) (\d{2})(\d{2})", s)
     return f"{m[2]}/{m[3]} {m[4]}:{m[5]}" if m else s
+
+
+def fmt_day(d) -> str:
+    """date 또는 'YYYY-MM-DD' → '10/05(월)'"""
+    if isinstance(d, str):
+        d = datetime.strptime(d, "%Y-%m-%d").date()
+    return f"{d:%m/%d}({WEEKDAY[d.weekday()]})"
+
+
+def man(v) -> str:
+    """금액을 읽기 쉽게: 1만원 이상은 '72.2만', 미만은 '930원'"""
+    v = float(v)
+    if v >= 10_000:
+        return f"{v / 10_000:,.1f}".rstrip("0").rstrip(".") + "만"
+    return f"{int(round(v)):,}원"
+
+
+def fmt_missing(text) -> str:
+    items = [x.strip() for x in text.split(",") if x.strip()]
+    if CONTACT_FIELDS <= set(items):
+        rest = [x for x in items if x not in CONTACT_FIELDS]
+        return " · ".join(["연락처 전체"] + rest)
+    return " · ".join(items)
 
 
 MANAGER_ORDER = ["박송희", "정순홍", "차효림"]
 
 
 def build_messages(today, res):
-    """팀 공통(1·2·5번) 메시지 1개 + 담당자별(3·4번) 메시지를 만든다."""
-    L = [f"*[6팀 일일 점검] {today:%Y-%m-%d (%a)} 기준*", ""]
+    """팀 공통(신규이관·정보미입력·외근) 메시지 1개 + 담당자별(광고비·수수료) 메시지를 만든다."""
+    t, m, sc = res["transfers"], res["missing_info"], res["schedules"]
+    s, f = res["spend_drop"], res["fee_requests"]
 
-    t = res["transfers"]
+    L = [f"📋 *6팀 일일 점검* · {fmt_day(today)}", LINE,
+         f"🆕 신규·이관 *{len(t)}*   📝 정보 미입력 *{len(m)}*   🚗 외근·근태 *{len(sc)}*",
+         f"💸 광고비 이상 *{len(s)}*   🧾 수수료 요청 누락 *{len(f)}*",
+         LINE, ""]
+
     cnt = defaultdict(int)
     for r in t:
         cnt[r["구분"]] += 1
-    L.append(f"*1. 신규/이관 (당월 누적 {len(t)}건)* — "
-             + " / ".join(f"{k} {cnt[k]}" for k in TRNS_TARGET.values()))
+    L.append(f"🆕 *신규·이관* _당월 누적 {len(t)}건 ("
+             + " · ".join(f"{k} {cnt[k]}" for k in TRNS_TARGET.values()) + ")_")
     for r in t:
-        L.append(f" • [{r['구분']}·{r['상태']}] {r['담당자']} | {r['매체']} | {r['광고주명']}")
+        L.append(f"   • {r['담당자']} · {r['광고주명']} ({r['매체']}) — {r['구분']}·{r['상태']}")
+    if not t:
+        L.append("   ✅ 없음")
     L.append("")
 
-    m = res["missing_info"]
-    L.append(f"*2. 전월 매출 발생·정보 미입력 ({len(m)}건)*")
-    for r in sorted(m, key=lambda x: x["담당자"]):
-        L.append(f" • {r['담당자']} | {r['매체']} | {r['광고주명']} | 누락: {r['누락항목']}")
+    # 같은 담당자·광고주·누락항목은 매체를 합쳐 한 줄로
+    grouped = defaultdict(list)
+    for r in m:
+        grouped[(r["담당자"], r["광고주명"], r["누락항목"])].append(r["매체"])
+    L.append(f"📝 *전월 매출 발생·정보 미입력* _{len(m)}건_")
+    last = None
+    for (person, name, missing), media in sorted(grouped.items()):
+        if person != last:
+            L.append(f"   *{person}*")
+            last = person
+        L.append(f"   • {name} ({'·'.join(media)}) — {fmt_missing(missing)}")
+    if not m:
+        L.append("   ✅ 없음")
     L.append("")
 
-    sc = res["schedules"]
-    L.append(f"*5. 외근·근태 (오늘~이번 주, {len(sc)}건)*")
+    L.append("🚗 *외근·근태* _오늘~이번 주_")
     for r in sc:
-        L.append(f" • {fmt_when(r['일시'])} {r['직원']} [{r['분류']}·{r['구분']}] {r['내용']}")
+        L.append(f"   • {fmt_when(r['일시'])} {r['직원']} [{r['분류']}·{r['구분']}] {r['내용']}")
     if not sc:
-        L.append(" • 일정 없음")
+        L.append("   ✅ 일정 없음")
 
-    s, f = res["spend_drop"], res["fee_requests"]
     ref = s[0]["기준일"] if s else ""
     fee_status = f[0]["상태"] if f else ""
-    L += ["", "※ 3번(광고비 이상)·4번(수수료 요청 누락)은 담당자별 메시지로 이어집니다."]
+    L += ["", "👇 담당자별 광고비·수수료 점검이 이어집니다."]
     messages = ["\n".join(L)]
 
     people = {r["담당자"] for r in s} | {r["담당자"] for r in f}
@@ -329,19 +371,27 @@ def build_messages(today, res):
     for person in order:
         ps = [r for r in s if r["담당자"] == person]
         pf = [r for r in f if r["담당자"] == person]
-        stop = sum(r["구분"] == "소진중단" for r in ps)
-        P = [f"*[{person}] {today:%m/%d} 담당 광고주 점검*", "",
-             f"*3. 광고비 이상 (소진중단 {stop} / 하락 {len(ps) - stop})* — {ref} vs 직전 7일 평균"]
-        for r in ps:
-            P.append(f" • [{r['구분']}] {r['매체']} | {r['광고주명']} | "
-                     f"{won(r['어제광고비'])}원 (평균 {won(r['직전7일평균'])}, {r['변화율']})")
+        stops = [r for r in ps if r["구분"] == "소진중단"]
+        drops = [r for r in ps if r["구분"] != "소진중단"]
+        P = [f"👤 *{person}* · {fmt_day(today)} 담당 광고주 점검", LINE, "",
+             f"💸 *광고비 이상* _{fmt_day(ref) if ref else ''} vs 직전 7일 평균_"]
+        if stops:
+            P.append(f"🔴 *소진 중단 {len(stops)}*")
+            for r in stops:
+                P.append(f"   • {r['광고주명']} ({r['매체']}) — 평균 {man(r['직전7일평균'])} → 0원")
+        if drops:
+            P.append(f"🟠 *급감 {len(drops)}*")
+            for r in drops:
+                P.append(f"   • {r['광고주명']} ({r['매체']}) — 평균 {man(r['직전7일평균'])} → "
+                         f"{man(r['어제광고비'])} ({r['변화율']})")
         if not ps:
-            P.append(" • 해당 없음")
-        P += ["", f"*4. 쿠팡·메타·구글 전월 수수료/세금계산서 요청 누락 ({len(pf)}건)* {fee_status}"]
+            P.append("   ✅ 이상 없음")
+        P += ["", f"🧾 *쿠팡·메타·구글 수수료/세금계산서 요청 누락* _{len(pf)}건"
+                  + (f" · {fee_status}" if pf and fee_status else "") + "_"]
         for r in pf:
-            P.append(f" • {r['매체']} | {r['광고주명']}{' 🆕' if r['신규추적'] else ''}")
+            P.append(f"   • {r['광고주명']} ({r['매체']}){' 🆕' if r['신규추적'] else ''}")
         if not pf:
-            P.append(" • 해당 없음")
+            P.append("   ✅ 누락 없음")
         messages.append("\n".join(P))
     return messages
 
