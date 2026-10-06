@@ -299,20 +299,20 @@ def build_messages(today, res):
     cnt = defaultdict(int)
     for r in t:
         cnt[r["구분"]] += 1
-    L.append(f"*1. 신규/이관 (당월 누적 {len(t)}건)* — "
+    L.append(f"*■ 신규/이관 (당월 누적 {len(t)}건)* — "
              + " / ".join(f"{k} {cnt[k]}" for k in TRNS_TARGET.values()))
     for r in t:
         L.append(f" • [{r['구분']}·{r['상태']}] {r['담당자']} | {r['매체']} | {r['광고주명']}")
     L.append("")
 
     m = res["missing_info"]
-    L.append(f"*2. 전월 매출 발생·정보 미입력 ({len(m)}건)*")
+    L.append(f"*■ 전월 매출 발생·정보 미입력 ({len(m)}건)*")
     for r in sorted(m, key=lambda x: x["담당자"]):
         L.append(f" • {r['담당자']} | {r['매체']} | {r['광고주명']} | 누락: {r['누락항목']}")
     L.append("")
 
     sc = res["schedules"]
-    L.append(f"*5. 외근·근태 (오늘~이번 주, {len(sc)}건)*")
+    L.append(f"*■ 외근·근태 (오늘~이번 주, {len(sc)}건)*")
     for r in sc:
         L.append(f" • {fmt_when(r['일시'])} {r['직원']} [{r['분류']}·{r['구분']}] {r['내용']}")
     if not sc:
@@ -321,7 +321,7 @@ def build_messages(today, res):
     s, f = res["spend_drop"], res["fee_requests"]
     ref = s[0]["기준일"] if s else ""
     fee_status = f[0]["상태"] if f else ""
-    L += ["", "※ 3번(광고비 이상)·4번(수수료 요청 누락)은 담당자별 메시지로 이어집니다."]
+    L += ["", "※ 광고비 이상·수수료 요청 누락은 담당자별 메시지로 이어집니다."]
     messages = ["\n".join(L)]
 
     people = {r["담당자"] for r in s} | {r["담당자"] for r in f}
@@ -331,13 +331,13 @@ def build_messages(today, res):
         pf = [r for r in f if r["담당자"] == person]
         stop = sum(r["구분"] == "소진중단" for r in ps)
         P = [f"*[{person}] {today:%m/%d} 담당 광고주 점검*", "",
-             f"*3. 광고비 이상 (소진중단 {stop} / 하락 {len(ps) - stop})* — {ref} vs 직전 7일 평균"]
+             f"*■ 광고비 이상 (소진중단 {stop} / 하락 {len(ps) - stop})* — {ref} vs 직전 7일 평균"]
         for r in ps:
             P.append(f" • [{r['구분']}] {r['매체']} | {r['광고주명']} | "
                      f"{won(r['어제광고비'])}원 (평균 {won(r['직전7일평균'])}, {r['변화율']})")
         if not ps:
             P.append(" • 해당 없음")
-        P += ["", f"*4. 쿠팡·메타·구글 전월 수수료/세금계산서 요청 누락 ({len(pf)}건)* {fee_status}"]
+        P += ["", f"*■ 쿠팡·메타·구글 전월 수수료/세금계산서 요청 누락 ({len(pf)}건)* {fee_status}"]
         for r in pf:
             P.append(f" • {r['매체']} | {r['광고주명']}{' 🆕' if r['신규추적'] else ''}")
         if not pf:
