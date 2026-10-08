@@ -51,3 +51,8 @@ class NaverAdsAPI:
                 body = e.read()[:300].decode(errors="replace")
                 body = re.sub(r"api-key: \S+", "api-key: ***", body)  # 인증 실패 응답에 키 값이 섞여 나옴
                 raise RuntimeError(f"{uri} → HTTP {e.code}: {body}") from None
+            except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
+                if attempt < 3:  # 일시적 연결 끊김 → 재시도
+                    time.sleep(2 ** attempt)
+                    continue
+                raise RuntimeError(f"{uri} → 연결 실패: {e}") from None

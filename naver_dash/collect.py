@@ -58,9 +58,9 @@ def periods(today: date) -> dict:
 def load_team() -> dict:
     p = ROOT / "team.json"
     if not p.exists():
-        return {"scope": [], "managers": {}, "members": {}, "accounts": {}}
+        return {"scope": [], "fallback": "미지정", "managers": {}, "members": {}, "accounts": {}}
     d = json.loads(p.read_text(encoding="utf-8"))
-    return {"scope": [str(x) for x in d.get("scope", [])],
+    return {"scope": [str(x) for x in d.get("scope", [])], "fallback": d.get("fallback") or "미지정",
             "managers": {str(k): v for k, v in d.get("managers", {}).items()},
             "members": d.get("members", {}),
             "accounts": {str(k): v for k, v in d.get("accounts", {}).items()}}
@@ -100,7 +100,7 @@ def denied_ads(api, cid, camps, today: date) -> list:
 
 
 def owner_of(api, acc, team, direct) -> list:
-    """담당 팀원: accounts 직접 지정 → 소속 관리계정(managers) → 구성원 네이버ID(members) 순.
+    """담당 팀원: accounts 직접 지정 → 소속 관리계정(managers) → 구성원 네이버ID(members) → fallback 순.
 
     구성원 조회(/ad-accounts/{no}/members)는 X-Customer 에 키 발급 계정 ID 를 넣어야 하고,
     키 발급 계정이 그 광고계정의 직접 구성원일 때만 된다. 관리계정 하위 계정은 403 이라 건너뛴다.
@@ -115,7 +115,7 @@ def owner_of(api, acc, team, direct) -> list:
         except RuntimeError:
             members = []
         names = {team["members"][m["naverId"]] for m in members if m.get("naverId") in team["members"]}
-    return sorted(names) or ["미지정"]
+    return sorted(names) or [team["fallback"]]
 
 
 def collect_account(api, acc, team, direct, today, P, skip_ads) -> dict:
