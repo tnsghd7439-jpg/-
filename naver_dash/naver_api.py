@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -47,4 +48,6 @@ class NaverAdsAPI:
                 if e.code == 429 and attempt < 3:  # 호출량 제한 → 잠시 쉬고 재시도
                     time.sleep(2 ** attempt)
                     continue
-                raise RuntimeError(f"{uri} → HTTP {e.code}: {e.read()[:300].decode(errors='replace')}") from None
+                body = e.read()[:300].decode(errors="replace")
+                body = re.sub(r"api-key: \S+", "api-key: ***", body)  # 인증 실패 응답에 키 값이 섞여 나옴
+                raise RuntimeError(f"{uri} → HTTP {e.code}: {body}") from None

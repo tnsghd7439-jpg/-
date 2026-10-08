@@ -58,9 +58,11 @@ def periods(today: date) -> dict:
 def load_team() -> dict:
     p = ROOT / "team.json"
     if not p.exists():
-        return {"members": {}, "accounts": {}}
+        return {"managers": {}, "members": {}, "accounts": {}}
     d = json.loads(p.read_text(encoding="utf-8"))
-    return {"members": d.get("members", {}), "accounts": {str(k): v for k, v in d.get("accounts", {}).items()}}
+    return {"managers": {str(k): v for k, v in d.get("managers", {}).items()},
+            "members": d.get("members", {}),
+            "accounts": {str(k): v for k, v in d.get("accounts", {}).items()}}
 
 
 # ---------------------------------------------------------------- 수집
@@ -96,24 +98,29 @@ def denied_ads(api, cid, camps, today: date) -> list:
     return out
 
 
-def owner_of(api, acc, team) -> list:
+def owner_of(api, acc, team, direct) -> list:
+    """담당 팀원: accounts 직접 지정 → 소속 관리계정(managers) → 구성원 네이버ID(members) 순.
+
+    구성원 조회(/ad-accounts/{no}/members)는 X-Customer 에 키 발급 계정 ID 를 넣어야 하고,
+    키 발급 계정이 그 광고계정의 직접 구성원일 때만 된다. 관리계정 하위 계정은 403 이라 건너뛴다.
+    """
     cid = str(acc["customerId"])
     if cid in team["accounts"]:
         return [team["accounts"][cid]]
-    members = []
-    for who in (cid, None):  # 광고계정 자격 → 관리계정 자격 순으로 시도
+    names = {team["managers"][str(m)] for m in acc["_managers"] if str(m) in team["managers"]}
+    if not names and team["members"] and acc["adAccountNo"] in direct:
         try:
-            members = api.get(f"/ad-accounts/{acc['adAccountNo']}/members", customer_id=who) or []
-            break
+            members = api.get(f"/ad-accounts/{acc['adAccountNo']}/members") or []
         except RuntimeError:
-            continue
-    names = sorted({team["members"][m["naverId"]] for m in members if m.get("naverId") in team["members"]})
-    return names or ["미지정"]
+            members = []
+        names = {team["members"][m["naverId"]] for m in members if m.get("naverId") in team["members"]}
+    return sorted(names) or ["미지정"]
 
 
-def collect_account(api, acc, team, today, P, skip_ads) -> dict:
+def collect_account(api, acc, team, direct, today, P, skip_ads) -> dict:
     cid = str(acc["customerId"])
-    row = {"customerId": cid, "name": acc.get("adAccountName") or cid, "owners": owner_of(api, acc, team)}
+    row = {"customerId": cid, "name": acc.get("adAccountName") or cid, "owners": owner_of(api, acc, team, direct),
+           "managers": acc["_managerNames"]}
     camps = api.get("/ncc/campaigns", customer_id=cid) or []
     ids = [c["nccCampaignId"] for c in camps]
     s = {k: (spend(api, cid, ids, *v) if ids else 0) for k, v in P.items()}
@@ -240,23 +247,28 @@ def main():
         sys.path.insert(0, str(ROOT))
         from naver_api import NaverAdsAPI
         api, team = NaverAdsAPI(), load_team()
-        accounts = []
+        # 같은 광고계정이 여러 관리계정(팀 공용 + 개인)에 중복 연결돼 있어 customerId 로 합치고 소속 관리계정을 모은다
+        by_cid = {}
         mgrs = (api.get("/manager-accounts", {"size": 1000}) or {}).get("content", [])
         for m in mgrs:
-            res = api.get(f"/manager-accounts/{m['managerAccountNo']}/child-ad-accounts", {"size": 1000}) or {}
-            accounts += res.get("content", [])
-        seen, uniq = set(), []
-        for a in accounts:
-            if a["customerId"] not in seen:
-                seen.add(a["customerId"])
-                uniq.append(a)
+            no, mname = m["managerAccountNo"], (m.get("managerAccount") or {}).get("name")
+            res = api.get(f"/manager-accounts/{no}/child-ad-accounts", {"size": 1000}) or {}
+            for a in res.get("content", []):
+                a = by_cid.setdefault(a["customerId"], {**a, "_managers": [], "_managerNames": []})
+                a["_managers"].append(no)
+                a["_managerNames"].append(mname)
+        uniq = list(by_cid.values())
+        direct = set()
+        if team["members"]:
+            own = (api.get("/ad-accounts", {"size": 1000}) or {}).get("content", [])
+            direct = {o["adAccountNo"] for o in own}
         if args.limit:
             uniq = uniq[: args.limit]
         rows = []
         for n, acc in enumerate(uniq, 1):
             print(f"[{n}/{len(uniq)}] {acc.get('adAccountName')}", file=sys.stderr)
             try:
-                rows.append(collect_account(api, acc, team, today, P, args.skip_ads))
+                rows.append(collect_account(api, acc, team, direct, today, P, args.skip_ads))
             except Exception as e:  # noqa: BLE001 — 한 계정 실패가 전체를 멈추지 않게
                 errors.append({"name": acc.get("adAccountName"), "customerId": str(acc["customerId"]),
                                "error": str(e)[:200]})
