@@ -38,9 +38,13 @@ class NaverAdsAPI:
     def get(self, uri: str, params: dict | None = None, customer_id: str | None = None):
         """customer_id 를 주면 연결된 광고주 계정으로, 없으면 관리 계정으로 호출한다."""
         url = BASE + uri + ("?" + urllib.parse.urlencode(params) if params else "")
-        req = urllib.request.Request(url, headers=self._headers("GET", uri, customer_id or self.manager_id))
-        try:
-            with urllib.request.urlopen(req, timeout=30) as r:
-                return json.loads(r.read() or "null")
-        except urllib.error.HTTPError as e:
-            raise RuntimeError(f"{uri} → HTTP {e.code}: {e.read()[:300].decode(errors='replace')}") from None
+        for attempt in range(4):
+            req = urllib.request.Request(url, headers=self._headers("GET", uri, customer_id or self.manager_id))
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    return json.loads(r.read() or "null")
+            except urllib.error.HTTPError as e:
+                if e.code == 429 and attempt < 3:  # 호출량 제한 → 잠시 쉬고 재시도
+                    time.sleep(2 ** attempt)
+                    continue
+                raise RuntimeError(f"{uri} → HTTP {e.code}: {e.read()[:300].decode(errors='replace')}") from None

@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>팀 계정 점검판</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #EDF0F3; --surface: #FFFFFF; --ink: #1E2B45; --muted: #5E6A80; --line: #D5DBE3;
+  --urgent: #B8382E; --warn: #A86A12; --info: #3F6496; --ok: #2C7466;
+  --urgent-soft: #F6E3E1; --warn-soft: #F5EAD6; --info-soft: #E2E9F3;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141A26; --surface: #1C2433; --ink: #E4E9F1; --muted: #9AA6BA; --line: #2E3A4F;
+    --urgent: #F07A6E; --warn: #E0A54A; --info: #8AB0E6; --ok: #6CC2AE;
+    --urgent-soft: #3A2224; --warn-soft: #382D1C; --info-soft: #1F2C42;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.6 "IBM Plex Sans KR", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+.wrap { max-width: 1180px; margin: 0 auto; padding: 28px 16px 64px; }
+header h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; font-weight: 700; letter-spacing: -0.01em; }
+header p { margin: 0; color: var(--muted); }
+.demo { display: inline-block; margin-top: 10px; padding: 2px 10px; border-radius: 4px;
+  background: var(--warn-soft); color: var(--warn); font-weight: 500; font-size: 13px; }
+.summary { margin: 22px 0 28px; font-size: 18px; max-width: 70ch; }
+.summary b { font-weight: 700; }
+.summary .u { color: var(--urgent); } .summary .w { color: var(--warn); }
+
+.grid { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 28px; align-items: start; }
+@media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+h2 { font-size: 15px; font-weight: 700; margin: 0 0 10px; color: var(--muted); }
+
+/* 팀원 목록: 이 화면의 핵심 — 계정 건강 띠 */
+.people { list-style: none; margin: 0; padding: 0; border-top: 2px solid var(--ink); }
+.person { border-bottom: 1px solid var(--line); }
+.person button {
+  all: unset; box-sizing: border-box; cursor: pointer; display: block; width: 100%; padding: 14px 10px;
+}
+.person button:focus-visible { outline: 3px solid var(--info); outline-offset: -3px; }
+.person[aria-current="true"] { background: var(--surface); box-shadow: inset 4px 0 0 var(--ink); }
+.prow { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+.pname { font-weight: 700; font-size: 16px; }
+.pspend { font-weight: 500; }
+.pmeta { color: var(--muted); font-size: 13px; }
+.strip { display: flex; gap: 2px; height: 10px; margin-top: 8px; }
+.strip i { flex: 1; border-radius: 2px; background: var(--ok); opacity: .55; }
+.strip i.warn { background: var(--warn); opacity: 1; }
+.strip i.urgent { background: var(--urgent); opacity: 1; }
+.legend { display: flex; gap: 14px; margin-top: 10px; color: var(--muted); font-size: 12px; }
+.legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+  margin-right: 5px; vertical-align: -1px; background: var(--c); }
+
+/* 경고 목록 */
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.tabs button {
+  font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+}
+.tabs button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.tabs button:focus-visible { outline: 3px solid var(--info); outline-offset: 2px; }
+.alerts { list-style: none; margin: 0; padding: 0; background: var(--surface); border-radius: 8px;
+  border: 1px solid var(--line); }
+.alert { display: grid; grid-template-columns: 64px 1fr auto; gap: 12px; padding: 12px 14px;
+  border-bottom: 1px solid var(--line); align-items: baseline; }
+.alert:last-child { border-bottom: 0; }
+.lv { font-size: 12px; font-weight: 700; padding: 1px 0; text-align: center; border-radius: 4px; }
+.lv.urgent { background: var(--urgent-soft); color: var(--urgent); }
+.lv.warn { background: var(--warn-soft); color: var(--warn); }
+.lv.info { background: var(--info-soft); color: var(--info); }
+.aname { font-weight: 500; }
+.atext { color: var(--muted); font-size: 14px; }
+.aowner { color: var(--muted); font-size: 13px; white-space: nowrap; }
+@media (max-width: 520px) { .alert { grid-template-columns: 56px 1fr; } .aowner { grid-column: 2; } }
+.empty { padding: 28px 16px; color: var(--muted); text-align: center; }
+
+details { margin-top: 28px; color: var(--muted); font-size: 13px; }
+details summary { cursor: pointer; }
+details ul { padding-left: 18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>팀 계정 점검판</h1>
+    <p id="sub"></p>
+    <span class="demo" id="demo" hidden>가상 데이터로 만든 화면입니다</span>
+  </header>
+  <p class="summary" id="summary"></p>
+  <div class="grid">
+    <section aria-labelledby="h-people">
+      <h2 id="h-people">팀원별 담당 계정</h2>
+      <ul class="people" id="people"></ul>
+      <div class="legend">
+        <span style="--c:var(--urgent)">긴급</span><span style="--c:var(--warn)">주의</span>
+        <span style="--c:var(--ok)">이상 없음</span>
+      </div>
+    </section>
+    <section aria-labelledby="h-alerts">
+      <h2 id="h-alerts">확인할 계정</h2>
+      <div class="tabs" id="tabs" role="group" aria-label="경고 종류"></div>
+      <ul class="alerts" id="alerts"></ul>
+    </section>
+  </div>
+  <details id="rules"><summary>점검 기준과 수집 정보</summary><ul id="rulelist"></ul></details>
+</div>
+<script>
+const DATA = /*__DATA__*/null;
+const esc = s => String(s).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+const won = n => n.toLocaleString("ko-KR") + "원";
+const TYPES = [["all", "전체"], ["bizmoney", "비즈머니"], ["off", "광고 꺼짐"], ["denied", "소재 반려"],
+               ["drop", "어제 감소"], ["month", "월 소진 차이"]];
+const RANK = { urgent: 0, warn: 1, info: 2 };
+const LVNAME = { urgent: "긴급", warn: "주의", info: "참고" };
+let person = null, type = "all";
+
+const worst = a => a.alerts.reduce((m, x) => Math.min(m, RANK[x.level]), 9);
+const people = {};
+for (const a of DATA.accounts) for (const o of a.owners) (people[o] ||= []).push(a);
+
+document.getElementById("sub").textContent =
+  `${DATA.baseDate} 기준 · ${DATA.generatedAt} 수집 · 계정 ${DATA.accounts.length}개`;
+document.getElementById("demo").hidden = !DATA.demo;
+
+const urgentN = DATA.accounts.filter(a => worst(a) === 0).length;
+const warnN = DATA.accounts.filter(a => worst(a) === 1).length;
+const totalY = DATA.accounts.reduce((s, a) => s + a.yesterday, 0);
+document.getElementById("summary").innerHTML =
+  `어제 팀 전체 광고비는 <b>${won(totalY)}</b>입니다. ` +
+  (urgentN + warnN
+    ? `오늘은 <b class="u">긴급 ${urgentN}곳</b>, <b class="w">주의 ${warnN}곳</b>을 먼저 확인하세요.`
+    : "긴급하거나 주의할 계정은 없습니다.");
+
+function renderPeople() {
+  const ul = document.getElementById("people");
+  ul.innerHTML = "";
+  const all = [["팀 전체", DATA.accounts], ...Object.entries(people).sort((a, b) => a[0].localeCompare(b[0], "ko"))];
+  for (const [name, accs] of all) {
+    const key = name === "팀 전체" ? null : name;
+    const li = document.createElement("li");
+    li.className = "person";
+    li.setAttribute("aria-current", String(person === key));
+    const sorted = [...accs].sort((a, b) => worst(a) - worst(b));
+    const strip = sorted.map(a => `<i class="${["urgent", "warn"][worst(a)] || ""}" title="${esc(a.name)}"></i>`).join("");
+    const nAlert = accs.filter(a => worst(a) <= 1).length;
+    li.innerHTML = `<button type="button">
+      <div class="prow"><span class="pname">${esc(name)}</span><span class="pspend">${won(accs.reduce((s, a) => s + a.yesterday, 0))}</span></div>
+      <div class="pmeta">담당 ${accs.length}개 · 확인 필요 ${nAlert}개</div>
+      <div class="strip" aria-hidden="true">${strip}</div></button>`;
+    li.querySelector("button").onclick = () => { person = key; renderPeople(); renderAlerts(); };
+    ul.appendChild(li);
+  }
+}
+
+function renderTabs() {
+  const box = document.getElementById("tabs");
+  box.innerHTML = "";
+  for (const [k, label] of TYPES) {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = label; b.setAttribute("aria-pressed", String(type === k));
+    b.onclick = () => { type = k; renderTabs(); renderAlerts(); };
+    box.appendChild(b);
+  }
+}
+
+function renderAlerts() {
+  const ul = document.getElementById("alerts");
+  const accs = person ? people[person] : DATA.accounts;
+  // 광고주당 한 줄: 가장 높은 단계로 정렬하고, 해당 경고를 모두 적는다
+  const rows = [];
+  for (const a of accs) {
+    const xs = a.alerts.filter(x => type === "all" || x.type === type)
+                       .sort((p, q) => RANK[p.level] - RANK[q.level]);
+    if (xs.length) rows.push([a, xs]);
+  }
+  rows.sort((p, q) => RANK[p[1][0].level] - RANK[q[1][0].level] || q[0].avg7 - p[0].avg7);
+  ul.innerHTML = rows.length ? "" : `<li class="empty">이 조건에 해당하는 계정이 없습니다.</li>`;
+  for (const [a, xs] of rows) {
+    const li = document.createElement("li");
+    li.className = "alert";
+    li.innerHTML = `<span class="lv ${xs[0].level}">${LVNAME[xs[0].level]}</span>
+      <div><div class="aname"></div></div><span class="aowner"></span>`;
+    li.querySelector(".aname").textContent = a.name;
+    for (const x of xs) {
+      const d = document.createElement("div");
+      d.className = "atext"; d.textContent = x.text;
+      li.querySelector(".aname").parentNode.appendChild(d);
+    }
+    li.querySelector(".aowner").textContent = a.owners.join(", ");
+    ul.appendChild(li);
+  }
+}
+
+const r = DATA.rules;
+const rules = [
+  `어제 감소: 어제 광고비가 직전 7일 평균보다 ${r.dropPct}% 이상 적은 계정 (7일 일평균 ${won(r.minDailyAvg)} 미만 제외)`,
+  `월 소진 차이: 이번 달 일평균이 전월 일평균과 ±${r.monthGapPct}% 이상 차이`,
+  `비즈머니: 잔액 ÷ 최근 7일 일평균이 ${r.bizUrgentDays}일 미만이면 긴급, ${r.bizWarnDays}일 미만이면 주의`,
+  `광고 꺼짐: 평소 소진하던 계정이 어제 0원`,
+  DATA.adsChecked ? `소재 반려: 반려 후 ${r.staleDays}일 이상 수정이 없으면 주의` : "소재 반려: 이번 수집에서는 점검하지 않음",
+  "광고비는 VAT 포함 금액입니다.",
+  ...DATA.errors.map(e => `수집 실패: ${e.name} (${e.customerId}) — ${e.error}`),
+];
+document.getElementById("rulelist").innerHTML = "";
+for (const t of rules) { const li = document.createElement("li"); li.textContent = t; document.getElementById("rulelist").appendChild(li); }
+
+renderPeople(); renderTabs(); renderAlerts();
+</script>
+</body>
+</html>
