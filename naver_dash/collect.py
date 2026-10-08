@@ -58,9 +58,10 @@ def periods(today: date) -> dict:
 def load_team() -> dict:
     p = ROOT / "team.json"
     if not p.exists():
-        return {"managers": {}, "members": {}, "accounts": {}}
+        return {"scope": [], "managers": {}, "members": {}, "accounts": {}}
     d = json.loads(p.read_text(encoding="utf-8"))
-    return {"managers": {str(k): v for k, v in d.get("managers", {}).items()},
+    return {"scope": [str(x) for x in d.get("scope", [])],
+            "managers": {str(k): v for k, v in d.get("managers", {}).items()},
             "members": d.get("members", {}),
             "accounts": {str(k): v for k, v in d.get("accounts", {}).items()}}
 
@@ -258,6 +259,8 @@ def main():
                 a["_managers"].append(no)
                 a["_managerNames"].append(mname)
         uniq = list(by_cid.values())
+        if team["scope"]:  # 팀 관리계정에 연결된 광고계정만 (다른 팀 계정 제외)
+            uniq = [a for a in uniq if any(str(m) in team["scope"] for m in a["_managers"])]
         direct = set()
         if team["members"]:
             own = (api.get("/ad-accounts", {"size": 1000}) or {}).get("content", [])

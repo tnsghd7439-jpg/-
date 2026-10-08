@@ -18,7 +18,8 @@
 발급 위치: searchad.naver.com → 도구 → API 사용 관리
 
 ## 팀원 매칭
-`team.example.json` 을 `team.json` 으로 복사해 채웁니다(커밋 제외). 아래 순서로 먼저 맞는 규칙을 씁니다.
+`team.example.json` 을 `team.json` 으로 복사해 채웁니다(커밋 제외).
+`scope` 에 팀 공용 관리계정 번호를 넣으면 거기 연결된 광고계정만 수집합니다(다른 팀 계정 제외). 담당자는 아래 순서로 먼저 맞는 규칙을 씁니다.
 1. `accounts` : SA Customer ID → 팀원 (개별 예외)
 2. `managers` : 관리계정 번호 → 팀원. 팀원별 관리계정에 연결된 광고계정을 그 팀원 담당으로 봅니다. 번호는 `check_access.py` 1) 에 나옵니다.
 3. `members` : 구성원 네이버ID → 팀원. API 제약상 키 발급 계정이 **직접 구성원인** 광고계정에서만 조회됩니다.
@@ -30,6 +31,7 @@
 - 같은 광고계정이 팀 공용 관리계정과 개인 관리계정에 중복 연결돼 있어 수집 시 customerId 로 합칩니다.
 - `/stats` 는 `{"data":[{"id","salesAmt",...}]}` 형식이며, 기간 내 실적이 없는 캠페인은 행이 빠집니다.
 - `managerAccount.childAdAccountCount` 는 null 로 옵니다.
+- `/manager-accounts` 에는 키 발급 네이버ID가 구성원인 관리계정만 나옵니다. 팀원 관리계정이 안 보이면 그 관리계정에 키 발급 ID를 구성원(조회 권한 이상)으로 추가해야 합니다.
 
 ## 실행
 ```bash
