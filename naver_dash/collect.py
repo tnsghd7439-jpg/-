@@ -156,7 +156,7 @@ def judge(r: dict) -> list:
             lv = "urgent" if days_left < BIZ_URGENT_DAYS else "warn"
             alerts.append({"type": "bizmoney", "level": lv,
                            "text": f"비즈머니 {r['bizmoney']:,}원, 약 {days_left:.1f}일분 남음"})
-    if r["budgetLock"]:
+    if r["budgetLock"] and avg7 > 0:  # 소진 없는 휴면 계정은 잠금이어도 알릴 필요 없음
         alerts.append({"type": "bizmoney", "level": "warn", "text": "비즈머니 잠금(budgetLock) 상태"})
 
     if active and r["yesterday"] == 0:
