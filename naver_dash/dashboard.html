@@ -119,6 +119,7 @@ tr.lv-urgent td:first-child { box-shadow: inset 4px 0 0 var(--urgent); }
 tr.lv-warn td:first-child { box-shadow: inset 4px 0 0 var(--warn); }
 
 table.small { min-width: 900px; }
+.tablebox.scroll { max-height: 420px; overflow-y: auto; }
 table.small th:nth-child(3), table.small td:nth-child(3) { text-align: left; white-space: normal; }
 .detail td { background: var(--bg); padding: 10px 14px 14px; white-space: normal; text-align: left; }
 .detail table { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
@@ -165,7 +166,7 @@ details ul { padding-left: 18px; }
   <section class="ledger" aria-labelledby="h-budget">
     <div class="lhead"><h2 id="h-budget">예산 소진 캠페인 (최근 7일)</h2>
       <span class="lkey" id="budgetKey"></span></div>
-    <div class="tablebox"><table class="small">
+    <div class="tablebox scroll"><table class="small">
       <thead><tr><th>광고주</th><th>담당</th><th>캠페인</th><th>일예산</th><th>예산 소진일</th><th>마지막 소진</th><th>평균 소진 시각</th></tr></thead>
       <tbody id="budgetRows"></tbody></table></div>
   </section>
