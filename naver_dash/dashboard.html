@@ -9,13 +9,13 @@
 <style>
 :root {
   --bg: #EDF0F3; --surface: #FFFFFF; --ink: #1E2B45; --muted: #5E6A80; --line: #D5DBE3;
-  --urgent: #B8382E; --warn: #A86A12; --info: #3F6496; --ok: #2C7466;
+  --urgent: #B8382E; --warn: #A86A12; --orange: #E07B1A; --info: #3F6496; --ok: #2C7466;
   --urgent-soft: #F6E3E1; --warn-soft: #F5EAD6; --info-soft: #E2E9F3;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #141A26; --surface: #1C2433; --ink: #E4E9F1; --muted: #9AA6BA; --line: #2E3A4F;
-    --urgent: #F07A6E; --warn: #E0A54A; --info: #8AB0E6; --ok: #6CC2AE;
+    --urgent: #F07A6E; --warn: #E0A54A; --orange: #F29A4A; --info: #8AB0E6; --ok: #6CC2AE;
     --urgent-soft: #3A2224; --warn-soft: #382D1C; --info-soft: #1F2C42;
   }
 }
@@ -102,8 +102,14 @@ th[aria-sort] button::after { content: " ↓"; }
 th[aria-sort="ascending"] button::after { content: " ↑"; }
 td.down { color: var(--urgent); } td.up { color: var(--ok); }
 td.dim { color: var(--muted); }
-td.g-red, td.g-yellow { font-weight: 700; }
-td.g-red { color: var(--urgent); } td.g-yellow { color: var(--warn); }
+td.light, th:last-child { text-align: center; }
+.dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -1px; cursor: help; }
+.dot.red { background: var(--urgent); }
+.dot.orange { background: var(--orange); }
+.dot.green { background: var(--ok); }
+.dot.none { border: 1px solid var(--line); }
+.lkey { font-size: 13px; color: var(--muted); margin-right: auto; }
+.lkey .dot { cursor: default; margin-left: 8px; }
 td.edit { cursor: help; text-decoration: underline dotted; }
 tr.lv-urgent td:first-child { box-shadow: inset 4px 0 0 var(--urgent); }
 tr.lv-warn td:first-child { box-shadow: inset 4px 0 0 var(--warn); }
@@ -139,6 +145,7 @@ details ul { padding-left: 18px; }
   <section class="ledger" aria-labelledby="h-ledger">
     <div class="lhead">
       <h2 id="h-ledger">담당 계정 전체</h2>
+      <span class="lkey"><i class="dot red"></i> 문제 2개 이상 <i class="dot orange"></i> 1개 <i class="dot green"></i> 이상 없음</span>
       <label><input type="checkbox" id="activeOnly" checked> 최근 7일 광고비가 있는 계정만</label>
     </div>
     <div class="tablebox"><table>
@@ -264,7 +271,7 @@ const COLS = [
   ["roas14", "구매 ROAS 14일", a => a.roas14 ?? null],
   ["roas7", "구매 ROAS 7일", a => a.roas7 ?? null],
   ["edit", "마지막 수정일", a => a.daysSinceEdit ?? null],
-  ["grade", "관리 경보", a => { const h = a.alerts.find(x => x.type === "health"); return h ? (h.grade === "적색" ? 2 : 1) : 0; }],
+  ["grade", "상태", a => { const h = a.alerts.find(x => x.type === "health"); return h ? (h.grade === "적색" ? 2 : 1) : 0; }],
 ];
 let sortKey = "yesterday", sortAsc = false;
 const pct = v => (v > 0 ? "+" : "") + Math.round(v * 100) + "%";
@@ -308,7 +315,7 @@ function renderLedger() {
         a[k] == null ? "dim" : k === "roas7" && a.roasLastMonth && a[k] < a.roasLastMonth * (1 - r.roasDropPct / 100) ? "down" : ""]),
       [a.lastEdit == null ? "–" : a.lastEdit.slice(0, 10),
        a.daysSinceEdit == null ? "dim" : a.daysSinceEdit >= r.noEditDays ? "down" : ""],
-      (h => h ? [`${h.grade} 경보`, h.grade === "적색" ? "g-red" : "g-yellow"] : ["–", "dim"])(a.alerts.find(x => x.type === "health")),
+      ["", "light"],
     ];
     for (const [t, cls] of cells) {
       const td = document.createElement("td");
@@ -319,8 +326,14 @@ function renderLedger() {
       td.classList.add("edit");
       td.title = `${a.lastEditWhat} · ${a.lastEdit}`;
     }
+    // 상태 신호등: 빨강 = 적색 경보(문제 2개 이상), 주황 = 황색 경보(1개), 초록 = 이상 없음, 비어 있음 = 판정 제외(7일 일평균 기준 미만)
     const h = a.alerts.find(x => x.type === "health");
-    if (h) tr.lastChild.title = h.text;
+    const judged = a.avg7 >= r.minDailyAvg;
+    const dot = document.createElement("i");
+    dot.className = "dot " + (h ? (h.grade === "적색" ? "red" : "orange") : judged ? "green" : "none");
+    const label = h ? h.text : judged ? "이상 없음" : "판정 제외 (7일 일평균 기준 미만)";
+    dot.title = label; dot.setAttribute("role", "img"); dot.setAttribute("aria-label", label);
+    tr.lastChild.appendChild(dot);
     body.appendChild(tr);
   }
 }
