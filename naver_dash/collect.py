@@ -6,7 +6,7 @@
      - 이번 달 일평균 소진이 전월 일평균과 크게 차이 나는 광고주
   2. 비즈머니 부족 (잔액 ÷ 최근 7일 일평균 = 남은 일수)
   3. 광고 꺼짐 (평소 소진 계정이 어제 0원)
-  4. 변경 없음 (광고비 20% 이상 쓰는 캠페인·그룹·키워드·소재가 7일 넘게 수정되지 않음)
+  4. 관리 미흡 (광고비 20% 이상 쓰는 캠페인·그룹·키워드·소재가 7일 넘게 수정되지 않음)
 
 환경변수: NAVER_API_KEY, NAVER_SECRET_KEY, NAVER_CUSTOMER_ID (naver_api.py 참고)
 팀원 매칭: naver_dash/team.json (team.example.json 참고, 커밋 금지)
@@ -35,7 +35,7 @@ MONTH_GAP = 0.5             # 이번 달 일평균이 전월 일평균 대비 ±
 BIZ_URGENT_DAYS = 1         # 비즈머니 남은 일수 1일 미만 → 긴급
 BIZ_WARN_DAYS = 3           # 3일 미만 → 주의
 BIG_SHARE = 0.2             # 최근 7일 계정 광고비의 20% 이상 쓰는 캠페인·그룹·키워드·소재만 변경 여부를 본다
-NO_EDIT_DAYS = 7            # 그 대상들이 모두 7일 이상 수정이 없으면 → 변경 없음
+NO_EDIT_DAYS = 7            # 그 대상들이 모두 7일 이상 수정이 없으면 → 관리 미흡
 
 
 def ymd(d: date) -> str:
@@ -224,8 +224,8 @@ def judge(r: dict) -> list:
 
     if active and r.get("daysSinceEdit") is not None and r["daysSinceEdit"] >= NO_EDIT_DAYS:
         alerts.append({"type": "noedit", "level": "warn",
-                       "text": f"광고비 {round(BIG_SHARE * 100)}% 이상 쓰는 항목 {len(r['bigEntities'])}개, "
-                               f"{r['daysSinceEdit']}일째 변경 없음 (마지막 {r['lastEdit'][:10]})"})
+                       "text": f"관리 미흡: 광고비 {round(BIG_SHARE * 100)}% 이상 쓰는 항목 {len(r['bigEntities'])}개가 "
+                               f"{r['daysSinceEdit']}일째 수정 없음 (마지막 수정 {r['lastEdit'][:10]})"})
 
     m, lm = r["monthAvg"], r["lastMonthAvg"]
     if max(m, lm) >= MIN_DAILY_AVG:
