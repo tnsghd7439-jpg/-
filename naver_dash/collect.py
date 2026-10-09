@@ -5,14 +5,13 @@
      - 어제 광고비가 직전 7일 평균 대비 10% 이상 감소한 광고주
      - 이번 달 일평균 소진이 전월 일평균과 크게 차이 나는 광고주
   2. 비즈머니 부족 (잔액 ÷ 최근 7일 일평균 = 남은 일수)
-  3. 광고 꺼짐 (평소 소진 계정이 어제 0원) / 소재 검수 반려 방치
+  3. 광고 꺼짐 (평소 소진 계정이 어제 0원)
 
 환경변수: NAVER_API_KEY, NAVER_SECRET_KEY, NAVER_CUSTOMER_ID (naver_api.py 참고)
 팀원 매칭: naver_dash/team.json (team.example.json 참고, 커밋 금지)
 
 사용
   python3 naver_dash/collect.py              # 수집 + output/naver_dash/ 에 JSON·HTML 저장
-  python3 naver_dash/collect.py --skip-ads   # 소재 반려 점검 생략 (호출 수가 가장 많은 단계)
   python3 naver_dash/collect.py --limit 3    # 앞 3개 계정만 (시험용)
   python3 naver_dash/collect.py --demo       # 키 없이 가상 데이터로 화면만 확인
 """
@@ -34,8 +33,6 @@ DROP_RATIO = 0.9            # 어제 < 직전 7일 평균 x 0.9 → 10% 이상 �
 MONTH_GAP = 0.5             # 이번 달 일평균이 전월 일평균 대비 ±50% 이상 → 큰 차이
 BIZ_URGENT_DAYS = 1         # 비즈머니 남은 일수 1일 미만 → 긴급
 BIZ_WARN_DAYS = 3           # 3일 미만 → 주의
-STALE_DAYS = 3              # 반려 후 3일 이상 수정 없음 → 방치
-DENIED = {"DENIED", "DISAPPROVED"}
 
 
 def ymd(d: date) -> str:
@@ -82,23 +79,6 @@ def spend(api, cid, camp_ids, since: date, until: date) -> int:
     return total
 
 
-def denied_ads(api, cid, camps, today: date) -> list:
-    out = []
-    for c in camps:
-        if c.get("status") == "DELETED":
-            continue
-        for g in api.get("/ncc/adgroups", {"nccCampaignId": c["nccCampaignId"]}, customer_id=cid) or []:
-            if g.get("status") == "DELETED":
-                continue
-            for a in api.get("/ncc/ads", {"nccAdgroupId": g["nccAdgroupId"]}, customer_id=cid) or []:
-                if a.get("inspectStatus") in DENIED or a.get("statusReason") == "AD_DISAPPROVED":
-                    edited = (a.get("editTm") or "")[:10]
-                    days = (today - date.fromisoformat(edited)).days if edited else None
-                    out.append({"campaign": c.get("name"), "adgroup": g.get("name"),
-                                "adId": a.get("nccAdId"), "days": days})
-    return out
-
-
 def owner_of(api, acc, team, direct) -> list:
     """담당 팀원: accounts 직접 지정 → 소속 관리계정(managers) → 구성원 네이버ID(members) → fallback 순.
 
@@ -118,7 +98,7 @@ def owner_of(api, acc, team, direct) -> list:
     return sorted(names) or [team["fallback"]]
 
 
-def collect_account(api, acc, team, direct, today, P, skip_ads) -> dict:
+def collect_account(api, acc, team, direct, P) -> dict:
     cid = str(acc["customerId"])
     row = {"customerId": cid, "name": acc.get("adAccountName") or cid, "owners": owner_of(api, acc, team, direct),
            "managers": acc["_managerNames"]}
@@ -138,7 +118,6 @@ def collect_account(api, acc, team, direct, today, P, skip_ads) -> dict:
             "on": len([c for c in camps if c.get("status") == "ELIGIBLE"]),
             "budgetLimited": [c.get("name") for c in camps if c.get("statusReason") == "CAMPAIGN_LIMITED_BY_BUDGET"],
         },
-        "deniedAds": [] if skip_ads else denied_ads(api, cid, camps, today),
     })
     return row
 
@@ -167,12 +146,6 @@ def judge(r: dict) -> list:
             why.append("비즈머니 0원")
         alerts.append({"type": "off", "level": "urgent",
                        "text": "어제 광고비 0원 (평소 일 " + f"{avg7:,}원)" + (f" · {', '.join(why)}" if why else "")})
-    stale = [a for a in r["deniedAds"] if (a["days"] or 0) >= STALE_DAYS]
-    if r["deniedAds"]:
-        lv = "warn" if stale else "info"
-        oldest = max((a["days"] or 0) for a in r["deniedAds"])
-        alerts.append({"type": "denied", "level": lv,
-                       "text": f"반려 소재 {len(r['deniedAds'])}건, 가장 오래된 것 {oldest}일째"})
     if r["campaigns"]["budgetLimited"]:
         alerts.append({"type": "off", "level": "info",
                        "text": f"예산 소진으로 제한된 캠페인 {len(r['campaigns']['budgetLimited'])}개"})
@@ -226,15 +199,12 @@ def demo_rows(today) -> list:
             "bizmoney": int(avg7 * rnd.choice([0.4, 2, 6, 15, 30])),
             "budgetLock": False,
             "campaigns": {"total": 3, "on": 0 if i == 11 else 3, "budgetLimited": ["브랜드"] if i == 5 else []},
-            "deniedAds": [{"campaign": "파워링크", "adgroup": "메인", "adId": "demo", "days": d}
-                          for d in ([5, 1] if i in (2, 9) else [])],
         })
     return rows
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--skip-ads", action="store_true")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--demo", action="store_true")
     args = ap.parse_args()
@@ -271,7 +241,7 @@ def main():
         for n, acc in enumerate(uniq, 1):
             print(f"[{n}/{len(uniq)}] {acc.get('adAccountName')}", file=sys.stderr)
             try:
-                rows.append(collect_account(api, acc, team, direct, today, P, args.skip_ads))
+                rows.append(collect_account(api, acc, team, direct, P))
             except Exception as e:  # noqa: BLE001 — 한 계정 실패가 전체를 멈추지 않게
                 errors.append({"name": acc.get("adAccountName"), "customerId": str(acc["customerId"]),
                                "error": str(e)[:200]})
@@ -282,10 +252,9 @@ def main():
         "baseDate": ymd(P["yesterday"][0]),
         "generatedAt": datetime.now(KST).strftime("%Y-%m-%d %H:%M"),
         "demo": args.demo,
-        "adsChecked": not args.skip_ads,
         "rules": {"minDailyAvg": MIN_DAILY_AVG, "dropPct": round((1 - DROP_RATIO) * 100),
                   "monthGapPct": round(MONTH_GAP * 100), "bizUrgentDays": BIZ_URGENT_DAYS,
-                  "bizWarnDays": BIZ_WARN_DAYS, "staleDays": STALE_DAYS},
+                  "bizWarnDays": BIZ_WARN_DAYS},
         "accounts": rows,
         "errors": errors,
     }
