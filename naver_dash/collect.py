@@ -107,7 +107,8 @@ def big_entities(api, cid, camps, since: date, until: date) -> list:
     """최근 7일 계정 광고비의 BIG_SHARE 이상을 쓴 캠페인·광고그룹·키워드·소재와 마지막 수정 시각.
 
     하위 항목의 광고비는 상위 항목을 넘을 수 없으므로 20% 이상 캠페인 → 그 안의 20% 이상 그룹 → 그 안의
-    키워드·소재 순으로만 내려가 조회 수를 줄인다. 캠페인 editTm 은 하위 항목 수정을 반영하지 않는다.
+    키워드·소재 순으로만 내려가 조회 수를 줄인다. 캠페인 editTm 은 하위 항목 수정을 반영하지 않아서,
+    20% 이상 캠페인은 그 안의 모든 광고그룹 중 가장 최근 수정된 그룹도 함께 본다 (그룹 단위 입찰 조정 반영).
     """
     cs = spend_by_id(api, cid, [c["nccCampaignId"] for c in camps], since, until)
     total = sum(cs.values())
@@ -125,6 +126,10 @@ def big_entities(api, cid, camps, since: date, until: date) -> list:
         add("캠페인", c.get("name"), c, cs[c["nccCampaignId"]])
         groups = api.get("/ncc/adgroups", {"nccCampaignId": c["nccCampaignId"]}, customer_id=cid) or []
         gs = spend_by_id(api, cid, [g["nccAdgroupId"] for g in groups], since, until)
+        live = [g for g in groups if g.get("editTm") and g.get("status") != "DELETED"]
+        if live:
+            g = max(live, key=lambda g: g["editTm"])
+            add("광고그룹(캠페인 내 최근 수정)", g.get("name"), g, gs.get(g["nccAdgroupId"], 0))
         for g in groups:
             if gs.get(g["nccAdgroupId"], 0) < cut:
                 continue
