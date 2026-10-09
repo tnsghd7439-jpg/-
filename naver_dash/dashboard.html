@@ -278,12 +278,14 @@ const COLS = [
   ["grade", "상태", a => { const h = a.alerts.find(x => x.type === "health"); return h ? (h.grade === "적색" ? 2 : 1) : 0; }],
 ];
 let sortKey = "yesterday", sortAsc = false;
-// 광고센터 바로가기 (주소 형식은 ads.naver.com 화면 코드에서 확인). 광고계정번호(adAccountNo)가 있어야 한다
+// 광고센터 바로가기 (주소 형식·accessManagerAccountNo 는 ads.naver.com 화면 코드에서 확인). 광고계정번호(adAccountNo)가 있어야 한다
 const CENTER = "https://ads.naver.com/manage/ad-accounts/";
 const link = (text, a, path) => {
   if (!a.adAccountNo) return document.createTextNode(text);
   const el = document.createElement("a");
-  el.href = CENTER + a.adAccountNo + path; el.target = "_blank"; el.rel = "noopener"; el.textContent = text;
+  // 관리계정을 거쳐 접근하는 계정은 accessManagerAccountNo 가 없으면 "접근 권한이 없습니다" 가 뜬다
+  el.href = CENTER + a.adAccountNo + path + (a.accessManagerAccountNo ? `?accessManagerAccountNo=${a.accessManagerAccountNo}` : "");
+  el.target = "_blank"; el.rel = "noopener"; el.textContent = text;
   return el;
 };
 const pct = v => (v > 0 ? "+" : "") + Math.round(v * 100) + "%";

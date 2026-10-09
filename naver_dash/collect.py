@@ -138,7 +138,9 @@ def owner_of(api, acc, team, direct) -> list:
 
 def collect_account(api, acc, team, direct, P) -> dict:
     cid = str(acc["customerId"])
-    row = {"customerId": cid, "adAccountNo": acc.get("adAccountNo"),
+    # 광고센터 링크용: 하위 광고계정은 관리계정 권한으로 열어야 해서 접근할 관리계정 번호도 둔다 (수집 범위 관리계정 우선)
+    via = next((m for m in acc["_managers"] if str(m) in team["scope"]), acc["_managers"][0] if acc["_managers"] else None)
+    row = {"customerId": cid, "adAccountNo": acc.get("adAccountNo"), "accessManagerAccountNo": via,
            "name": acc.get("adAccountName") or cid, "owners": owner_of(api, acc, team, direct),
            "managers": acc["_managerNames"]}
     camps = api.get("/ncc/campaigns", customer_id=cid) or []
