@@ -138,7 +138,8 @@ def owner_of(api, acc, team, direct) -> list:
 
 def collect_account(api, acc, team, direct, P) -> dict:
     cid = str(acc["customerId"])
-    row = {"customerId": cid, "name": acc.get("adAccountName") or cid, "owners": owner_of(api, acc, team, direct),
+    row = {"customerId": cid, "adAccountNo": acc.get("adAccountNo"),
+           "name": acc.get("adAccountName") or cid, "owners": owner_of(api, acc, team, direct),
            "managers": acc["_managerNames"]}
     camps = api.get("/ncc/campaigns", customer_id=cid) or []
     ids = [c["nccCampaignId"] for c in camps]

@@ -103,6 +103,10 @@ th[aria-sort="ascending"] button::after { content: " ↑"; }
 td.down { color: var(--urgent); } td.up { color: var(--ok); }
 td.dim { color: var(--muted); }
 td.light, th:last-child { text-align: center; }
+td a, .aname a { color: inherit; text-decoration: none; }
+td a:hover, .aname a:hover { text-decoration: underline; }
+td a:focus-visible, .aname a:focus-visible { outline: 3px solid var(--info); outline-offset: 2px; }
+td:first-child a::after, .aname a::after { content: " ↗"; font-size: 11px; color: var(--muted); }
 .dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; vertical-align: -1px; cursor: help; }
 .dot.red { background: var(--urgent); }
 .dot.orange { background: var(--orange); }
@@ -232,7 +236,7 @@ function renderAlerts() {
     const badge = xs[0].grade ? `${xs[0].grade} 경보` : LVNAME[xs[0].level];
     li.innerHTML = `<span class="lv ${xs[0].level}">${badge}</span>
       <div><div class="aname"></div></div><span class="aowner"></span>`;
-    li.querySelector(".aname").textContent = a.name;
+    li.querySelector(".aname").appendChild(link(a.name, a, "/dashboard"));
     for (const x of xs) {
       const d = document.createElement("div");
       d.className = "atext"; d.textContent = x.text;
@@ -274,6 +278,14 @@ const COLS = [
   ["grade", "상태", a => { const h = a.alerts.find(x => x.type === "health"); return h ? (h.grade === "적색" ? 2 : 1) : 0; }],
 ];
 let sortKey = "yesterday", sortAsc = false;
+// 광고센터 바로가기 (주소 형식은 ads.naver.com 화면 코드에서 확인). 광고계정번호(adAccountNo)가 있어야 한다
+const CENTER = "https://ads.naver.com/manage/ad-accounts/";
+const link = (text, a, path) => {
+  if (!a.adAccountNo) return document.createTextNode(text);
+  const el = document.createElement("a");
+  el.href = CENTER + a.adAccountNo + path; el.target = "_blank"; el.rel = "noopener"; el.textContent = text;
+  return el;
+};
 const pct = v => (v > 0 ? "+" : "") + Math.round(v * 100) + "%";
 
 function renderLedger() {
@@ -317,10 +329,14 @@ function renderLedger() {
        a.daysSinceEdit == null ? "dim" : a.daysSinceEdit >= r.noEditDays ? "down" : ""],
       ["", "light"],
     ];
-    for (const [t, cls] of cells) {
+    // 광고주 → 계정 대시보드, 비즈머니 → 충전 화면, 마지막 수정일 → 변경이력
+    const LINKS = { 0: "/dashboard", 7: "/sa/billing/bizmoney", [COLS.findIndex(c => c[0] === "edit")]: "/sa/tool/history" };
+    cells.forEach(([t, cls], i) => {
       const td = document.createElement("td");
-      td.textContent = t; if (cls) td.className = cls; tr.appendChild(td);
-    }
+      if (LINKS[i] && t !== "–") td.appendChild(link(t, a, LINKS[i])); else td.textContent = t;
+      if (cls) td.className = cls;
+      tr.appendChild(td);
+    });
     if (a.lastEditWhat) {
       const td = tr.children[COLS.findIndex(c => c[0] === "edit")];
       td.classList.add("edit");
