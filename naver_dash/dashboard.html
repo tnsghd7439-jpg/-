@@ -256,7 +256,7 @@ const COLS = [
   ["lastMonthAvg", "전월 일평균", a => a.lastMonthAvg],
   ["bizmoney", "비즈머니", a => a.bizmoney],
   ["days", "남은 일수", a => a.avg7 ? a.bizmoney / a.avg7 : null],
-  ["edit", "마지막 변경", a => a.daysSinceEdit ?? null],
+  ["edit", "마지막 수정일", a => a.daysSinceEdit ?? null],
 ];
 let sortKey = "yesterday", sortAsc = false;
 const pct = v => (v > 0 ? "+" : "") + Math.round(v * 100) + "%";
@@ -296,7 +296,7 @@ function renderLedger() {
       [won(a.monthAvg)], [won(a.lastMonthAvg)], [won(a.bizmoney), a.bizmoney <= 0 ? "down" : ""],
       [days === null ? "–" : days < 0 ? "소진" : `${days.toFixed(1)}일`,
        days === null ? "dim" : days < r.bizUrgentDays ? "down" : ""],
-      [a.daysSinceEdit == null ? "–" : `${a.daysSinceEdit}일 전`,
+      [a.lastEdit == null ? "–" : a.lastEdit.slice(0, 10),
        a.daysSinceEdit == null ? "dim" : a.daysSinceEdit >= r.noEditDays ? "down" : ""],
     ];
     for (const [t, cls] of cells) {
