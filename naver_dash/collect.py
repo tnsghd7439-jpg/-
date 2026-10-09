@@ -6,7 +6,7 @@
      - 이번 달 일평균 소진이 전월 일평균과 크게 차이 나는 광고주
   2. 비즈머니 부족 (잔액 ÷ 최근 7일 일평균 = 남은 일수)
   3. 광고 꺼짐 (평소 소진 계정이 어제 0원)
-  4. 관리 경보: 광고수익률 하락 / 광고비 하락 / 수정이력 없음 중 2개 이상 적색, 1개 황색
+  4. 관리 경보: 구매완료 수익률 하락 / 광고비 하락 / 수정이력 없음 중 2개 이상 적색, 1개 황색
 
 환경변수: NAVER_API_KEY, NAVER_SECRET_KEY, NAVER_CUSTOMER_ID (naver_api.py 참고)
 팀원 매칭: naver_dash/team.json (team.example.json 참고, 커밋 금지)
@@ -35,7 +35,7 @@ MONTH_GAP = 0.5             # 이번 달 일평균이 전월 일평균 대비 ±
 BIZ_URGENT_DAYS = 1         # 비즈머니 남은 일수 1일 미만 → 긴급
 BIZ_WARN_DAYS = 3           # 3일 미만 → 주의
 # 관리 경보: 아래 3가지 중 2개 이상 → 적색, 1개 → 황색 (7일 일평균 MIN_DAILY_AVG 미만 계정 제외)
-ROAS_DROP = 0.2             # 1) 최근 7일 광고수익률 < 지난달 x 0.8
+ROAS_DROP = 0.2             # 1) 최근 7일 구매완료 수익률 < 지난달 x 0.8
 SPEND_DROP = 0.2            # 2) 최근 7일 일평균 광고비 < 지난달 일평균 x 0.8
 NO_EDIT_DAYS = 7            # 3) 캠페인·광고그룹 어디에도 최근 7일 수정 기록 없음
 
@@ -74,22 +74,26 @@ def load_team() -> dict:
 # ---------------------------------------------------------------- 수집
 
 def spend(api, cid, camp_ids, since: date, until: date) -> tuple:
-    """캠페인 합계 (광고비 salesAmt VAT 포함, 전환매출 convAmt)."""
-    sales = conv = 0
+    """캠페인 합계 (광고비 salesAmt VAT 포함, 구매완료 전환매출, 구매완료 전환수).
+
+    convAmt·ccnt 는 장바구니·회원가입 등 모든 전환을 합친 값이라 쓰지 않고 구매완료(purchase*) 만 본다.
+    """
+    sales = conv = cnt = 0
     for i in range(0, len(camp_ids), 50):
         res = api.get("/stats", {
             "ids": ",".join(camp_ids[i:i + 50]),
-            "fields": '["salesAmt","convAmt"]',
+            "fields": '["salesAmt","purchaseConvAmt","purchaseCcnt"]',
             "timeRange": json.dumps({"since": ymd(since), "until": ymd(until)}),
         }, customer_id=cid)
         rows = res.get("data", []) if isinstance(res, dict) else (res or [])
         sales += sum(int(r.get("salesAmt") or 0) for r in rows)
-        conv += sum(int(r.get("convAmt") or 0) for r in rows)
-    return sales, conv
+        conv += sum(int(r.get("purchaseConvAmt") or 0) for r in rows)
+        cnt += sum(int(r.get("purchaseCcnt") or 0) for r in rows)
+    return sales, conv, cnt
 
 
 def roas(sc: tuple):
-    """광고수익률(%) = 전환매출 / 광고비 x 100. 광고비가 없으면 None."""
+    """구매완료 광고수익률(%) = 구매완료 전환매출 / 광고비 x 100. 광고비가 없으면 None."""
     return round(sc[1] / sc[0] * 100) if sc[0] else None
 
 
@@ -138,7 +142,7 @@ def collect_account(api, acc, team, direct, P) -> dict:
            "managers": acc["_managerNames"]}
     camps = api.get("/ncc/campaigns", customer_id=cid) or []
     ids = [c["nccCampaignId"] for c in camps]
-    s = {k: (spend(api, cid, ids, *v) if ids else (0, 0)) for k, v in P.items()}
+    s = {k: (spend(api, cid, ids, *v) if ids else (0, 0, 0)) for k, v in P.items()}
     biz = api.get("/billing/bizmoney", customer_id=cid) or {}
     y = P["yesterday"][0]
     edit, what = last_edit(api, cid, camps) if s["last14"][0] else (None, None)
@@ -154,6 +158,7 @@ def collect_account(api, acc, team, direct, P) -> dict:
         "roas7": roas(s["last7"]),
         "roas14": roas(s["last14"]),
         "roasLastMonth": roas(s["last_month"]),
+        "purchase": {k: {"amt": s[k][1], "cnt": s[k][2]} for k in ("last7", "last14", "last_month")},
         "bizmoney": int(biz.get("bizmoney") or 0),
         "budgetLock": bool(biz.get("budgetLock")),
         "campaigns": {
@@ -172,7 +177,7 @@ def health_issues(r: dict) -> list:
     out = []
     r7, rl = r.get("roas7"), r.get("roasLastMonth")
     if r7 is not None and rl and r7 < rl * (1 - ROAS_DROP):
-        out.append(f"광고수익률 하락 (7일 {r7:,}%, 지난달 {rl:,}%)")
+        out.append(f"구매완료 수익률 하락 (7일 {r7:,}%, 지난달 {rl:,}%)")
     a7, lm = r.get("last7Avg", 0), r["lastMonthAvg"]
     if lm and a7 < lm * (1 - SPEND_DROP):
         out.append(f"광고비 하락 (7일 일평균 {a7:,}원, 지난달 {lm:,}원)")
