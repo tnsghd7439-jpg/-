@@ -55,9 +55,10 @@ def periods(today: date) -> dict:
 def load_team() -> dict:
     p = ROOT / "team.json"
     if not p.exists():
-        return {"scope": [], "fallback": "미지정", "managers": {}, "members": {}, "accounts": {}}
+        return {"scope": [], "exclude": [], "fallback": "미지정", "managers": {}, "members": {}, "accounts": {}}
     d = json.loads(p.read_text(encoding="utf-8"))
-    return {"scope": [str(x) for x in d.get("scope", [])], "fallback": d.get("fallback") or "미지정",
+    return {"scope": [str(x) for x in d.get("scope", [])], "exclude": [str(x) for x in d.get("exclude", [])],
+            "fallback": d.get("fallback") or "미지정",
             "managers": {str(k): v for k, v in d.get("managers", {}).items()},
             "members": d.get("members", {}),
             "accounts": {str(k): v for k, v in d.get("accounts", {}).items()}}
@@ -232,6 +233,7 @@ def main():
         uniq = list(by_cid.values())
         if team["scope"]:  # 팀 관리계정에 연결된 광고계정만 (다른 팀 계정 제외)
             uniq = [a for a in uniq if any(str(m) in team["scope"] for m in a["_managers"])]
+        uniq = [a for a in uniq if str(a["customerId"]) not in team["exclude"]]
         direct = set()
         if team["members"]:
             own = (api.get("/ad-accounts", {"size": 1000}) or {}).get("content", [])
