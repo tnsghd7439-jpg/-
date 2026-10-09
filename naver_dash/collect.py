@@ -104,17 +104,20 @@ def kst(ts: str) -> str:
 
 
 def last_edit(api, cid, camps):
-    """캠페인·광고그룹 중 가장 최근 수정 (KST 시각, 무엇). 키워드·소재는 조회량이 커서 보지 않는다."""
-    best = (None, None)
+    """캠페인·광고그룹 중 가장 최근 수정 (KST 시각, 대상 정보). 키워드·소재는 조회량이 커서 보지 않는다.
+
+    대상 정보의 path 는 광고센터에서 그 캠페인·광고그룹을 여는 주소 조각이다.
+    """
+    best, what = None, None
     for c in camps:
         if c.get("status") == "DELETED":
             continue
-        if c.get("editTm") and (best[0] is None or c["editTm"] > best[0]):
-            best = (c["editTm"], f"캠페인 {c.get('name')}")
+        if c.get("editTm") and (best is None or c["editTm"] > best):
+            best, what = c["editTm"], {"label": f"캠페인 {c.get('name')}", "path": f"/sa/campaigns/{c['nccCampaignId']}"}
         for g in api.get("/ncc/adgroups", {"nccCampaignId": c["nccCampaignId"]}, customer_id=cid) or []:
-            if g.get("status") != "DELETED" and g.get("editTm") and (best[0] is None or g["editTm"] > best[0]):
-                best = (g["editTm"], f"광고그룹 {g.get('name')}")
-    return (kst(best[0]), best[1]) if best[0] else (None, None)
+            if g.get("status") != "DELETED" and g.get("editTm") and (best is None or g["editTm"] > best):
+                best, what = g["editTm"], {"label": f"광고그룹 {g.get('name')}", "path": f"/sa/adgroups/{g['nccAdgroupId']}"}
+    return (kst(best), what) if best else (None, None)
 
 
 def owner_of(api, acc, team, direct) -> list:
