@@ -6,6 +6,7 @@
      - 이번 달 일평균 소진이 전월 일평균과 크게 차이 나는 광고주
   2. 비즈머니 부족 (잔액 ÷ 최근 7일 일평균 = 남은 일수)
   3. 광고 꺼짐 (평소 소진 계정이 어제 0원)
+  5. 이탈 위험: 광고비 감소 / 비즈머니 바닥 반복 / 30일 이상 수정 없음 중 2개 이상
   4. 관리 경보: 구매완료 수익률 하락 / 광고비 하락 / 수정이력 없음 중 2개 이상 적색, 1개 황색
 
 환경변수: NAVER_API_KEY, NAVER_SECRET_KEY, NAVER_CUSTOMER_ID (naver_api.py 참고)
@@ -38,6 +39,11 @@ BIZ_WARN_DAYS = 3           # 3일 미만 → 주의
 ROAS_DROP = 0.2             # 1) 최근 7일 구매완료 수익률 < 지난달 x 0.8
 SPEND_DROP = 0.2            # 2) 최근 7일 일평균 광고비 < 지난달 일평균 x 0.8
 NO_EDIT_DAYS = 7            # 3) 캠페인·광고그룹 어디에도 최근 7일 수정 기록 없음
+# 이탈 위험: 아래 3가지 중 2개 이상 (지난달 또는 최근 7일 일평균이 MIN_DAILY_AVG 이상인 계정)
+CHURN_SPEND_DROP = 0.3      # 1) 최근 7일 일평균 광고비 < 지난달 일평균 x 0.7
+CHURN_ZERO_DAYS = 2         # 2) 최근 30일 중 비즈머니가 바닥난 날이 2일 이상 (미충전 반복)
+CHURN_NO_EDIT_DAYS = 30     # 3) 캠페인·광고그룹 30일 이상 수정 없음
+BUDGET_HIT = 0.95           # 하루 광고비가 일예산의 95% 이상이면 그날 예산을 다 쓴 것으로 본다
 
 
 def ymd(d: date) -> str:
@@ -79,6 +85,7 @@ def spend(api, cid, camp_ids, since: date, until: date) -> tuple:
     convAmt·ccnt 는 장바구니·회원가입 등 모든 전환을 합친 값이라 쓰지 않고 구매완료(purchase*) 만 본다.
     """
     sales = conv = cnt = 0
+    byid = {}
     for i in range(0, len(camp_ids), 50):
         res = api.get("/stats", {
             "ids": ",".join(camp_ids[i:i + 50]),
@@ -89,7 +96,8 @@ def spend(api, cid, camp_ids, since: date, until: date) -> tuple:
         sales += sum(int(r.get("salesAmt") or 0) for r in rows)
         conv += sum(int(r.get("purchaseConvAmt") or 0) for r in rows)
         cnt += sum(int(r.get("purchaseCcnt") or 0) for r in rows)
-    return sales, conv, cnt
+        byid.update({r["id"]: (int(r.get("salesAmt") or 0), int(r.get("purchaseConvAmt") or 0)) for r in rows})
+    return sales, conv, cnt, byid
 
 
 def roas(sc: tuple):
@@ -120,6 +128,51 @@ def last_edit(api, cid, camps):
     return (kst(best), what) if best else (None, None)
 
 
+def campaign_perf(camps, s, P) -> list:
+    """캠페인별 최근 7일 vs 지난달 일평균 광고비·구매 ROAS (경보 원인 확인용, 광고비 있는 캠페인만)."""
+    d7, dlm = 7, P["last_month"][1].day
+    out = []
+    for c in camps:
+        a = s["last7"][3].get(c["nccCampaignId"], (0, 0))
+        b = s["last_month"][3].get(c["nccCampaignId"], (0, 0))
+        if not (a[0] or b[0]):
+            continue
+        out.append({"id": c["nccCampaignId"], "name": c.get("name"), "type": c.get("campaignTp"),
+                    "avg7": round(a[0] / d7), "avgLM": round(b[0] / dlm),
+                    "roas7": roas(a), "roasLM": roas(b),
+                    # 구매매출 일평균이 지난달보다 얼마나 줄었나 (원인 캠페인 정렬용)
+                    "convLoss": round(b[1] / dlm - a[1] / d7)})
+    return sorted(out, key=lambda x: -x["convLoss"])
+
+
+def budget_hits(api, cid, camps, s, P) -> list:
+    """일예산을 쓰는 캠페인 중 최근 7일 예산을 다 쓴 날 (하루 광고비 >= 일예산 x BUDGET_HIT)."""
+    since, until = P["last7"]
+    out = []
+    for c in camps:
+        bud = c.get("dailyBudget") or 0
+        if not (c.get("useDailyBudget") and bud and s["last7"][3].get(c["nccCampaignId"], (0,))[0]):
+            continue
+        res = api.get("/stats", {"id": c["nccCampaignId"], "fields": '["salesAmt"]', "timeIncrement": "1",
+                                 "timeRange": json.dumps({"since": ymd(since), "until": ymd(until)})}, customer_id=cid)
+        days = [x["dateStart"] for x in res.get("data", []) if (x.get("salesAmt") or 0) >= bud * BUDGET_HIT]
+        if days:
+            out.append({"id": c["nccCampaignId"], "name": c.get("name"), "budget": bud, "hitDays": len(days),
+                        "lastHit": max(days), "limitedNow": c.get("statusReason") == "CAMPAIGN_LIMITED_BY_BUDGET"})
+    return sorted(out, key=lambda x: -x["hitDays"])
+
+
+def bizmoney_zero_days(api, cid, until: date) -> tuple:
+    """최근 30일 중 비즈머니가 바닥난(하루 마감 잔액 0 이하) 날 수, 마지막 충전일."""
+    rng = {"searchStartDt": (until - timedelta(days=29)).strftime("%Y%m%d"), "searchEndDt": until.strftime("%Y%m%d")}
+    period = api.get("/billing/bizmoney/histories/period", rng, customer_id=cid) or []
+    zero = sum(1 for x in period if (x.get("refundableAmt") or 0) + (x.get("nonRefundableAmt") or 0) <= 0
+               and (x.get("useRefundableAmt") or 0) + (x.get("useNonRefundableAmt") or 0) > 0)
+    charge = api.get("/billing/bizmoney/histories/charge", rng, customer_id=cid) or []
+    last = max((x["statDt"] for x in charge if x.get("statDt")), default=None)
+    return zero, (datetime.fromtimestamp(last / 1000, KST).strftime("%Y-%m-%d") if last else None)
+
+
 def owner_of(api, acc, team, direct) -> list:
     """담당 팀원: accounts 직접 지정 → 소속 관리계정(managers) → 구성원 네이버ID(members) → fallback 순.
 
@@ -148,11 +201,17 @@ def collect_account(api, acc, team, direct, P) -> dict:
            "managers": acc["_managerNames"]}
     camps = api.get("/ncc/campaigns", customer_id=cid) or []
     ids = [c["nccCampaignId"] for c in camps]
-    s = {k: (spend(api, cid, ids, *v) if ids else (0, 0, 0)) for k, v in P.items()}
+    s = {k: (spend(api, cid, ids, *v) if ids else (0, 0, 0, {})) for k, v in P.items()}
     biz = api.get("/billing/bizmoney", customer_id=cid) or {}
     y = P["yesterday"][0]
-    edit, what = last_edit(api, cid, camps) if s["last14"][0] else (None, None)
+    spending = bool(s["last14"][0] or s["last_month"][0])
+    edit, what = last_edit(api, cid, camps) if spending else (None, None)
+    zero, last_charge = bizmoney_zero_days(api, cid, y) if spending else (0, None)
     row.update({
+        "campaignPerf": campaign_perf(camps, s, P) if spending else [],
+        "budgetHits": budget_hits(api, cid, camps, s, P) if s["last7"][0] else [],
+        "bizZeroDays30": zero,
+        "lastCharge": last_charge,
         "lastEdit": edit,
         "lastEditWhat": what,
         "daysSinceEdit": (y + timedelta(days=1) - date.fromisoformat(edit[:10])).days if edit else None,
@@ -190,6 +249,21 @@ def health_issues(r: dict) -> list:
     d = r.get("daysSinceEdit")
     if d is not None and d >= NO_EDIT_DAYS:
         out.append(f"수정이력 없음 ({d}일째, 마지막 {r['lastEdit'][:10]})")
+    return out
+
+
+def churn_issues(r: dict) -> list:
+    """이탈 위험 3가지 중 해당하는 것의 설명 목록."""
+    out = []
+    a7, lm = r.get("last7Avg", 0), r["lastMonthAvg"]
+    if lm and a7 < lm * (1 - CHURN_SPEND_DROP):
+        out.append(f"광고비 감소 (7일 일평균 {a7:,}원, 지난달 {lm:,}원)")
+    z = r.get("bizZeroDays30") or 0
+    if z >= CHURN_ZERO_DAYS:
+        out.append(f"비즈머니 바닥 30일 중 {z}일" + (f" (마지막 충전 {r['lastCharge']})" if r.get("lastCharge") else " (30일간 충전 없음)"))
+    d = r.get("daysSinceEdit")
+    if d is not None and d >= CHURN_NO_EDIT_DAYS:
+        out.append(f"{d}일째 수정 없음")
     return out
 
 
@@ -231,6 +305,11 @@ def judge(r: dict) -> list:
             alerts.append({"type": "health", "level": "urgent" if len(issues) >= 2 else "warn",
                            "grade": "적색" if len(issues) >= 2 else "황색",
                            "text": f"{'적색' if len(issues) >= 2 else '황색'} 경보: " + " / ".join(issues)})
+
+    if max(avg7, r["lastMonthAvg"]) >= MIN_DAILY_AVG:
+        ch = churn_issues(r)
+        if len(ch) >= 2:
+            alerts.append({"type": "churn", "level": "urgent", "text": "이탈 위험: " + " / ".join(ch)})
 
     m, lm = r["monthAvg"], r["lastMonthAvg"]
     if max(m, lm) >= MIN_DAILY_AVG:
@@ -333,7 +412,9 @@ def main():
         "rules": {"minDailyAvg": MIN_DAILY_AVG, "dropPct": round((1 - DROP_RATIO) * 100),
                   "monthGapPct": round(MONTH_GAP * 100), "bizUrgentDays": BIZ_URGENT_DAYS,
                   "bizWarnDays": BIZ_WARN_DAYS, "roasDropPct": round(ROAS_DROP * 100),
-                  "spendDropPct": round(SPEND_DROP * 100), "noEditDays": NO_EDIT_DAYS},
+                  "spendDropPct": round(SPEND_DROP * 100), "noEditDays": NO_EDIT_DAYS,
+                  "churnSpendDropPct": round(CHURN_SPEND_DROP * 100), "churnZeroDays": CHURN_ZERO_DAYS,
+                  "churnNoEditDays": CHURN_NO_EDIT_DAYS, "budgetHitPct": round(BUDGET_HIT * 100)},
         "accounts": rows,
         "errors": errors,
     }

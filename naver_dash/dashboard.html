@@ -118,6 +118,15 @@ td.edit { cursor: help; text-decoration: underline dotted; }
 tr.lv-urgent td:first-child { box-shadow: inset 4px 0 0 var(--urgent); }
 tr.lv-warn td:first-child { box-shadow: inset 4px 0 0 var(--warn); }
 
+table.small { min-width: 900px; }
+table.small th:nth-child(3), table.small td:nth-child(3) { text-align: left; white-space: normal; }
+.detail td { background: var(--bg); padding: 10px 14px 14px; white-space: normal; text-align: left; }
+.detail table { min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+.detail h3 { font-size: 13px; margin: 6px 0; color: var(--muted); font-weight: 700; }
+.toggle { all: unset; cursor: pointer; display: inline-block; width: 18px; color: var(--muted); }
+.toggle:focus-visible { outline: 3px solid var(--info); outline-offset: 2px; }
+.lv.churn { background: var(--urgent); color: var(--surface); }
+
 details { margin-top: 28px; color: var(--muted); font-size: 13px; }
 details summary { cursor: pointer; }
 details ul { padding-left: 18px; }
@@ -146,6 +155,20 @@ details ul { padding-left: 18px; }
       <ul class="alerts" id="alerts"></ul>
     </section>
   </div>
+  <section class="ledger" aria-labelledby="h-churn">
+    <div class="lhead"><h2 id="h-churn">이탈 위험 광고주</h2>
+      <span class="lkey" id="churnKey"></span></div>
+    <div class="tablebox"><table class="small">
+      <thead><tr><th>광고주</th><th>담당</th><th>해당 항목</th><th>7일 일평균</th><th>지난달 일평균</th><th>비즈머니 바닥(30일)</th><th>마지막 충전</th><th>마지막 수정</th></tr></thead>
+      <tbody id="churnRows"></tbody></table></div>
+  </section>
+  <section class="ledger" aria-labelledby="h-budget">
+    <div class="lhead"><h2 id="h-budget">예산 소진 캠페인 (최근 7일)</h2>
+      <span class="lkey" id="budgetKey"></span></div>
+    <div class="tablebox"><table class="small">
+      <thead><tr><th>광고주</th><th>담당</th><th>캠페인</th><th>일예산</th><th>예산 소진일</th><th>마지막 소진</th><th>평균 소진 시각</th></tr></thead>
+      <tbody id="budgetRows"></tbody></table></div>
+  </section>
   <section class="ledger" aria-labelledby="h-ledger">
     <div class="lhead">
       <h2 id="h-ledger">담당 계정 전체</h2>
@@ -163,11 +186,14 @@ details ul { padding-left: 18px; }
 const DATA = /*__DATA__*/null;
 const esc = s => String(s).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const won = n => n.toLocaleString("ko-KR") + "원";
-const TYPES = [["all", "전체"], ["bizmoney", "비즈머니"], ["off", "광고 꺼짐"],
+const TYPES = [["all", "전체"], ["bizmoney", "비즈머니"], ["churn", "이탈 위험"], ["off", "광고 꺼짐"],
                ["drop", "어제 감소"], ["month", "월 소진 차이"], ["health", "관리 경보"]];
 const RANK = { urgent: 0, warn: 1, info: 2 };
 const LVNAME = { urgent: "긴급", warn: "주의", info: "참고" };
 let person = null, type = "all";
+const prio = x => x.type === "bizmoney" && x.level === "urgent" ? 0 : x.grade === "적색" ? 1 : x.type === "churn" ? 2
+                : x.level === "urgent" ? 3 : x.grade === "황색" ? 4 : x.level === "warn" ? 5 : 6;
+const badgeOf = x => x.grade ? `${x.grade} 경보` : x.type === "churn" ? "이탈 위험" : LVNAME[x.level];
 
 const worst = a => a.alerts.reduce((m, x) => Math.min(m, RANK[x.level]), 9);
 const people = {};
@@ -198,11 +224,13 @@ function renderPeople() {
     const sorted = [...accs].sort((a, b) => worst(a) - worst(b));
     const strip = sorted.map(a => `<i class="${["urgent", "warn"][worst(a)] || ""}" title="${esc(a.name)}"></i>`).join("");
     const nAlert = accs.filter(a => worst(a) <= 1).length;
+    const nLive = accs.filter(a => a.avg7 > 0).length;
+    const nDormant = accs.filter(a => !a.yesterday && !a.avg7 && !a.monthAvg && !a.lastMonthAvg).length;
     li.innerHTML = `<button type="button">
       <div class="prow"><span class="pname">${esc(name)}</span><span class="pspend">${won(accs.reduce((s, a) => s + a.yesterday, 0))}</span></div>
-      <div class="pmeta">담당 ${accs.length}개 · 확인 필요 ${nAlert}개</div>
+      <div class="pmeta">담당 ${accs.length}개 중 광고비 집행 ${nLive}개, 휴면 ${nDormant}개 · 확인 필요 ${nAlert}개</div>
       <div class="strip" aria-hidden="true">${strip}</div></button>`;
-    li.querySelector("button").onclick = () => { person = key; renderPeople(); renderAlerts(); renderLedger(); };
+    li.querySelector("button").onclick = () => { person = key; renderAll(); };
     ul.appendChild(li);
   }
 }
@@ -225,16 +253,15 @@ function renderAlerts() {
   const rows = [];
   for (const a of accs) {
     const xs = a.alerts.filter(x => type === "all" || x.type === type)
-                       .sort((p, q) => RANK[p.level] - RANK[q.level]);
+                       .sort((p, q) => prio(p) - prio(q));
     if (xs.length) rows.push([a, xs]);
   }
-  rows.sort((p, q) => RANK[p[1][0].level] - RANK[q[1][0].level] || q[0].avg7 - p[0].avg7);
+  rows.sort((p, q) => prio(p[1][0]) - prio(q[1][0]) || q[0].avg7 - p[0].avg7);
   ul.innerHTML = rows.length ? "" : `<li class="empty">이 조건에 해당하는 계정이 없습니다.</li>`;
   for (const [a, xs] of rows) {
     const li = document.createElement("li");
     li.className = "alert";
-    const badge = xs[0].grade ? `${xs[0].grade} 경보` : LVNAME[xs[0].level];
-    li.innerHTML = `<span class="lv ${xs[0].level}">${badge}</span>
+    li.innerHTML = `<span class="lv ${xs[0].type === "churn" ? "churn" : xs[0].level}">${badgeOf(xs[0])}</span>
       <div><div class="aname"></div></div><span class="aowner"></span>`;
     li.querySelector(".aname").appendChild(link(a.name, a, "/dashboard"));
     for (const x of xs) {
@@ -255,6 +282,8 @@ const rules = [
   `광고 꺼짐: 평소 소진하던 계정이 어제 0원`,
   `관리 경보: ① 최근 7일 구매완료 수익률이 지난달보다 ${r.roasDropPct}% 이상 낮음 ② 최근 7일 일평균 광고비가 지난달보다 ${r.spendDropPct}% 이상 적음 ③ 캠페인·광고그룹 어디에도 ${r.noEditDays}일 넘게 수정 기록 없음 (키워드·소재 수정은 보지 않음). 2개 이상이면 적색, 1개면 황색`,
   "구매 ROAS = 구매완료 전환매출 ÷ 광고비(VAT 포함) × 100. 장바구니·회원가입 등 다른 전환은 넣지 않습니다.",
+  `이탈 위험: 최근 7일 일평균 광고비가 지난달보다 ${r.churnSpendDropPct}% 이상 감소 / 최근 30일 중 비즈머니가 바닥난 날 ${r.churnZeroDays}일 이상 / ${r.churnNoEditDays}일 이상 수정 없음 중 2개 이상`,
+  `예산 소진: 하루 광고비가 그 캠페인 현재 일예산의 ${r.budgetHitPct}% 이상인 날. 평균 소진 시각은 시간대별 보고서가 필요해 아직 표시하지 않습니다.`,
   "광고비는 검색광고 캠페인 광고비(VAT 포함)입니다. 성과형 DA(GFA)·ADVoost·브랜드검색 계약 금액은 빠지고, 무상 캐시 소진분은 들어갑니다.",
   ...DATA.errors.map(e => `수집 실패: ${e.name} (${e.customerId}) — ${e.error}`),
 ];
@@ -354,11 +383,110 @@ function renderLedger() {
     dot.title = label; dot.setAttribute("role", "img"); dot.setAttribute("aria-label", label);
     tr.lastChild.appendChild(dot);
     body.appendChild(tr);
+
+    // 캠페인별 원인 펼치기: 광고주 이름 앞 ▸ 버튼
+    if (a.campaignPerf?.length || a.budgetHits?.length) {
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.className = "toggle"; btn.textContent = "▸";
+      btn.setAttribute("aria-expanded", "false"); btn.setAttribute("aria-label", `${a.name} 캠페인별 보기`);
+      tr.firstChild.prepend(btn);
+      const dr = document.createElement("tr");
+      dr.className = "detail"; dr.hidden = true;
+      const td = document.createElement("td"); td.colSpan = COLS.length;
+      dr.appendChild(td);
+      btn.onclick = () => {
+        const open = dr.hidden;
+        dr.hidden = !open; btn.textContent = open ? "▾" : "▸"; btn.setAttribute("aria-expanded", String(open));
+        if (open && !td.childElementCount) td.appendChild(campaignDetail(a));
+      };
+      body.appendChild(dr);
+    }
   }
+}
+
+// 캠페인별: 구매매출 일평균이 지난달보다 많이 줄어든 캠페인부터 (= 경보 원인 후보)
+function campaignDetail(a) {
+  const box = document.createElement("div");
+  const t = (head, rows) => {
+    const tb = document.createElement("table");
+    tb.innerHTML = `<thead><tr>${head.map(h => `<th>${h}</th>`).join("")}</tr></thead>`;
+    const bd = document.createElement("tbody");
+    for (const cells of rows) {
+      const tr = document.createElement("tr");
+      for (const c of cells) { const td = document.createElement("td"); c instanceof Node ? td.appendChild(c) : (td.textContent = c[0], c[1] && (td.className = c[1])); tr.appendChild(td); }
+      bd.appendChild(tr);
+    }
+    tb.appendChild(bd); return tb;
+  };
+  if (a.campaignPerf?.length) {
+    const h = document.createElement("h3"); h.textContent = "캠페인별 최근 7일 vs 지난달 (구매매출 감소가 큰 순)"; box.appendChild(h);
+    box.appendChild(t(["캠페인", "광고비 7일 일평균", "지난달 일평균", "구매 ROAS 7일", "지난달", "구매매출 일평균 변화"],
+      a.campaignPerf.map(c => {
+        const drop = c.roasLM && c.roas7 != null && c.roas7 < c.roasLM * (1 - r.roasDropPct / 100);
+        return [link(c.name, a, `/sa/campaigns/${c.id}`), [won(c.avg7)], [won(c.avgLM), c.avg7 < c.avgLM * (1 - r.spendDropPct / 100) ? "down" : ""],
+                [c.roas7 == null ? "–" : `${c.roas7.toLocaleString("ko-KR")}%`, drop ? "down" : ""],
+                [c.roasLM == null ? "–" : `${c.roasLM.toLocaleString("ko-KR")}%`],
+                [(c.convLoss > 0 ? "-" : "+") + won(Math.abs(c.convLoss)), c.convLoss > 0 ? "down" : "up"]];
+      })));
+  }
+  if (a.budgetHits?.length) {
+    const h = document.createElement("h3"); h.textContent = "최근 7일 예산을 다 쓴 캠페인"; box.appendChild(h);
+    box.appendChild(t(["캠페인", "일예산", "예산 소진일", "마지막 소진"],
+      a.budgetHits.map(b => [link(b.name, a, `/sa/campaigns/${b.id}`), [won(b.budget)], [`7일 중 ${b.hitDays}일`], [b.lastHit]])));
+  }
+  return box;
+}
+
+function renderChurn() {
+  const accs = (person ? people[person] : DATA.accounts).filter(a => a.alerts.some(x => x.type === "churn"))
+    .sort((p, q) => q.lastMonthAvg - p.lastMonthAvg);
+  const body = document.getElementById("churnRows");
+  document.getElementById("churnKey").textContent =
+    `광고비 ${r.churnSpendDropPct}% 이상 감소 · 30일 중 비즈머니 바닥 ${r.churnZeroDays}일 이상 · ${r.churnNoEditDays}일 이상 수정 없음 중 2개 이상`;
+  body.innerHTML = accs.length ? "" : `<tr><td colspan="8" class="empty">이탈 위험 광고주가 없습니다.</td></tr>`;
+  for (const a of accs) {
+    const x = a.alerts.find(x => x.type === "churn");
+    const tr = document.createElement("tr"); tr.className = "lv-urgent";
+    const cells = [link(a.name, a, "/dashboard"), a.owners.join(", "), x.text.replace("이탈 위험: ", ""),
+      won(a.last7Avg ?? a.avg7), won(a.lastMonthAvg), `${a.bizZeroDays30 ?? 0}일`, a.lastCharge ?? "없음",
+      a.lastEdit ? a.lastEdit.slice(0, 10) : "–"];
+    cells.forEach((c, i) => { const td = document.createElement("td"); c instanceof Node ? td.appendChild(c) : (td.textContent = c); if (i === 2) td.style.whiteSpace = "normal"; tr.appendChild(td); });
+    body.appendChild(tr);
+  }
+}
+
+function renderBudget() {
+  const rows = [];
+  for (const a of person ? people[person] : DATA.accounts) for (const b of a.budgetHits ?? []) rows.push([a, b]);
+  rows.sort((p, q) => q[1].hitDays - p[1].hitDays || q[1].budget - p[1].budget);
+  document.getElementById("budgetKey").textContent = `하루 광고비가 일예산의 ${r.budgetHitPct}% 이상인 날을 예산 소진일로 셉니다`;
+  const body = document.getElementById("budgetRows");
+  body.innerHTML = rows.length ? "" : `<tr><td colspan="7" class="empty">최근 7일 예산을 다 쓴 캠페인이 없습니다.</td></tr>`;
+  for (const [a, b] of rows) {
+    const tr = document.createElement("tr");
+    const cells = [link(a.name, a, "/dashboard"), a.owners.join(", "), link(b.name, a, `/sa/campaigns/${b.id}`), won(b.budget),
+      `7일 중 ${b.hitDays}일`, b.lastHit, b.avgHitTime ?? "–"];
+    cells.forEach(c => { const td = document.createElement("td"); c instanceof Node ? td.appendChild(c) : (td.textContent = c); tr.appendChild(td); });
+    if (b.hitDays >= 5) tr.className = "lv-warn";
+    body.appendChild(tr);
+  }
+}
+
+// 내 계정만 보기: 주소 끝에 ?owner=이름 (팀원 이름을 누르면 주소에 자동으로 붙음 → 즐겨찾기)
+function renderAll() {
+  const u = new URL(location.href);
+  person ? u.searchParams.set("owner", person) : u.searchParams.delete("owner");
+  try { history.replaceState(null, "", u); } catch (e) {}
+  document.getElementById("h-alerts").textContent = person ? `${person} 님 오늘 할 일 (긴급 → 적색 → 이탈 위험 → 황색 순)` : "확인할 계정";
+  renderPeople(); renderAlerts(); renderChurn(); renderBudget(); renderLedger();
 }
 document.getElementById("activeOnly").onchange = renderLedger;
 
-renderPeople(); renderTabs(); renderAlerts(); renderLedger();
+{
+  const want = new URLSearchParams(location.search).get("owner");
+  if (want && people[want]) person = want;
+}
+renderTabs(); renderAll();
 </script>
 </body>
 </html>
