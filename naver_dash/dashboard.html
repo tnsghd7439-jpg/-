@@ -90,7 +90,7 @@ h2 { font-size: 15px; font-weight: 700; margin: 0 0 10px; color: var(--muted); }
 .lhead h2 { margin: 0; }
 .lhead label { font-size: 14px; color: var(--muted); cursor: pointer; }
 .tablebox { margin-top: 10px; overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
-table { border-collapse: collapse; width: 100%; min-width: 860px; font-size: 14px; }
+table { border-collapse: collapse; width: 100%; min-width: 960px; font-size: 14px; }
 th, td { padding: 9px 12px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
 th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
 td:first-child { white-space: normal; min-width: 180px; font-weight: 500; }
@@ -102,6 +102,7 @@ th[aria-sort] button::after { content: " ↓"; }
 th[aria-sort="ascending"] button::after { content: " ↑"; }
 td.down { color: var(--urgent); } td.up { color: var(--ok); }
 td.dim { color: var(--muted); }
+td.edit { cursor: help; text-decoration: underline dotted; }
 tr.lv-urgent td:first-child { box-shadow: inset 4px 0 0 var(--urgent); }
 tr.lv-warn td:first-child { box-shadow: inset 4px 0 0 var(--warn); }
 
@@ -150,7 +151,7 @@ const DATA = /*__DATA__*/null;
 const esc = s => String(s).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const won = n => n.toLocaleString("ko-KR") + "원";
 const TYPES = [["all", "전체"], ["bizmoney", "비즈머니"], ["off", "광고 꺼짐"],
-               ["drop", "어제 감소"], ["month", "월 소진 차이"]];
+               ["drop", "어제 감소"], ["month", "월 소진 차이"], ["noedit", "변경 없음"]];
 const RANK = { urgent: 0, warn: 1, info: 2 };
 const LVNAME = { urgent: "긴급", warn: "주의", info: "참고" };
 let person = null, type = "all";
@@ -238,6 +239,7 @@ const rules = [
   `월 소진 차이: 이번 달 일평균이 전월 일평균과 ±${r.monthGapPct}% 이상 차이`,
   `비즈머니: 잔액 ÷ 최근 7일 일평균이 ${r.bizUrgentDays}일 미만이면 긴급, ${r.bizWarnDays}일 미만이면 주의`,
   `광고 꺼짐: 평소 소진하던 계정이 어제 0원`,
+  `변경 없음: 최근 7일 광고비의 ${r.bigSharePct}% 이상을 쓰는 캠페인·광고그룹·키워드·소재가 모두 ${r.noEditDays}일 이상 수정되지 않은 계정 (캠페인 수정 시각에는 그 아래 그룹·키워드 수정이 반영되지 않음)`,
   "광고비는 검색광고 캠페인 광고비(VAT 포함)입니다. 성과형 DA(GFA)·ADVoost·브랜드검색 계약 금액은 빠지고, 무상 캐시 소진분은 들어갑니다.",
   ...DATA.errors.map(e => `수집 실패: ${e.name} (${e.customerId}) — ${e.error}`),
 ];
@@ -254,6 +256,7 @@ const COLS = [
   ["lastMonthAvg", "전월 일평균", a => a.lastMonthAvg],
   ["bizmoney", "비즈머니", a => a.bizmoney],
   ["days", "남은 일수", a => a.avg7 ? a.bizmoney / a.avg7 : null],
+  ["edit", "마지막 변경", a => a.daysSinceEdit ?? null],
 ];
 let sortKey = "yesterday", sortAsc = false;
 const pct = v => (v > 0 ? "+" : "") + Math.round(v * 100) + "%";
@@ -293,10 +296,17 @@ function renderLedger() {
       [won(a.monthAvg)], [won(a.lastMonthAvg)], [won(a.bizmoney), a.bizmoney <= 0 ? "down" : ""],
       [days === null ? "–" : days < 0 ? "소진" : `${days.toFixed(1)}일`,
        days === null ? "dim" : days < r.bizUrgentDays ? "down" : ""],
+      [a.daysSinceEdit == null ? "–" : `${a.daysSinceEdit}일 전`,
+       a.daysSinceEdit == null ? "dim" : a.daysSinceEdit >= r.noEditDays ? "down" : ""],
     ];
     for (const [t, cls] of cells) {
       const td = document.createElement("td");
       td.textContent = t; if (cls) td.className = cls; tr.appendChild(td);
+    }
+    if (a.bigEntities?.length) {
+      const td = tr.lastChild;
+      td.classList.add("edit");
+      td.title = a.bigEntities.map(e => `${e.level} ${e.name} · ${Math.round(e.share * 100)}% · ${e.editTm ?? "-"}`).join("\n");
     }
     body.appendChild(tr);
   }

@@ -6,6 +6,7 @@
      - 이번 달 일평균 소진이 전월 일평균과 크게 차이 나는 광고주
   2. 비즈머니 부족 (잔액 ÷ 최근 7일 일평균 = 남은 일수)
   3. 광고 꺼짐 (평소 소진 계정이 어제 0원)
+  4. 변경 없음 (광고비 20% 이상 쓰는 캠페인·그룹·키워드·소재가 7일 넘게 수정되지 않음)
 
 환경변수: NAVER_API_KEY, NAVER_SECRET_KEY, NAVER_CUSTOMER_ID (naver_api.py 참고)
 팀원 매칭: naver_dash/team.json (team.example.json 참고, 커밋 금지)
@@ -33,6 +34,8 @@ DROP_RATIO = 0.9            # 어제 < 직전 7일 평균 x 0.9 → 10% 이상 �
 MONTH_GAP = 0.5             # 이번 달 일평균이 전월 일평균 대비 ±50% 이상 → 큰 차이
 BIZ_URGENT_DAYS = 1         # 비즈머니 남은 일수 1일 미만 → 긴급
 BIZ_WARN_DAYS = 3           # 3일 미만 → 주의
+BIG_SHARE = 0.2             # 최근 7일 계정 광고비의 20% 이상 쓰는 캠페인·그룹·키워드·소재만 변경 여부를 본다
+NO_EDIT_DAYS = 7            # 그 대상들이 모두 7일 이상 수정이 없으면 → 변경 없음
 
 
 def ymd(d: date) -> str:
@@ -80,6 +83,62 @@ def spend(api, cid, camp_ids, since: date, until: date) -> int:
     return total
 
 
+def spend_by_id(api, cid, ids, since: date, until: date) -> dict:
+    """id별 광고비. 실적이 없는 id 는 응답에서 빠진다."""
+    out = {}
+    for i in range(0, len(ids), 50):
+        res = api.get("/stats", {
+            "ids": ",".join(ids[i:i + 50]),
+            "fields": '["salesAmt"]',
+            "timeRange": json.dumps({"since": ymd(since), "until": ymd(until)}),
+        }, customer_id=cid)
+        for r in res.get("data", []) if isinstance(res, dict) else []:
+            out[r["id"]] = int(r.get("salesAmt") or 0)
+    return out
+
+
+def kst(ts: str) -> str:
+    """editTm(UTC, ...Z) → 'YYYY-MM-DD HH:MM' 한국 시간."""
+    t = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(KST)
+    return t.strftime("%Y-%m-%d %H:%M")
+
+
+def big_entities(api, cid, camps, since: date, until: date) -> list:
+    """최근 7일 계정 광고비의 BIG_SHARE 이상을 쓴 캠페인·광고그룹·키워드·소재와 마지막 수정 시각.
+
+    하위 항목의 광고비는 상위 항목을 넘을 수 없으므로 20% 이상 캠페인 → 그 안의 20% 이상 그룹 → 그 안의
+    키워드·소재 순으로만 내려가 조회 수를 줄인다. 캠페인 editTm 은 하위 항목 수정을 반영하지 않는다.
+    """
+    cs = spend_by_id(api, cid, [c["nccCampaignId"] for c in camps], since, until)
+    total = sum(cs.values())
+    if not total:
+        return []
+    cut, out = total * BIG_SHARE, []
+
+    def add(level, name, ent, amt):
+        out.append({"level": level, "name": name, "editTm": kst(ent["editTm"]) if ent.get("editTm") else None,
+                    "share": round(amt / total, 3)})
+
+    for c in camps:
+        if cs.get(c["nccCampaignId"], 0) < cut:
+            continue
+        add("캠페인", c.get("name"), c, cs[c["nccCampaignId"]])
+        groups = api.get("/ncc/adgroups", {"nccCampaignId": c["nccCampaignId"]}, customer_id=cid) or []
+        gs = spend_by_id(api, cid, [g["nccAdgroupId"] for g in groups], since, until)
+        for g in groups:
+            if gs.get(g["nccAdgroupId"], 0) < cut:
+                continue
+            add("광고그룹", g.get("name"), g, gs[g["nccAdgroupId"]])
+            for uri, idk, label, namek in (("/ncc/keywords", "nccKeywordId", "키워드", "keyword"),
+                                           ("/ncc/ads", "nccAdId", "소재", "nccAdId")):
+                items = api.get(uri, {"nccAdgroupId": g["nccAdgroupId"]}, customer_id=cid) or []
+                sp = spend_by_id(api, cid, [x[idk] for x in items], since, until) if items else {}
+                for x in items:
+                    if sp.get(x[idk], 0) >= cut:
+                        add(label, x.get(namek), x, sp[x[idk]])
+    return out
+
+
 def owner_of(api, acc, team, direct) -> list:
     """담당 팀원: accounts 직접 지정 → 소속 관리계정(managers) → 구성원 네이버ID(members) → fallback 순.
 
@@ -107,7 +166,13 @@ def collect_account(api, acc, team, direct, P) -> dict:
     ids = [c["nccCampaignId"] for c in camps]
     s = {k: (spend(api, cid, ids, *v) if ids else 0) for k, v in P.items()}
     biz = api.get("/billing/bizmoney", customer_id=cid) or {}
+    y = P["yesterday"][0]
+    big = big_entities(api, cid, camps, y - timedelta(days=6), y) if s["prev7"] or s["yesterday"] else []
+    edits = [e["editTm"] for e in big if e["editTm"]]
     row.update({
+        "bigEntities": big,
+        "lastEdit": max(edits) if edits else None,
+        "daysSinceEdit": (y + timedelta(days=1) - date.fromisoformat(max(edits)[:10])).days if edits else None,
         "yesterday": s["yesterday"],
         "avg7": round(s["prev7"] / 7),
         "monthAvg": round(s["month"] / P["month"][1].day),
@@ -156,6 +221,11 @@ def judge(r: dict) -> list:
         pct = (1 - r["yesterday"] / avg7) * 100
         alerts.append({"type": "drop", "level": "warn",
                        "text": f"어제 {r['yesterday']:,}원, 7일 평균 {avg7:,}원 대비 {pct:.0f}% 감소"})
+
+    if active and r.get("daysSinceEdit") is not None and r["daysSinceEdit"] >= NO_EDIT_DAYS:
+        alerts.append({"type": "noedit", "level": "warn",
+                       "text": f"광고비 {round(BIG_SHARE * 100)}% 이상 쓰는 항목 {len(r['bigEntities'])}개, "
+                               f"{r['daysSinceEdit']}일째 변경 없음 (마지막 {r['lastEdit'][:10]})"})
 
     m, lm = r["monthAvg"], r["lastMonthAvg"]
     if max(m, lm) >= MIN_DAILY_AVG:
@@ -257,7 +327,8 @@ def main():
         "demo": args.demo,
         "rules": {"minDailyAvg": MIN_DAILY_AVG, "dropPct": round((1 - DROP_RATIO) * 100),
                   "monthGapPct": round(MONTH_GAP * 100), "bizUrgentDays": BIZ_URGENT_DAYS,
-                  "bizWarnDays": BIZ_WARN_DAYS},
+                  "bizWarnDays": BIZ_WARN_DAYS, "bigSharePct": round(BIG_SHARE * 100),
+                  "noEditDays": NO_EDIT_DAYS},
         "accounts": rows,
         "errors": errors,
     }
