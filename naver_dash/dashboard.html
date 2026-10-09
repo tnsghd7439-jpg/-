@@ -30,12 +30,15 @@ header h1 { font-size: 28px; line-height: 1.2; margin: 0 0 6px; font-weight: 700
 header p { margin: 0; color: var(--muted); }
 .demo { display: inline-block; margin-top: 10px; padding: 2px 10px; border-radius: 4px;
   background: var(--warn-soft); color: var(--warn); font-weight: 500; font-size: 13px; }
+.demo[hidden] { display: none; }
 .summary { margin: 22px 0 28px; font-size: 18px; max-width: 70ch; }
 .summary b { font-weight: 700; }
 .summary .u { color: var(--urgent); } .summary .w { color: var(--warn); }
 
 .grid { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 28px; align-items: start; }
 @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+.grid > *, .ledger { min-width: 0; }
+.atext, .aname { overflow-wrap: anywhere; }
 h2 { font-size: 15px; font-weight: 700; margin: 0 0 10px; color: var(--muted); }
 
 /* 팀원 목록: 이 화면의 핵심 — 계정 건강 띠 */
@@ -67,7 +70,7 @@ h2 { font-size: 15px; font-weight: 700; margin: 0 0 10px; color: var(--muted); }
 .tabs button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .tabs button:focus-visible { outline: 3px solid var(--info); outline-offset: 2px; }
 .alerts { list-style: none; margin: 0; padding: 0; background: var(--surface); border-radius: 8px;
-  border: 1px solid var(--line); }
+  border: 1px solid var(--line); max-height: 640px; overflow-y: auto; }
 .alert { display: grid; grid-template-columns: 64px 1fr auto; gap: 12px; padding: 12px 14px;
   border-bottom: 1px solid var(--line); align-items: baseline; }
 .alert:last-child { border-bottom: 0; }
@@ -80,6 +83,27 @@ h2 { font-size: 15px; font-weight: 700; margin: 0 0 10px; color: var(--muted); }
 .aowner { color: var(--muted); font-size: 13px; white-space: nowrap; }
 @media (max-width: 520px) { .alert { grid-template-columns: 56px 1fr; } .aowner { grid-column: 2; } }
 .empty { padding: 28px 16px; color: var(--muted); text-align: center; }
+
+/* 전체 계정 표 */
+.ledger { margin-top: 40px; }
+.lhead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 8px 16px; }
+.lhead h2 { margin: 0; }
+.lhead label { font-size: 14px; color: var(--muted); cursor: pointer; }
+.tablebox { margin-top: 10px; overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; min-width: 860px; font-size: 14px; }
+th, td { padding: 9px 12px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child, th:nth-child(2), td:nth-child(2) { text-align: left; }
+td:first-child { white-space: normal; min-width: 180px; font-weight: 500; }
+tbody tr:last-child td { border-bottom: 0; }
+th { font-weight: 500; color: var(--muted); background: var(--bg); position: sticky; top: 0; }
+th button { all: unset; cursor: pointer; }
+th button:focus-visible { outline: 3px solid var(--info); outline-offset: 2px; }
+th[aria-sort] button::after { content: " ↓"; }
+th[aria-sort="ascending"] button::after { content: " ↑"; }
+td.down { color: var(--urgent); } td.up { color: var(--ok); }
+td.dim { color: var(--muted); }
+tr.lv-urgent td:first-child { box-shadow: inset 4px 0 0 var(--urgent); }
+tr.lv-warn td:first-child { box-shadow: inset 4px 0 0 var(--warn); }
 
 details { margin-top: 28px; color: var(--muted); font-size: 13px; }
 details summary { cursor: pointer; }
@@ -109,6 +133,16 @@ details ul { padding-left: 18px; }
       <ul class="alerts" id="alerts"></ul>
     </section>
   </div>
+  <section class="ledger" aria-labelledby="h-ledger">
+    <div class="lhead">
+      <h2 id="h-ledger">담당 계정 전체</h2>
+      <label><input type="checkbox" id="activeOnly" checked> 최근 7일 광고비가 있는 계정만</label>
+    </div>
+    <div class="tablebox"><table>
+      <thead><tr id="lcols"></tr></thead>
+      <tbody id="lrows"></tbody>
+    </table></div>
+  </section>
   <details id="rules"><summary>점검 기준과 수집 정보</summary><ul id="rulelist"></ul></details>
 </div>
 <script>
@@ -126,7 +160,7 @@ const people = {};
 for (const a of DATA.accounts) for (const o of a.owners) (people[o] ||= []).push(a);
 
 document.getElementById("sub").textContent =
-  `${DATA.baseDate} 기준 · ${DATA.generatedAt} 수집 · 계정 ${DATA.accounts.length}개`;
+  `${DATA.baseDate} 광고비 기준, ${DATA.generatedAt}에 수집한 ${DATA.accounts.length}개 계정`;
 document.getElementById("demo").hidden = !DATA.demo;
 
 const urgentN = DATA.accounts.filter(a => worst(a) === 0).length;
@@ -154,7 +188,7 @@ function renderPeople() {
       <div class="prow"><span class="pname">${esc(name)}</span><span class="pspend">${won(accs.reduce((s, a) => s + a.yesterday, 0))}</span></div>
       <div class="pmeta">담당 ${accs.length}개 · 확인 필요 ${nAlert}개</div>
       <div class="strip" aria-hidden="true">${strip}</div></button>`;
-    li.querySelector("button").onclick = () => { person = key; renderPeople(); renderAlerts(); };
+    li.querySelector("button").onclick = () => { person = key; renderPeople(); renderAlerts(); renderLedger(); };
     ul.appendChild(li);
   }
 }
@@ -204,13 +238,72 @@ const rules = [
   `월 소진 차이: 이번 달 일평균이 전월 일평균과 ±${r.monthGapPct}% 이상 차이`,
   `비즈머니: 잔액 ÷ 최근 7일 일평균이 ${r.bizUrgentDays}일 미만이면 긴급, ${r.bizWarnDays}일 미만이면 주의`,
   `광고 꺼짐: 평소 소진하던 계정이 어제 0원`,
-  "광고비는 VAT 포함 금액입니다.",
+  "광고비는 검색광고 캠페인 광고비(VAT 포함)입니다. 성과형 DA(GFA)·ADVoost·브랜드검색 계약 금액은 빠지고, 무상 캐시 소진분은 들어갑니다.",
   ...DATA.errors.map(e => `수집 실패: ${e.name} (${e.customerId}) — ${e.error}`),
 ];
 document.getElementById("rulelist").innerHTML = "";
 for (const t of rules) { const li = document.createElement("li"); li.textContent = t; document.getElementById("rulelist").appendChild(li); }
 
-renderPeople(); renderTabs(); renderAlerts();
+const COLS = [
+  ["name", "광고주", a => a.name],
+  ["owner", "담당", a => a.owners.join(", ")],
+  ["yesterday", "어제", a => a.yesterday],
+  ["avg7", "7일 일평균", a => a.avg7],
+  ["chg", "어제 증감", a => a.avg7 ? a.yesterday / a.avg7 - 1 : null],
+  ["monthAvg", "이번 달 일평균", a => a.monthAvg],
+  ["lastMonthAvg", "전월 일평균", a => a.lastMonthAvg],
+  ["bizmoney", "비즈머니", a => a.bizmoney],
+  ["days", "남은 일수", a => a.avg7 ? a.bizmoney / a.avg7 : null],
+];
+let sortKey = "yesterday", sortAsc = false;
+const pct = v => (v > 0 ? "+" : "") + Math.round(v * 100) + "%";
+
+function renderLedger() {
+  const head = document.getElementById("lcols");
+  head.innerHTML = "";
+  for (const [k, label] of COLS) {
+    const th = document.createElement("th");
+    th.scope = "col";
+    if (k === sortKey) th.setAttribute("aria-sort", sortAsc ? "ascending" : "descending");
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = label;
+    b.onclick = () => { sortAsc = sortKey === k ? !sortAsc : k === "name" || k === "owner" || k === "days";
+                        sortKey = k; renderLedger(); };
+    th.appendChild(b); head.appendChild(th);
+  }
+  const only = document.getElementById("activeOnly").checked;
+  const get = COLS.find(c => c[0] === sortKey)[2];
+  const accs = (person ? people[person] : DATA.accounts).filter(a => !only || a.avg7 > 0);
+  accs.sort((p, q) => {
+    const x = get(p), y = get(q);
+    if (x === null || y === null) return (x === null) - (y === null);
+    const c = typeof x === "string" ? x.localeCompare(y, "ko") : x - y;
+    return sortAsc ? c : -c;
+  });
+  const body = document.getElementById("lrows");
+  body.innerHTML = accs.length ? "" : `<tr><td colspan="${COLS.length}" class="empty">최근 7일 광고비가 있는 계정이 없습니다.</td></tr>`;
+  for (const a of accs) {
+    const tr = document.createElement("tr");
+    const w = worst(a);
+    if (w <= 1) tr.className = w === 0 ? "lv-urgent" : "lv-warn";
+    const chg = COLS[4][2](a), days = COLS[8][2](a);
+    const cells = [
+      [a.name], [a.owners.join(", ")], [won(a.yesterday)], [won(a.avg7)],
+      [chg === null ? "–" : pct(chg), chg === null ? "dim" : chg <= -0.1 ? "down" : chg >= 0.1 ? "up" : ""],
+      [won(a.monthAvg)], [won(a.lastMonthAvg)], [won(a.bizmoney), a.bizmoney <= 0 ? "down" : ""],
+      [days === null ? "–" : days < 0 ? "소진" : `${days.toFixed(1)}일`,
+       days === null ? "dim" : days < r.bizUrgentDays ? "down" : ""],
+    ];
+    for (const [t, cls] of cells) {
+      const td = document.createElement("td");
+      td.textContent = t; if (cls) td.className = cls; tr.appendChild(td);
+    }
+    body.appendChild(tr);
+  }
+}
+document.getElementById("activeOnly").onchange = renderLedger;
+
+renderPeople(); renderTabs(); renderAlerts(); renderLedger();
 </script>
 </body>
 </html>
