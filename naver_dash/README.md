@@ -58,3 +58,30 @@ python3 naver_dash/collect.py --limit 3    # 2) 3개 계정만 시험 수집
 python3 naver_dash/collect.py              # 3) 전체 수집
 python3 naver_dash/collect.py --demo       #    키 없이 가상 데이터로 화면 확인
 ```
+
+## 회사 PC 에서 매일 자동 실행 (Claude 크레딧 소모 없음)
+1. 파이썬 3 설치 (python.org, 설치 시 "Add to PATH" 체크). 추가 패키지는 필요 없습니다.
+2. 이 저장소를 회사 PC 에 내려받고 `naver_dash/team.json` 을 둡니다 (커밋 금지 파일).
+3. API 키를 **사용자 환경변수**로 등록 (명령 프롬프트, 키 값은 직접 입력. 파일에 적지 않음):
+   ```
+   setx NAVER_API_KEY "..."
+   setx NAVER_SECRET_KEY "..."
+   setx NAVER_CUSTOMER_ID "..."
+   ```
+4. 작업 스케줄러에 매일 07:00 등록:
+   ```
+   schtasks /Create /SC DAILY /ST 07:00 /TN "6팀 대시보드" /TR "\"C:\경로\naver_dash\run_daily.bat\""
+   ```
+5. 결과: `output/naver_dash/dashboard.html` 이 매일 새 데이터로 바뀝니다(파일 이름 고정). 실행 기록은 `output/naver_dash/run.log`.
+6. 팀원에게 링크 나누기: 회사 PC 에서 `naver_dash/serve.bat` 을 켜 두면 사내망에서
+   `http://<회사 PC IP>:8080/dashboard.html?owner=박송희` 처럼 열립니다. (윈도우 방화벽 허용 필요, 사내망 누구나 볼 수 있음)
+
+수집 시간 줄이기 (기본 적용)
+- 4개 계정 동시 수집 (`--workers`, 호출 한도 오류가 나면 줄임)
+- 휴면 계정은 전날 결과를 재사용하고 최근 14일 광고비만 확인, 상세 수집은 7일마다 (`--full` 이면 전부 상세)
+- 예산 OFF 시간대 보고서는 날짜별로 `output/naver_dash/hourly/` 에 저장해 두고, 매일 어제 하루치만 새로 만듦 (15일 지나면 삭제)
+
+## 팀원(신입) 추가
+- 신입 관리계정이 「6팀 홍길동」 이름으로 생기면 `team.json` 의 `managerPrefix: "6팀 "` 규칙으로 **자동 인식**됩니다.
+- 단, **API 키 발급 네이버 ID 를 그 관리계정 구성원(조회 권한 이상)으로 추가**해야 API 에 보입니다. 안 하면 그 신입 계정은 `fallback` 담당으로 잘못 잡힙니다.
+- 확인: `python3 naver_dash/check_access.py --limit 0` → 1) 목록에 「6팀 홍길동」이 보이면 OK.

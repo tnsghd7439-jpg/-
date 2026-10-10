@@ -18,8 +18,11 @@
   python3 naver_dash/collect.py --demo       # 키 없이 가상 데이터로 화면만 확인
 """
 import argparse
+import concurrent.futures
+import threading
 import calendar
 import json
+import os
 import random
 import time
 import sys
@@ -27,7 +30,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-OUT = ROOT.parent / "output" / "naver_dash"
+# 결과 폴더. 회사 PC 에서 다른 위치(공유 폴더 등)에 두려면 환경변수 NAVER_DASH_OUT 으로 지정
+OUT = Path(os.environ.get("NAVER_DASH_OUT") or ROOT.parent / "output" / "naver_dash")
 KST = timezone(timedelta(hours=9))
 
 # 점검 기준 (팀 합의에 따라 조정)
@@ -46,6 +50,10 @@ CHURN_ZERO_DAYS = 2         # 2) 최근 30일 중 비즈머니가 바닥난 날�
 CHURN_NO_EDIT_DAYS = 30     # 3) 캠페인·광고그룹 30일 이상 수정 없음
 BUDGET_HIT = 0.95           # 하루 광고비가 일예산의 95% 이상이면 그날 예산을 다 쓴 것으로 본다
 WITH_HOURS = True           # 예산 소진 시각 (시간대별 보고서 생성 필요, --no-hours 로 끔)
+# 매일 자동 실행용
+WORKERS = 4                 # 동시에 수집할 계정 수 (네이버 호출 한도에 걸리면 줄인다)
+DORMANT_RECHECK_DAYS = 7    # 휴면 계정은 가볍게(최근 14일 광고비만) 확인하고, 상세 수집은 7일마다
+HOURLY_KEEP_DAYS = 15       # 시간대별 보고서 캐시 보관 일수
 
 
 def ymd(d: date) -> str:
@@ -70,10 +78,11 @@ def periods(today: date) -> dict:
 def load_team() -> dict:
     p = ROOT / "team.json"
     if not p.exists():
-        return {"scope": [], "exclude": [], "fallback": "미지정", "managers": {}, "members": {}, "accounts": {}}
+        return {"scope": [], "exclude": [], "fallback": "미지정", "managerPrefix": "", "managers": {}, "members": {}, "accounts": {}}
     d = json.loads(p.read_text(encoding="utf-8"))
     return {"scope": [str(x) for x in d.get("scope", [])], "exclude": [str(x) for x in d.get("exclude", [])],
             "fallback": d.get("fallback") or "미지정",
+            "managerPrefix": d.get("managerPrefix") or "",
             "managers": {str(k): v for k, v in d.get("managers", {}).items()},
             "members": d.get("members", {}),
             "accounts": {str(k): v for k, v in d.get("accounts", {}).items()}}
@@ -189,9 +198,15 @@ def add_off_hours(api, cid, hits: list) -> None:
     days = sorted({d for b in hits for d in b["days"]})
     hourly = {}
     for d in days:
+        f = OUT / "hourly" / str(cid) / f"{d}.json"
+        if f.exists():
+            hourly[d] = json.loads(f.read_text(encoding="utf-8"))
+            continue
         try:
             hourly[d] = hourly_cost(api, cid, d)
-        except Exception:  # noqa: BLE001 — 한 날짜 보고서 실패는 그 날짜만 비운다
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text(json.dumps(hourly[d]), encoding="utf-8")
+        except Exception:  # noqa: BLE001 — 한 날짜 보고서 실패는 그 날짜만 비운다 (캐시 안 함 → 다음 실행 때 재시도)
             hourly[d] = {}
     for b in hits:
         hrs = []
@@ -227,6 +242,10 @@ def owner_of(api, acc, team, direct) -> list:
     if cid in team["accounts"]:
         return [team["accounts"][cid]]
     names = {team["managers"][str(m)] for m in acc["_managers"] if str(m) in team["managers"]}
+    # 팀원 관리계정 이름 규칙 "6팀 홍길동" → 홍길동 (신입이 생겨도 team.json 수정 불필요)
+    pre = team["managerPrefix"]
+    if not names and pre:
+        names = {n[len(pre):].strip() for n in acc["_managerNames"] if n and n.startswith(pre) and n[len(pre):].strip()}
     if not names and team["members"] and acc["adAccountNo"] in direct:
         try:
             members = api.get(f"/ad-accounts/{acc['adAccountNo']}/members") or []
@@ -234,6 +253,23 @@ def owner_of(api, acc, team, direct) -> list:
             members = []
         names = {team["members"][m["naverId"]] for m in members if m.get("naverId") in team["members"]}
     return sorted(names) or [team["fallback"]]
+
+
+def is_dormant(r: dict) -> bool:
+    return not (r.get("yesterday") or r.get("avg7") or r.get("monthAvg") or r.get("lastMonthAvg"))
+
+
+def light_check(api, acc, prev: dict, P, base: str):
+    """전날 휴면이었고 상세 수집한 지 DORMANT_RECHECK_DAYS 안 됐으면, 최근 14일 광고비만 보고 0원이면 전날 결과를 재사용."""
+    if not (prev and is_dormant(prev) and prev.get("fullAt")):
+        return None
+    if (date.fromisoformat(base) - date.fromisoformat(prev["fullAt"])).days >= DORMANT_RECHECK_DAYS:
+        return None
+    cid = str(acc["customerId"])
+    ids = [c["nccCampaignId"] for c in api.get("/ncc/campaigns", customer_id=cid) or []]
+    if ids and spend(api, cid, ids, P["last14"][0], P["yesterday"][1])[0]:
+        return None  # 광고비가 다시 나가기 시작함 → 상세 수집
+    return {**prev, "name": acc.get("adAccountName") or prev["name"], "light": True}
 
 
 def collect_account(api, acc, team, direct, P) -> dict:
@@ -257,6 +293,7 @@ def collect_account(api, acc, team, direct, P) -> dict:
     row.update({
         "campaignPerf": campaign_perf(camps, s, P) if spending else [],
         "budgetHits": hits,
+        "fullAt": ymd(y),
         "bizZeroDays30": zero,
         "lastCharge": last_charge,
         "lastEdit": edit,
@@ -380,7 +417,23 @@ def render(data: dict) -> Path:
     html = tpl.replace("/*__DATA__*/null", payload)
     out = OUT / f"{stem}.html"
     out.write_text(html, encoding="utf-8")
+    # 팀원에게 나눠준 링크용 고정 파일. 쓰는 도중에 열려도 깨지지 않게 임시 파일로 쓴 뒤 바꿔치기한다
+    for name, body in (("dashboard.html", html), ("latest.json", json.dumps(data, ensure_ascii=False))):
+        tmp = OUT / f".{name}.tmp"
+        tmp.write_text(body, encoding="utf-8")
+        tmp.replace(OUT / name)
     return out
+
+
+def prune_hourly(today: date) -> None:
+    """오래된 시간대별 보고서 캐시 삭제 (출력 폴더 안의 캐시 파일만)."""
+    root = OUT / "hourly"
+    if not root.exists():
+        return
+    cut = ymd(today - timedelta(days=HOURLY_KEEP_DAYS))
+    for f in root.glob("*/*.json"):
+        if f.stem < cut:
+            f.unlink()
 
 
 def demo_rows(today) -> list:
@@ -411,6 +464,8 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--demo", action="store_true")
     ap.add_argument("--no-hours", action="store_true", help="예산 소진 시각(보고서 생성) 생략")
+    ap.add_argument("--full", action="store_true", help="휴면 계정도 전부 상세 수집 (전날 결과 재사용 안 함)")
+    ap.add_argument("--workers", type=int, default=WORKERS, help="동시에 수집할 계정 수")
     args = ap.parse_args()
 
     global WITH_HOURS
@@ -444,14 +499,34 @@ def main():
             direct = {o["adAccountNo"] for o in own}
         if args.limit:
             uniq = uniq[: args.limit]
-        rows = []
-        for n, acc in enumerate(uniq, 1):
-            print(f"[{n}/{len(uniq)}] {acc.get('adAccountName')}", file=sys.stderr)
+        prev = {}
+        if (OUT / "latest.json").exists() and not args.full:
+            prev = {r["customerId"]: r for r in json.loads((OUT / "latest.json").read_text(encoding="utf-8"))["accounts"]}
+        prune_hourly(today)
+        base = ymd(P["yesterday"][0])
+        rows, done, lock = [], [0], threading.Lock()
+
+        def work(acc):
             try:
-                rows.append(collect_account(api, acc, team, direct, P))
+                r = light_check(api, acc, prev.get(str(acc["customerId"])), P, base)
+                if r is None:
+                    r = collect_account(api, acc, team, direct, P)
+                else:  # 담당·접근 관리계정은 매일 최신으로
+                    r.update({"owners": owner_of(api, acc, team, direct), "managers": acc["_managerNames"]})
+                with lock:
+                    rows.append(r)
             except Exception as e:  # noqa: BLE001 — 한 계정 실패가 전체를 멈추지 않게
-                errors.append({"name": acc.get("adAccountName"), "customerId": str(acc["customerId"]),
-                               "error": str(e)[:200]})
+                with lock:
+                    errors.append({"name": acc.get("adAccountName"), "customerId": str(acc["customerId"]),
+                                   "error": str(e)[:200]})
+            with lock:
+                done[0] += 1
+                print(f"[{done[0]}/{len(uniq)}] {acc.get('adAccountName')}", file=sys.stderr, flush=True)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as ex:
+            list(ex.map(work, uniq))
+        order = {str(a["customerId"]): i for i, a in enumerate(uniq)}
+        rows.sort(key=lambda r: order.get(r["customerId"], 0))
 
     for r in rows:
         r["alerts"] = judge(r)
@@ -470,7 +545,8 @@ def main():
     }
     out = render(data)
     n_alert = sum(1 for r in rows if r["alerts"])
-    print(f"계정 {len(rows)}개 · 경고 있는 계정 {n_alert}개 · 실패 {len(errors)}개 → {out}")
+    n_light = sum(1 for r in rows if r.get("light"))
+    print(f"계정 {len(rows)}개(휴면 간이 확인 {n_light}개) · 경고 있는 계정 {n_alert}개 · 실패 {len(errors)}개 → {out}")
 
 
 if __name__ == "__main__":
