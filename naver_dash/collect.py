@@ -187,7 +187,12 @@ def hourly_cost(api, cid, day: str) -> dict:
 def add_off_hours(api, cid, hits: list) -> None:
     """예산 소진일마다 그 캠페인의 마지막 광고비 발생 시간대 = 예산이 바닥나 꺼진 시간대. 평균을 hits 에 채운다."""
     days = sorted({d for b in hits for d in b["days"]})
-    hourly = {d: hourly_cost(api, cid, d) for d in days}
+    hourly = {}
+    for d in days:
+        try:
+            hourly[d] = hourly_cost(api, cid, d)
+        except Exception:  # noqa: BLE001 — 한 날짜 보고서 실패는 그 날짜만 비운다
+            hourly[d] = {}
     for b in hits:
         hrs = []
         for d in b["days"]:

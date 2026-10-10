@@ -74,6 +74,11 @@ class NaverAdsAPI:
                     continue
                 body_txt = re.sub(r"api-key: \S+", "api-key: ***", e.read()[:300].decode(errors="replace"))
                 raise RuntimeError(f"{uri} → HTTP {e.code}: {body_txt}") from None
+            except (urllib.error.URLError, ConnectionError, TimeoutError) as e:
+                if attempt < 3:  # 일시적 연결 끊김 → 재시도 (중복 생성돼도 보고서만 하나 더 생김)
+                    time.sleep(2 ** attempt)
+                    continue
+                raise RuntimeError(f"{uri} → 연결 실패: {e}") from None
 
     def download(self, url: str, customer_id: str) -> str:
         """보고서 파일(TSV) 내려받기. 서명 대상 uri 는 '/report-download'."""
