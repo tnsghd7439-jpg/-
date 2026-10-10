@@ -32,6 +32,8 @@ CAMP_TP = {"WEB_SITE": "파워링크", "SHOPPING": "쇼핑검색", "BRAND_SEARCH
            "POWER_CONTENTS": "파워컨텐츠", "PLACE": "플레이스"}
 DAYS = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"]
 GENDER = {"GNF": "여성", "GNM": "남성"}
+CONV_TYPES = {"AD_CONVERSION_DETAIL", "SHOPPINGKEYWORD_CONVERSION_DETAIL"}
+CONV_DETAIL_DAYS = 44       # 시간대·매체가 나뉜 전환 상세 보고서는 최근 약 45일치만 API 로 받을 수 있다 (실측: 10/10 기준 8/27 부터)
 METRICS = ["노출수", "클릭수", "총비용", "총 전환수", "구매완료 전환수", "구매완료 전환매출액", "평균노출순위"]
 
 
@@ -68,8 +70,10 @@ def report_rows(api, cid, tp: str, day: date) -> list:
 
 def fetch_all(api, cid, start: date, end: date, workers: int) -> dict:
     days = [start + timedelta(days=i) for i in range((end - start).days + 1)]
-    jobs = [(tp, d) for d in days for tp in TYPES]
+    limit = date.today() - timedelta(days=CONV_DETAIL_DAYS)
+    jobs = [(tp, d) for d in days for tp in TYPES if not (tp in CONV_TYPES and d < limit)]
     out = {tp: {} for tp in TYPES}
+    out["_conv_from"] = max(start, limit)  # 이 날짜부터 전환 상세가 있음
     done = [0]
 
     failed = []
@@ -199,6 +203,43 @@ def build(R: dict, camps: dict, groups: dict, g2c: dict):
     return main, search, gender, age, dow
 
 
+def backfill_main_conv(api, cid, R, main: Agg, start: date, conv_from: date, camps, groups):
+    """전환 상세가 없는 기간(conv_from 이전)의 매체·소재 구매완료를 /stats 소재별 월 합계로 채운다.
+    매체별로는 나뉘지 않아 그 달 그 소재에서 광고비가 가장 큰 매체 행에 붙인다. 총 전환수는 구매완료 수로 대신한다."""
+    if conv_from <= start:
+        return 0
+    cost = collections.defaultdict(dict)  # (월, 소재) → {main 키: 비용}
+    for d, rows in R["AD_DETAIL"].items():
+        if d >= conv_from:
+            continue
+        for x in rows:
+            k = (mon(x[0]), CAMP(camps, x[2])[1], CAMP(camps, x[2])[0], groups.get(x[3], x[3]), x[9], x[5])
+            cost[(mon(x[0]), x[5])][k] = cost[(mon(x[0]), x[5])].get(k, 0) + float(x[13])
+    n = 0
+    m0 = start.replace(day=1)
+    while m0 < conv_from:
+        m1 = min((m0.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1), conv_from - timedelta(days=1))
+        a, ym = max(m0, start), f"{m0:%Y.%m}"
+        nads = sorted({nad for (mm, nad) in cost if mm == ym and nad.startswith("nad-")})
+        for i in range(0, len(nads), 50):
+            res = api.get("/stats", {"ids": ",".join(nads[i:i + 50]), "fields": '["purchaseCcnt","purchaseConvAmt"]',
+                                     "timeRange": json.dumps({"since": f"{a}", "until": f"{m1}"})}, customer_id=cid)
+            for x in res.get("data", []):
+                buy, rev = f(x.get("purchaseCcnt")), f(x.get("purchaseConvAmt"))
+                if not (buy or rev):
+                    continue
+                parts = cost[(ym, x["id"])]
+                if parts:  # 건수가 쪼개지지 않게 그 소재에서 광고비가 가장 큰 매체 행에 통째로 붙인다
+                    main.add(max(parts, key=parts.get), conv=buy, buy=buy, rev=rev)
+                    n += buy
+        m0 = m1 + timedelta(days=1)
+    return n
+
+
+def CAMP(camps, c):
+    return camps.get(c, (c, ""))
+
+
 def write_csv(path: Path, title: str, head: list, rows) -> int:
     buf = io.StringIO()
     buf.write(title + "\n")
@@ -247,7 +288,9 @@ def main():
             groups[gid], g2c[gid] = g.get("name") or gid, g.get("nccCampaignId", "")
         except RuntimeError:
             pass
+    conv_from = R.pop("_conv_from")
     main_, search, gender, age, dow = build(R, camps, groups, g2c)
+    filled = backfill_main_conv(api, cid, R, main_, start, conv_from, camps, groups)
 
     out = collect.OUT / "deck_export" / f"{acc['adAccountNo']}_{start:%Y%m%d}-{end:%Y%m%d}"
     out.mkdir(parents=True, exist_ok=True)
@@ -264,6 +307,9 @@ def main():
         fp.write("\n".join("\t".join(map(str, r)) for r in shop))
     n["소재목록"] = len(shop)
     print(f"완료 {time.time() - t:.0f}초 → {out}")
+    if conv_from > start:
+        print(f"주의: {start}~{conv_from - timedelta(days=1)} 은 전환 상세가 API 에 없어 —"
+              f" 매체·소재 구매완료는 소재별 합계로 채움({int(filled)}건), 검색어·요일·시간대 파일의 이 기간 구매완료는 비어 있음")
     print("행 수: " + ", ".join(f"{k} {v}" for k, v in n.items()))
     return out
 
