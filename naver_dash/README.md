@@ -61,7 +61,7 @@ python3 naver_dash/collect.py --demo       #    키 없이 가상 데이터로 �
 
 ## 회사 PC 에서 매일 자동 실행 (Claude 크레딧 소모 없음)
 1. 파이썬 3 설치 (python.org, 설치 시 "Add to PATH" 체크). 추가 패키지는 필요 없습니다.
-2. 이 저장소를 회사 PC 에 내려받고 `naver_dash/team.json` 을 둡니다 (커밋 금지 파일).
+2. 이 저장소를 회사 PC 에 내려받고(`git clone`) `naver_dash/team.json` 을 둡니다 (커밋 금지 파일). `run_daily.bat` 이 실행 때마다 `git pull` 로 최신 코드를 받습니다.
 3. API 키를 **사용자 환경변수**로 등록 (명령 프롬프트, 키 값은 직접 입력. 파일에 적지 않음):
    ```
    setx NAVER_API_KEY "..."
