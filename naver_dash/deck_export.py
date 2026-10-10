@@ -42,13 +42,20 @@ def report_rows(api, cid, tp: str, day: date) -> list:
     if f.exists():
         text = f.read_text(encoding="utf-8")
     else:
-        job = api.create_report(tp, f"{day:%Y%m%d}", cid)
-        for _ in range(60):
+        try:
+            job = api.create_report(tp, f"{day:%Y%m%d}", cid)
+        except RuntimeError as e:
+            if '"code":10004' not in str(e):  # 10004 = 그날 그 보고서에 실적 없음 → 빈 날로 저장
+                raise
+            job = None
+        for _ in range(60 if job else 0):
             j = api.get(f"/stat-reports/{job['reportJobId']}", customer_id=cid)
             if j.get("status") in ("BUILT", "NONE", "ERROR", "AGGREGATING_FAIL"):
                 break
             time.sleep(2)
-        if j.get("status") == "BUILT" and j.get("downloadUrl"):
+        if job is None:
+            text = ""
+        elif j.get("status") == "BUILT" and j.get("downloadUrl"):
             text = api.download(j["downloadUrl"], cid)
         elif j.get("status") == "NONE":  # 그날 실적 없음
             text = ""
@@ -65,15 +72,25 @@ def fetch_all(api, cid, start: date, end: date, workers: int) -> dict:
     out = {tp: {} for tp in TYPES}
     done = [0]
 
+    failed = []
+
     def one(job):
         tp, d = job
-        out[tp][d] = report_rows(api, cid, tp, d)
+        for attempt in range(2):
+            try:
+                out[tp][d] = report_rows(api, cid, tp, d)
+                break
+            except Exception as e:  # noqa: BLE001 — 한 날짜 실패로 전체를 멈추지 않는다 (캐시 안 됨 → 다음 실행 때 재시도)
+                if attempt:
+                    failed.append(f"{tp} {d}: {str(e)[:80]}")
         done[0] += 1
         if done[0] % 50 == 0:
             print(f"  보고서 {done[0]}/{len(jobs)}", file=sys.stderr, flush=True)
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
         list(ex.map(one, jobs))
+    if failed:
+        print(f"  못 받은 보고서 {len(failed)}개 (다시 실행하면 그것만 다시 받음): " + "; ".join(failed[:5]), file=sys.stderr)
     return out
 
 
