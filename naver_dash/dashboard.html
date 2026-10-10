@@ -167,7 +167,7 @@ details ul { padding-left: 18px; }
     <div class="lhead"><h2 id="h-budget">예산 소진 캠페인 (최근 7일)</h2>
       <span class="lkey" id="budgetKey"></span></div>
     <div class="tablebox scroll"><table class="small">
-      <thead><tr><th>광고주</th><th>담당</th><th>캠페인</th><th>일예산</th><th>예산 소진일</th><th>마지막 소진</th><th>평균 소진 시각</th></tr></thead>
+      <thead><tr><th>광고주</th><th>담당</th><th>캠페인</th><th>일예산</th><th>예산 소진일</th><th>마지막 소진</th><th>평균 소진 시각</th><th>범위</th></tr></thead>
       <tbody id="budgetRows"></tbody></table></div>
   </section>
   <section class="ledger" aria-labelledby="h-ledger">
@@ -284,7 +284,7 @@ const rules = [
   `관리 경보: ① 최근 7일 구매완료 수익률이 지난달보다 ${r.roasDropPct}% 이상 낮음 ② 최근 7일 일평균 광고비가 지난달보다 ${r.spendDropPct}% 이상 적음 ③ 캠페인·광고그룹 어디에도 ${r.noEditDays}일 넘게 수정 기록 없음 (키워드·소재 수정은 보지 않음). 2개 이상이면 적색, 1개면 황색`,
   "구매 ROAS = 구매완료 전환매출 ÷ 광고비(VAT 포함) × 100. 장바구니·회원가입 등 다른 전환은 넣지 않습니다.",
   `이탈 위험: 최근 7일 일평균 광고비가 지난달보다 ${r.churnSpendDropPct}% 이상 감소 / 최근 30일 중 비즈머니가 바닥난 날 ${r.churnZeroDays}일 이상 / ${r.churnNoEditDays}일 이상 수정 없음 중 2개 이상`,
-  `예산 소진: 하루 광고비가 그 캠페인 현재 일예산의 ${r.budgetHitPct}% 이상인 날. 평균 소진 시각은 시간대별 보고서가 필요해 아직 표시하지 않습니다.`,
+  `예산 소진: 하루 광고비가 그 캠페인 현재 일예산의 ${r.budgetHitPct}% 이상인 날. 소진 시각은 시간대별 보고서(AD_DETAIL)에서 그날 마지막으로 광고비가 나간 시간대이며, 평균은 소진일들의 평균입니다.`,
   "광고비는 검색광고 캠페인 광고비(VAT 포함)입니다. 성과형 DA(GFA)·ADVoost·브랜드검색 계약 금액은 빠지고, 무상 캐시 소진분은 들어갑니다.",
   ...DATA.errors.map(e => `수집 실패: ${e.name} (${e.customerId}) — ${e.error}`),
 ];
@@ -432,8 +432,8 @@ function campaignDetail(a) {
   }
   if (a.budgetHits?.length) {
     const h = document.createElement("h3"); h.textContent = "최근 7일 예산을 다 쓴 캠페인"; box.appendChild(h);
-    box.appendChild(t(["캠페인", "일예산", "예산 소진일", "마지막 소진"],
-      a.budgetHits.map(b => [link(b.name, a, `/sa/campaigns/${b.id}`), [won(b.budget)], [`7일 중 ${b.hitDays}일`], [b.lastHit]])));
+    box.appendChild(t(["캠페인", "일예산", "예산 소진일", "마지막 소진", "평균 소진 시각"],
+      a.budgetHits.map(b => [link(b.name, a, `/sa/campaigns/${b.id}`), [won(b.budget)], [`7일 중 ${b.hitDays}일`], [b.lastHit], [b.avgHitTime ?? "–"]])));
   }
   return box;
 }
@@ -460,13 +460,13 @@ function renderBudget() {
   const rows = [];
   for (const a of person ? people[person] : DATA.accounts) for (const b of a.budgetHits ?? []) rows.push([a, b]);
   rows.sort((p, q) => q[1].hitDays - p[1].hitDays || q[1].budget - p[1].budget);
-  document.getElementById("budgetKey").textContent = `하루 광고비가 일예산의 ${r.budgetHitPct}% 이상인 날을 예산 소진일로 셉니다`;
+  document.getElementById("budgetKey").textContent = `하루 광고비가 일예산의 ${r.budgetHitPct}% 이상인 날을 예산 소진일로 셉니다. 소진 시각은 그날 마지막으로 광고비가 나간 시간대`;
   const body = document.getElementById("budgetRows");
-  body.innerHTML = rows.length ? "" : `<tr><td colspan="7" class="empty">최근 7일 예산을 다 쓴 캠페인이 없습니다.</td></tr>`;
+  body.innerHTML = rows.length ? "" : `<tr><td colspan="8" class="empty">최근 7일 예산을 다 쓴 캠페인이 없습니다.</td></tr>`;
   for (const [a, b] of rows) {
     const tr = document.createElement("tr");
     const cells = [link(a.name, a, "/dashboard"), a.owners.join(", "), link(b.name, a, `/sa/campaigns/${b.id}`), won(b.budget),
-      `7일 중 ${b.hitDays}일`, b.lastHit, b.avgHitTime ?? "–"];
+      `7일 중 ${b.hitDays}일`, b.lastHit, b.avgHitTime ?? "–", b.hitRange ?? "–"];
     cells.forEach(c => { const td = document.createElement("td"); c instanceof Node ? td.appendChild(c) : (td.textContent = c); tr.appendChild(td); });
     if (b.hitDays >= 5) tr.className = "lv-warn";
     body.appendChild(tr);

@@ -21,6 +21,7 @@ import argparse
 import calendar
 import json
 import random
+import time
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -44,6 +45,7 @@ CHURN_SPEND_DROP = 0.3      # 1) 최근 7일 일평균 광고비 < 지난달 일
 CHURN_ZERO_DAYS = 2         # 2) 최근 30일 중 비즈머니가 바닥난 날이 2일 이상 (미충전 반복)
 CHURN_NO_EDIT_DAYS = 30     # 3) 캠페인·광고그룹 30일 이상 수정 없음
 BUDGET_HIT = 0.95           # 하루 광고비가 일예산의 95% 이상이면 그날 예산을 다 쓴 것으로 본다
+WITH_HOURS = True           # 예산 소진 시각 (시간대별 보고서 생성 필요, --no-hours 로 끔)
 
 
 def ymd(d: date) -> str:
@@ -158,8 +160,45 @@ def budget_hits(api, cid, camps, s, P) -> list:
         days = [x["dateStart"] for x in res.get("data", []) if (x.get("salesAmt") or 0) >= bud * BUDGET_HIT]
         if days:
             out.append({"id": c["nccCampaignId"], "name": c.get("name"), "budget": bud, "hitDays": len(days),
-                        "lastHit": max(days), "limitedNow": c.get("statusReason") == "CAMPAIGN_LIMITED_BY_BUDGET"})
+                        "days": sorted(days), "lastHit": max(days),
+                        "limitedNow": c.get("statusReason") == "CAMPAIGN_LIMITED_BY_BUDGET"})
     return sorted(out, key=lambda x: -x["hitDays"])
+
+
+def hourly_cost(api, cid, day: str) -> dict:
+    """AD_DETAIL 보고서로 하루 캠페인별 시간대(0~23시) 광고비. 보고서 생성(POST)만 하고 광고 설정은 바꾸지 않는다."""
+    job = api.create_report("AD_DETAIL", day.replace("-", ""), cid)
+    for _ in range(40):
+        j = api.get(f"/stat-reports/{job['reportJobId']}", customer_id=cid)
+        if j.get("status") in ("BUILT", "NONE", "ERROR", "AGGREGATING_FAIL"):
+            break
+        time.sleep(3)
+    if j.get("status") != "BUILT" or not j.get("downloadUrl"):
+        return {}
+    out = {}
+    # 열: 날짜, 고객, 캠페인, 그룹, 키워드, 소재, 비즈채널, 시간대(0~23), 지역, 매체, PC/모바일, 노출, 클릭, 비용(VAT 포함), 순위합, 조회
+    for line in api.download(j["downloadUrl"], cid).splitlines():
+        x = line.split("\t")
+        if len(x) > 13 and x[7].isdigit():
+            out.setdefault(x[2], [0.0] * 24)[int(x[7])] += float(x[13] or 0)
+    return out
+
+
+def add_off_hours(api, cid, hits: list) -> None:
+    """예산 소진일마다 그 캠페인의 마지막 광고비 발생 시간대 = 예산이 바닥나 꺼진 시간대. 평균을 hits 에 채운다."""
+    days = sorted({d for b in hits for d in b["days"]})
+    hourly = {d: hourly_cost(api, cid, d) for d in days}
+    for b in hits:
+        hrs = []
+        for d in b["days"]:
+            h = hourly[d].get(b["id"])
+            if h and any(h):
+                hrs.append(max(i for i, v in enumerate(h) if v > 0))
+        if hrs:
+            avg = sum(hrs) / len(hrs)
+            b["offHours"] = hrs
+            b["avgHitTime"] = f"{int(avg)}시 {round((avg % 1) * 60):02d}분대" if len(hrs) > 1 else f"{hrs[0]}시대"
+            b["hitRange"] = f"{min(hrs)}~{max(hrs)}시" if len(set(hrs)) > 1 else f"{hrs[0]}시"
 
 
 def bizmoney_zero_days(api, cid, until: date) -> tuple:
@@ -207,9 +246,12 @@ def collect_account(api, acc, team, direct, P) -> dict:
     spending = bool(s["last14"][0] or s["last_month"][0])
     edit, what = last_edit(api, cid, camps) if spending else (None, None)
     zero, last_charge = bizmoney_zero_days(api, cid, y) if spending else (0, None)
+    hits = budget_hits(api, cid, camps, s, P) if s["last7"][0] else []
+    if hits and WITH_HOURS:
+        add_off_hours(api, cid, hits)
     row.update({
         "campaignPerf": campaign_perf(camps, s, P) if spending else [],
-        "budgetHits": budget_hits(api, cid, camps, s, P) if s["last7"][0] else [],
+        "budgetHits": hits,
         "bizZeroDays30": zero,
         "lastCharge": last_charge,
         "lastEdit": edit,
@@ -363,8 +405,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--demo", action="store_true")
+    ap.add_argument("--no-hours", action="store_true", help="예산 소진 시각(보고서 생성) 생략")
     args = ap.parse_args()
 
+    global WITH_HOURS
+    WITH_HOURS = not args.no_hours
     today = datetime.now(KST).date()
     P = periods(today)
     errors = []

@@ -56,3 +56,34 @@ class NaverAdsAPI:
                     time.sleep(2 ** attempt)
                     continue
                 raise RuntimeError(f"{uri} → 연결 실패: {e}") from None
+
+    # ---- 보고서 (시간대별 광고비용). 광고 설정은 바꾸지 않고 보고서 작업만 만든다.
+    def create_report(self, report_tp: str, stat_dt: str, customer_id: str):
+        """POST /stat-reports — 보고서 생성 작업 등록. stat_dt 는 YYYYMMDD(KST)."""
+        uri = "/stat-reports"
+        body = json.dumps({"reportTp": report_tp, "statDt": stat_dt}).encode()
+        for attempt in range(4):
+            req = urllib.request.Request(BASE + uri, data=body, method="POST",
+                                         headers=self._headers("POST", uri, customer_id))
+            try:
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    return json.loads(r.read() or "null")
+            except urllib.error.HTTPError as e:
+                if e.code == 429 and attempt < 3:
+                    time.sleep(2 ** attempt)
+                    continue
+                body_txt = re.sub(r"api-key: \S+", "api-key: ***", e.read()[:300].decode(errors="replace"))
+                raise RuntimeError(f"{uri} → HTTP {e.code}: {body_txt}") from None
+
+    def download(self, url: str, customer_id: str) -> str:
+        """보고서 파일(TSV) 내려받기. 서명 대상 uri 는 '/report-download'."""
+        for attempt in range(4):
+            req = urllib.request.Request(url, headers=self._headers("GET", "/report-download", customer_id))
+            try:
+                with urllib.request.urlopen(req, timeout=60) as r:
+                    return r.read().decode("utf-8", errors="replace")
+            except (urllib.error.URLError, ConnectionError, TimeoutError):
+                if attempt < 3:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise
