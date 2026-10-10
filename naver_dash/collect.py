@@ -202,7 +202,7 @@ def add_off_hours(api, cid, hits: list) -> None:
         if hrs:
             avg = sum(hrs) / len(hrs)
             b["offHours"] = hrs
-            b["avgHitTime"] = f"{int(avg)}시 {round((avg % 1) * 60):02d}분대" if len(hrs) > 1 else f"{hrs[0]}시대"
+            b["avgHitTime"] = f"{round(avg)}시"  # 시간대 단위면 충분 (분 단위 불필요)
             b["hitRange"] = f"{min(hrs)}~{max(hrs)}시" if len(set(hrs)) > 1 else f"{hrs[0]}시"
 
 

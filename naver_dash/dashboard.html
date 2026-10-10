@@ -167,7 +167,7 @@ details ul { padding-left: 18px; }
     <div class="lhead"><h2 id="h-budget">예산 소진 캠페인 (최근 7일)</h2>
       <span class="lkey" id="budgetKey"></span></div>
     <div class="tablebox scroll"><table class="small">
-      <thead><tr><th>광고주</th><th>담당</th><th>캠페인</th><th>일예산</th><th>예산 소진일</th><th>마지막 소진</th><th>평균 소진 시각</th><th>범위</th></tr></thead>
+      <thead><tr><th>광고주</th><th>담당</th><th>캠페인</th><th>일예산</th><th>예산 소진일</th><th>마지막 소진</th><th>평균 OFF 시간대</th><th>범위</th></tr></thead>
       <tbody id="budgetRows"></tbody></table></div>
   </section>
   <section class="ledger" aria-labelledby="h-ledger">
@@ -432,7 +432,7 @@ function campaignDetail(a) {
   }
   if (a.budgetHits?.length) {
     const h = document.createElement("h3"); h.textContent = "최근 7일 예산을 다 쓴 캠페인"; box.appendChild(h);
-    box.appendChild(t(["캠페인", "일예산", "예산 소진일", "마지막 소진", "평균 소진 시각"],
+    box.appendChild(t(["캠페인", "일예산", "예산 소진일", "마지막 소진", "평균 OFF 시간대"],
       a.budgetHits.map(b => [link(b.name, a, `/sa/campaigns/${b.id}`), [won(b.budget)], [`7일 중 ${b.hitDays}일`], [b.lastHit], [b.avgHitTime ?? "–"]])));
   }
   return box;
