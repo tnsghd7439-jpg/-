@@ -16,6 +16,7 @@
   python3 naver_dash/collect.py              # 수집 + output/naver_dash/ 에 JSON·HTML 저장
   python3 naver_dash/collect.py --limit 3    # 앞 3개 계정만 (시험용)
   python3 naver_dash/collect.py --demo       # 키 없이 가상 데이터로 화면만 확인
+  python3 naver_dash/collect.py --rerender   # 수집 없이 마지막 결과로 화면만 다시 만듦
 """
 import argparse
 import concurrent.futures
@@ -466,7 +467,13 @@ def main():
     ap.add_argument("--no-hours", action="store_true", help="예산 소진 시각(보고서 생성) 생략")
     ap.add_argument("--full", action="store_true", help="휴면 계정도 전부 상세 수집 (전날 결과 재사용 안 함)")
     ap.add_argument("--workers", type=int, default=WORKERS, help="동시에 수집할 계정 수")
+    ap.add_argument("--rerender", action="store_true", help="수집 없이 마지막 결과(latest.json)로 화면만 다시 만듦")
     args = ap.parse_args()
+
+    if args.rerender:  # 화면(dashboard.html) 수정만 반영할 때. API 호출 없음
+        out = render(json.loads((OUT / "latest.json").read_text(encoding="utf-8")))
+        print(f"화면만 다시 만듦 → {out}")
+        return
 
     global WITH_HOURS
     WITH_HOURS = not args.no_hours

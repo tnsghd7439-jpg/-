@@ -57,6 +57,7 @@ python3 naver_dash/check_access.py         # 1) 키로 무엇이 조회되는지
 python3 naver_dash/collect.py --limit 3    # 2) 3개 계정만 시험 수집
 python3 naver_dash/collect.py              # 3) 전체 수집
 python3 naver_dash/collect.py --demo       #    키 없이 가상 데이터로 화면 확인
+python3 naver_dash/collect.py --rerender   #    수집 없이 마지막 결과로 화면만 다시 만듦 (화면 수정 반영용)
 ```
 
 ## 회사 PC 에서 매일 자동 실행 (Claude 크레딧 소모 없음)
