@@ -214,6 +214,8 @@ const badgeOf = x => x.grade ? `${x.grade} 경보` : x.type === "churn" ? "이�
 const worst = a => a.alerts.reduce((m, x) => Math.min(m, RANK[x.level]), 9);
 const people = {};
 for (const a of DATA.accounts) for (const o of a.owners) (people[o] ||= []).push(a);
+// 팀원별 파일(collect.py render_personal): 그 팀원 계정만 들어 있고 다른 팀원 카드는 보이지 않는다
+if (DATA.personal) { for (const k of Object.keys(people)) if (k !== DATA.personal) delete people[k]; person = DATA.personal; }
 
 document.getElementById("sub").textContent =
   `${DATA.baseDate} 광고비 기준, ${DATA.generatedAt}에 수집한 ${DATA.accounts.length}개 계정`;
@@ -223,7 +225,7 @@ const urgentN = DATA.accounts.filter(a => worst(a) === 0).length;
 const warnN = DATA.accounts.filter(a => worst(a) === 1).length;
 const totalY = DATA.accounts.reduce((s, a) => s + a.yesterday, 0);
 document.getElementById("summary").innerHTML =
-  `어제 팀 전체 광고비는 <b>${won(totalY)}</b>입니다. ` +
+  `어제 ${DATA.personal ? "담당 계정" : "팀 전체"} 광고비는 <b>${won(totalY)}</b>입니다. ` +
   (urgentN + warnN
     ? `오늘은 <b class="u">긴급 ${urgentN}곳</b>, <b class="w">주의 ${warnN}곳</b>을 먼저 확인하세요.`
     : "긴급하거나 주의할 계정은 없습니다.");
@@ -231,7 +233,8 @@ document.getElementById("summary").innerHTML =
 function renderPeople() {
   const ul = document.getElementById("people");
   ul.innerHTML = "";
-  const all = [["팀 전체", DATA.accounts], ...Object.entries(people).sort((a, b) => a[0].localeCompare(b[0], "ko"))];
+  const all = DATA.personal ? [[DATA.personal, people[DATA.personal] ?? []]]
+    : [["팀 전체", DATA.accounts], ...Object.entries(people).sort((a, b) => a[0].localeCompare(b[0], "ko"))];
   for (const [name, accs] of all) {
     const key = name === "팀 전체" ? null : name;
     const li = document.createElement("li");
@@ -509,7 +512,7 @@ function renderBudget() {
 // 내 계정만 보기: 주소 끝에 ?owner=이름 (팀원 이름을 누르면 주소에 자동으로 붙음 → 즐겨찾기)
 function renderAll() {
   const u = new URL(location.href);
-  person ? u.searchParams.set("owner", person) : u.searchParams.delete("owner");
+  person && !DATA.personal ? u.searchParams.set("owner", person) : u.searchParams.delete("owner");
   try { history.replaceState(null, "", u); } catch (e) {}
   document.getElementById("h-alerts").textContent = person ? `${person} 님 오늘 할 일 (긴급 → 적색 → 이탈 위험 → 황색 순)` : "확인할 계정";
   renderPeople(); renderAlerts(); renderChurn(); renderBudget(); renderLedger();

@@ -25,6 +25,7 @@ import calendar
 import json
 import os
 import random
+import secrets
 import time
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -423,7 +424,33 @@ def render(data: dict) -> Path:
         tmp = OUT / f".{name}.tmp"
         tmp.write_text(body, encoding="utf-8")
         tmp.replace(OUT / name)
+    render_personal(data, tpl)
     return out
+
+
+def render_personal(data: dict, tpl: str) -> None:
+    """팀원별 파일: 그 팀원 계정 데이터만 담고 다른 팀원 목록도 없다.
+    파일 이름은 추측하기 어려운 고정 토큰(sa-<토큰>.html). 토큰은 OUT/owner_links.json 에 저장해
+    매일 같은 주소를 쓴다. 토큰을 바꾸려면 그 파일에서 해당 팀원 줄을 지우고 --rerender."""
+    fallback = load_team()["fallback"]
+    owners = sorted({o for a in data["accounts"] for o in a["owners"]} - {fallback})
+    tok_file = OUT / "owner_links.json"
+    tokens = json.loads(tok_file.read_text(encoding="utf-8")) if tok_file.exists() else {}
+    lines = []
+    for owner in owners:
+        tokens.setdefault(owner, secrets.token_hex(5))
+        mine = dict(data, personal=owner, errors=[],
+                    accounts=[a for a in data["accounts"] if owner in a["owners"]])
+        payload = json.dumps(mine, ensure_ascii=False).replace("</", "<\\/")
+        name = f"sa-{tokens[owner]}.html"
+        tmp = OUT / f".{name}.tmp"
+        tmp.write_text(tpl.replace("/*__DATA__*/null", payload), encoding="utf-8")
+        tmp.replace(OUT / name)
+        lines.append(f"{owner}\t{name}")
+    tok_file.write_text(json.dumps(tokens, ensure_ascii=False, indent=1), encoding="utf-8")
+    (OUT / "links.txt").write_text(
+        "팀원별 링크 (serve.bat 실행 중일 때 http://<이 PC IP>:8080/<파일이름>)\n" + "\n".join(lines) + "\n",
+        encoding="utf-8")
 
 
 def prune_hourly(today: date) -> None:
