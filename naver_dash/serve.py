@@ -5,6 +5,8 @@
 팀장은 전체 화면을 이 PC 에서 파일로 직접 연다.
 """
 import http.server
+import ipaddress
+import json
 import os
 import re
 import sys
@@ -12,6 +14,21 @@ from pathlib import Path
 
 OUT = Path(os.environ.get("NAVER_DASH_OUT") or Path(__file__).resolve().parent.parent / "output" / "naver_dash")
 ALLOWED = re.compile(r"^/sa-[0-9a-f]{10}\.html$")
+# 접속 허용 IP 대역: team.json 의 "allowNets" (예: ["60.196.6.0/24"]). 없으면 모두 허용(인터넷 노출 주의)
+_team = Path(__file__).resolve().parent / "team.json"
+ALLOW_NETS = [ipaddress.ip_network(n, strict=False)
+              for n in (json.loads(_team.read_text(encoding="utf-8")).get("allowNets", []) if _team.exists() else [])]
+ALLOW_NETS += [ipaddress.ip_network("127.0.0.0/8")] if ALLOW_NETS else []
+
+
+def allowed_ip(ip: str) -> bool:
+    if not ALLOW_NETS:
+        return True
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(addr in n for n in ALLOW_NETS)
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -19,7 +36,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*a, directory=str(OUT), **kw)
 
     def do_GET(self):
-        if not ALLOWED.match(self.path.split("?", 1)[0]):
+        if not allowed_ip(self.client_address[0]) or not ALLOWED.match(self.path.split("?", 1)[0]):
             self.send_error(404)
             return
         super().do_GET()
@@ -41,4 +58,6 @@ if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
     print(f"팀원별 대시보드 서버 실행 중 (포트 {port}). 이 창을 닫으면 팀원 링크가 열리지 않습니다.")
     print(f"링크 목록: {OUT / 'links.txt'}")
+    print(f"접속 허용 대역: {', '.join(map(str, ALLOW_NETS))}" if ALLOW_NETS
+          else "주의: 접속 허용 대역(team.json allowNets)이 없어 모든 IP 에서 열립니다")
     http.server.ThreadingHTTPServer(("", port), Handler).serve_forever()

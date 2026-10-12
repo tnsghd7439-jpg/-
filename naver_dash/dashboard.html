@@ -118,6 +118,9 @@ td:first-child a::after, .aname a::after { content: " ↗"; font-size: 11px; col
 td.edit { cursor: help; text-decoration: underline dotted; }
 tr.lv-urgent td:first-child { box-shadow: inset 4px 0 0 var(--urgent); }
 tr.lv-warn td:first-child { box-shadow: inset 4px 0 0 var(--warn); }
+/* 문제 계정(긴급 단계): 광고주 이름을 빨간 굵은 글씨로 */
+tr.lv-urgent td:first-child, tr.lv-urgent td:first-child a,
+li.alert.urgent .aname, li.alert.urgent .aname a { color: var(--urgent); font-weight: 700; }
 
 table.small { min-width: 900px; }
 .tablebox.scroll { max-height: 420px; overflow-y: auto; }
@@ -320,7 +323,7 @@ function renderAlerts() {
   ul.innerHTML = rows.length ? "" : `<li class="empty">이 조건에 해당하는 계정이 없습니다.</li>`;
   for (const [a, xs] of rows) {
     const li = document.createElement("li");
-    li.className = "alert";
+    li.className = "alert" + (xs.some(x => x.level === "urgent") ? " urgent" : "");
     li.innerHTML = `<span class="lv ${xs[0].type === "churn" ? "churn" : xs[0].level}">${badgeOf(xs[0])}</span>
       <div><div class="aname"></div></div><span class="aowner"></span>`;
     li.querySelector(".aname").appendChild(link(a.name, a, "/dashboard"));
