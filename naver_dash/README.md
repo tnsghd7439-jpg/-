@@ -80,6 +80,7 @@ python3 naver_dash/collect.py --rerender   #    수집 없이 마지막 결과�
    - 회사 PC 에서 `naver_dash/serve.bat` 을 켜 두면 사내망에서 `http://<회사 PC IP>:8080/sa-<토큰>.html` 로 열립니다. 서버(`serve.py`)는 팀원별 파일만 열고 전체 화면·데이터·폴더 목록은 404 로 막습니다. 팀장은 전체 화면을 PC 에서 파일로 직접 엽니다.
    - 창 없이 자동 실행(로그인할 때마다): `schtasks /Create /SC ONLOGON /TN naver6_serve /TR "pyw -3 C:\naver6\naver_dash\serve.py 8080"` → 끄기는 `schtasks /End /TN naver6_serve`, 해제는 `schtasks /Delete /TN naver6_serve /F`
    - 접속 IP 제한: `team.json` 에 `"allowNets": ["60.196.6.0/24"]` 처럼 사내 IP 대역을 넣으면 그 밖(휴대폰 LTE·외부)에서는 404. 바꾼 뒤 서버를 다시 켭니다(`schtasks /End` → `/Run`).
+   - 구글챗 알림: 매일 전체 수집이 끝나면 팀방에 요약과 팀원별 「내 점검판 열기」 링크를 보냅니다. 웹훅 주소는 `setx NAVER_GCHAT_WEBHOOK "..."` 로 등록(파일에 적지 않음), 링크 앞부분은 `team.json` 의 `"linkBase": "http://<회사 PC IP>:8080"`. 다시 보내기는 `collect.py --notify-only`, 끄기는 `--no-notify`.
    - 한계: 로그인 방식이 아니라서 팀원이 자기 링크를 남에게 전달하면 그 사람도 볼 수 있습니다. 윈도우 방화벽은 「개인 네트워크」만 허용하고, 회사 PC 가 공인 IP 면 외부 접속 여부를 IT 에 확인합니다.
 
 수집 시간 줄이기 (기본 적용)

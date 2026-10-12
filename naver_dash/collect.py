@@ -17,6 +17,7 @@
   python3 naver_dash/collect.py --limit 3    # 앞 3개 계정만 (시험용)
   python3 naver_dash/collect.py --demo       # 키 없이 가상 데이터로 화면만 확인
   python3 naver_dash/collect.py --rerender   # 수집 없이 마지막 결과로 화면만 다시 만듦
+  python3 naver_dash/collect.py --notify-only  # 수집 없이 구글챗 알림만 다시 보냄 (NAVER_GCHAT_WEBHOOK 필요)
 """
 import argparse
 import concurrent.futures
@@ -27,6 +28,7 @@ import os
 import random
 import secrets
 import time
+import urllib.request
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -90,7 +92,8 @@ def load_team() -> dict:
             "managerPrefix": d.get("managerPrefix") or "",
             "managers": {str(k): v for k, v in d.get("managers", {}).items()},
             "members": d.get("members", {}),
-            "accounts": {str(k): v for k, v in d.get("accounts", {}).items()}}
+            "accounts": {str(k): v for k, v in d.get("accounts", {}).items()},
+            "linkBase": d.get("linkBase") or ""}
 
 
 # ---------------------------------------------------------------- 수집
@@ -470,6 +473,50 @@ def render_personal(data: dict, tpl: str) -> None:
         encoding="utf-8")
 
 
+def notify(data: dict) -> None:
+    """구글챗 팀방으로 오늘 요약 + 팀원별 대시보드 링크를 보낸다.
+    웹훅 주소는 환경변수 NAVER_GCHAT_WEBHOOK (공개 저장소라 파일에 적지 않음), 링크 앞부분은 team.json 의 linkBase."""
+    url = os.environ.get("NAVER_GCHAT_WEBHOOK")
+    if not url:
+        return
+    base = (load_team().get("linkBase") or "").rstrip("/")
+    tok_file = OUT / "owner_links.json"
+    tokens = json.loads(tok_file.read_text(encoding="utf-8")) if tok_file.exists() else {}
+
+    def level(a):  # 화면의 긴급/주의 구분과 같게: 계정의 가장 높은 단계
+        lv = {x["level"] for x in a["alerts"]}
+        return "urgent" if "urgent" in lv else "warn" if "warn" in lv else None
+
+    def counts(accs):
+        u = sum(1 for a in accs if level(a) == "urgent")
+        w = sum(1 for a in accs if level(a) == "warn")
+        return u, w, sum(a["yesterday"] for a in accs)
+
+    accs = data["accounts"]
+    u, w, y = counts(accs)
+    lines = [f"*[네이버 SA 계정 점검판] {data['baseDate']} 광고비 기준*",
+             f"팀 전체 어제 광고비 {y:,}원 · 긴급 {u}곳 · 주의 {w}곳", ""]
+    owners = sorted({o for a in accs for o in a["owners"]} - {UNASSIGNED})
+    for o in owners:
+        mine = [a for a in accs if o in a["owners"]]
+        u, w, y = counts(mine)
+        link = f" · <{base}/sa-{tokens[o]}.html|내 점검판 열기>" if base and o in tokens else ""
+        lines.append(f"• *{o}* 긴급 {u} · 주의 {w} · 어제 {y:,}원{link}")
+    n_un = sum(1 for a in accs if UNASSIGNED in a["owners"])
+    if n_un:
+        lines.append(f"• 미지정 {n_un}개 (담당 관리계정 확인 필요)")
+    if data.get("errors"):
+        lines.append(f"• 수집 실패 {len(data['errors'])}개")
+    lines += ["", "링크는 사내망에서만 열립니다."]
+    req = urllib.request.Request(url, data=json.dumps({"text": "\n".join(lines)}).encode("utf-8"),
+                                 headers={"Content-Type": "application/json; charset=UTF-8"})
+    try:
+        urllib.request.urlopen(req, timeout=30).read()
+        print("구글챗 알림 보냄")
+    except Exception as e:  # noqa: BLE001 — 알림 실패가 수집 결과를 망치지 않게
+        print(f"구글챗 알림 실패: {e}")
+
+
 def prune_hourly(today: date) -> None:
     """오래된 시간대별 보고서 캐시 삭제 (출력 폴더 안의 캐시 파일만)."""
     root = OUT / "hourly"
@@ -512,7 +559,13 @@ def main():
     ap.add_argument("--full", action="store_true", help="휴면 계정도 전부 상세 수집 (전날 결과 재사용 안 함)")
     ap.add_argument("--workers", type=int, default=WORKERS, help="동시에 수집할 계정 수")
     ap.add_argument("--rerender", action="store_true", help="수집 없이 마지막 결과(latest.json)로 화면만 다시 만듦")
+    ap.add_argument("--notify-only", action="store_true", help="수집 없이 마지막 결과로 구글챗 알림만 다시 보냄")
+    ap.add_argument("--no-notify", action="store_true", help="수집 후 구글챗 알림 보내지 않음")
     args = ap.parse_args()
+
+    if args.notify_only:
+        notify(json.loads((OUT / "latest.json").read_text(encoding="utf-8")))
+        return
 
     if args.rerender:  # 화면(dashboard.html)·team.json fallback 수정만 반영할 때. API 호출 없음
         data = json.loads((OUT / "latest.json").read_text(encoding="utf-8"))
@@ -603,6 +656,8 @@ def main():
     n_alert = sum(1 for r in rows if r["alerts"])
     n_light = sum(1 for r in rows if r.get("light"))
     print(f"계정 {len(rows)}개(휴면 간이 확인 {n_light}개) · 경고 있는 계정 {n_alert}개 · 실패 {len(errors)}개 → {out}")
+    if not (args.demo or args.limit or args.no_notify):  # 매일 전체 수집 때만 팀방에 알림
+        notify(data)
 
 
 if __name__ == "__main__":
