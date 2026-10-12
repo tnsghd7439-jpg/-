@@ -277,13 +277,27 @@ def light_check(api, acc, prev: dict, P, base: str):
     return {**prev, "name": acc.get("adAccountName") or prev["name"], "light": True}
 
 
+def member_access(acc, team) -> dict:
+    """팀원 이름 → 그 팀원 관리계정 번호. 팀원별 파일의 광고센터 링크는 팀원 본인 관리계정을 거쳐야 열린다
+    (팀원은 팀 공용 관리계정의 구성원이 아니라서 그 번호로는 "권한 없음")."""
+    pre = team.get("managerPrefix") or ""
+    out = {}
+    for no, name in zip(acc["_managers"], acc["_managerNames"]):
+        if pre and name and name.startswith(pre) and name[len(pre):].strip():
+            out.setdefault(name[len(pre):].strip(), no)
+    for no, owner in team["managers"].items():
+        if int(no) in acc["_managers"] or str(no) in map(str, acc["_managers"]):
+            out.setdefault(owner, int(no))
+    return out
+
+
 def collect_account(api, acc, team, direct, P) -> dict:
     cid = str(acc["customerId"])
     # 광고센터 링크용: 하위 광고계정은 관리계정 권한으로 열어야 해서 접근할 관리계정 번호도 둔다 (수집 범위 관리계정 우선)
     via = next((m for m in acc["_managers"] if str(m) in team["scope"]), acc["_managers"][0] if acc["_managers"] else None)
     row = {"customerId": cid, "adAccountNo": acc.get("adAccountNo"), "accessManagerAccountNo": via,
            "name": acc.get("adAccountName") or cid, "owners": owner_of(api, acc, team, direct),
-           "managers": acc["_managerNames"]}
+           "managers": acc["_managerNames"], "memberAccess": member_access(acc, team)}
     camps = api.get("/ncc/campaigns", customer_id=cid) or []
     ids = [c["nccCampaignId"] for c in camps]
     s = {k: (spend(api, cid, ids, *v) if ids else (0, 0, 0, {})) for k, v in P.items()}
@@ -441,8 +455,9 @@ def render_personal(data: dict, tpl: str) -> None:
     lines = []
     for owner in owners:
         tokens.setdefault(owner, secrets.token_hex(5))
-        mine = dict(data, personal=owner, errors=[],
-                    accounts=[a for a in data["accounts"] if owner in a["owners"]])
+        accs = [dict(a, accessManagerAccountNo=(a.get("memberAccess") or {}).get(owner, a.get("accessManagerAccountNo")))
+                for a in data["accounts"] if owner in a["owners"]]
+        mine = dict(data, personal=owner, errors=[], accounts=accs)
         payload = json.dumps(mine, ensure_ascii=False).replace("</", "<\\/")
         name = f"sa-{tokens[owner]}.html"
         tmp = OUT / f".{name}.tmp"
@@ -552,7 +567,8 @@ def main():
                 if r is None:
                     r = collect_account(api, acc, team, direct, P)
                 else:  # 담당·접근 관리계정은 매일 최신으로
-                    r.update({"owners": owner_of(api, acc, team, direct), "managers": acc["_managerNames"]})
+                    r.update({"owners": owner_of(api, acc, team, direct), "managers": acc["_managerNames"],
+                              "memberAccess": member_access(acc, team)})
                 with lock:
                     rows.append(r)
             except Exception as e:  # noqa: BLE001 — 한 계정 실패가 전체를 멈추지 않게

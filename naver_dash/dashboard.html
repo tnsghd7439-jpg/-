@@ -146,6 +146,16 @@ th[data-tip]:hover::after, th[data-tip]:focus-within::after { opacity: 1; visibi
 details { margin-top: 28px; color: var(--muted); font-size: 13px; }
 details summary { cursor: pointer; }
 details ul { padding-left: 18px; }
+/* 보는 법 안내 (상단) */
+details.guide { margin: 18px 0 0; color: var(--ink); font-size: 14px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; }
+details.guide summary { font-weight: 700; }
+details.guide h3 { font-size: 14px; margin: 16px 0 6px; }
+details.guide ol, details.guide ul { margin: 0; padding-left: 20px; }
+details.guide li { margin: 3px 0; max-width: 80ch; }
+details.guide table { border-collapse: collapse; margin-top: 4px; font-size: 13px; }
+details.guide td { border-top: 1px solid var(--line); padding: 6px 12px 6px 0; vertical-align: top; }
+details.guide td:first-child { white-space: nowrap; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -155,6 +165,37 @@ details ul { padding-left: 18px; }
     <p id="sub"></p>
     <span class="demo" id="demo" hidden>가상 데이터로 만든 화면입니다</span>
   </header>
+  <details class="guide" id="guide">
+    <summary>이 화면 보는 법</summary>
+    <h3>매일 아침 이 순서로 보세요</h3>
+    <ol>
+      <li>맨 위 한 줄 요약에서 <b>긴급·주의 개수</b>를 확인합니다.</li>
+      <li><b>할 일 목록</b>을 위에서부터 처리합니다. 급한 순서로 정렬돼 있습니다.</li>
+      <li>시간이 남으면 아래 표(이탈 위험 → 예산 소진 → 담당 계정 전체)를 훑어봅니다.</li>
+    </ol>
+    <h3>할 일 목록의 표시와 해야 할 일</h3>
+    <table>
+      <tr><td>긴급</td><td>비즈머니가 하루치도 안 남았거나, 평소 쓰던 계정이 어제 광고비 0원. 오늘 광고가 멈춥니다. <b>바로 광고주에게 충전 요청·원인 확인</b></td></tr>
+      <tr><td>적색 경보</td><td>구매 수익률 하락·광고비 하락·7일 넘게 수정 없음 중 2개 이상. <b>오늘 계정 점검</b></td></tr>
+      <tr><td>이탈 위험</td><td>광고비 30% 이상 감소·비즈머니 바닥 반복·30일 넘게 수정 없음 중 2개 이상. <b>광고주 연락·관계 관리</b></td></tr>
+      <tr><td>황색 경보</td><td>위 관리 경보 3가지 중 1개. <b>이번 주 안에 점검</b></td></tr>
+      <tr><td>주의</td><td>비즈머니 3일치 미만, 어제 광고비 10% 이상 감소, 이번 달 소진이 지난달보다 크게 적음</td></tr>
+      <tr><td>참고</td><td>이번 달 소진이 크게 늘었거나 예산 소진으로 노출이 제한된 캠페인. 예산 증액 제안 기회</td></tr>
+    </table>
+    <p>위쪽 탭(비즈머니·이탈 위험 등)을 누르면 그 종류만 모아 볼 수 있습니다.</p>
+    <h3>아래 표 활용</h3>
+    <ul>
+      <li><b>예산 소진 캠페인</b>: 최근 7일 중 예산을 다 쓴 날이 많은 캠페인입니다. 평균 OFF 시간대가 이르면 예산 증액을 제안해 볼 만합니다.</li>
+      <li><b>담당 계정 전체</b>: 열 제목에 마우스를 올리면 설명이 나옵니다. 제목을 누르면 정렬되고, 광고주 이름 앞 ▸ 를 누르면 캠페인별 원인이 펼쳐집니다.</li>
+      <li>광고주 이름·비즈머니·마지막 수정일을 누르면 네이버 광고센터 해당 화면으로 이동합니다(광고센터에 로그인돼 있어야 합니다).</li>
+    </ul>
+    <h3>숫자 볼 때 주의</h3>
+    <ul>
+      <li>매일 아침 7시에 어제까지의 데이터로 새로 만들어집니다. 화면 맨 위에서 기준일을 확인하세요.</li>
+      <li>광고비는 VAT 포함 검색광고 금액입니다. 성과형 디스플레이(GFA)와 브랜드검색 계약금은 빠져 있습니다.</li>
+      <li>구매 수익률(ROAS)은 구매가 며칠 늦게 잡히기도 해서, 최근 기간일수록 실제보다 낮게 보일 수 있습니다.</li>
+    </ul>
+  </details>
   <p class="summary" id="summary"></p>
   <div class="grid">
     <section aria-labelledby="h-people">
@@ -522,6 +563,14 @@ document.getElementById("activeOnly").onchange = renderLedger;
 {
   const want = new URLSearchParams(location.search).get("owner");
   if (want && people[want]) person = want;
+}
+// 보는 법: 처음 열면 펼쳐 두고, 접으면 다음부터 접힌 채로 연다 (이 브라우저에만 기억)
+{
+  const g = document.getElementById("guide");
+  let closed = false;
+  try { closed = localStorage.getItem("guideClosed") === "1"; } catch (e) {}
+  g.open = !closed;
+  g.addEventListener("toggle", () => { try { localStorage.setItem("guideClosed", g.open ? "0" : "1"); } catch (e) {} });
 }
 renderTabs(); renderAll();
 </script>
