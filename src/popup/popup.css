@@ -1,0 +1,121 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { font-family: -apple-system, "Malgun Gothic", "맑은 고딕", sans-serif; font-size: 13px; color: #1a1a1a; background: #fff; }
+
+/* Side panel gives us the full window height and a user-resizable width
+   (unlike the old small popup), so the page just fills it and scrolls
+   naturally instead of being capped at a fixed 380x600 box. */
+.popup { width: 100%; max-width: 880px; margin: 0 auto; min-height: 100%; }
+.popup--center { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; height: 100vh; padding: 20px; text-align: center; }
+
+.spinner { width: 24px; height: 24px; border: 3px solid #eee; border-top-color: #2130a0; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.error-message { color: #c0392b; line-height: 1.5; }
+
+.header { padding: 12px 14px; border-bottom: 1px solid #eee; display: flex; flex-direction: column; gap: 4px; position: sticky; top: 0; background: #fff; z-index: 1; }
+.header__name { font-weight: 600; font-size: 13px; line-height: 1.4; }
+.header__risk { font-size: 12px; color: #888; letter-spacing: 1px; }
+
+.kwpanel { padding: 10px 14px 12px; background: #f8f9fc; border-bottom: 1px solid #e8eaf2; }
+.kwpanel__head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 7px; flex-wrap: wrap; }
+.kwpanel__title { font-weight: 700; font-size: 12.5px; }
+.kwpanel__cat { font-size: 10.5px; color: #8890a6; }
+.kwpanel__table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.kwpanel__table th { text-align: right; font-weight: 600; color: #8890a6; font-size: 10.5px; padding: 0 0 4px; border-bottom: 1px solid #e8eaf2; }
+.kwpanel__table th:first-child { text-align: left; }
+.kwpanel__table td { padding: 5px 0; text-align: right; border-bottom: 1px solid #eef0f6; font-variant-numeric: tabular-nums; }
+.kwpanel__table td:first-child { text-align: left; }
+.kwpanel__row--main td { font-weight: 700; }
+.kwpanel__tag { display: inline-block; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 3px; margin-right: 5px; background: #2130a0; color: #fff; }
+.kwpanel__tag--rel { background: #e8eaf2; color: #5a6178; }
+.kwpanel__tag--brand { background: #f0ebff; color: #6741d9; }
+.kwpanel__script { display: block; width: 100%; text-align: left; margin-top: 8px; padding: 7px 9px; font-size: 11px; line-height: 1.5; background: #fff; border: 1px solid #dfe3f0; border-radius: 6px; color: #444; cursor: pointer; font-family: inherit; }
+.kwpanel__script:hover { background: #f3f6ff; border-color: #2130a0; }
+.kwpanel__tag--est { background: #e8940c; }
+.kwpanel__warn { margin-top: 8px; padding: 8px 10px; font-size: 11px; line-height: 1.6; background: #fff5f5; border: 1px solid #f3c2c2; border-radius: 6px; color: #9b2c2c; }
+.kwpanel__warn b { font-weight: 700; }
+.kwpanel__note { font-size: 10.5px; color: #999; margin-top: 6px; }
+
+/* 월별 검색 추이 — 성수기 달을 색으로 구분해 한눈에 보이게 한다. */
+.season { margin-top: 10px; padding-top: 10px; border-top: 1px solid #e8eaf2; }
+.season__head { font-size: 11px; color: #555; margin-bottom: 7px; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+.season__meta { color: #8890a6; font-size: 10.5px; }
+.season__chart { display: flex; align-items: flex-end; gap: 3px; height: 64px; }
+.season__col { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+.season__bar { background: #c7cde8; border-radius: 2px 2px 0 0; }
+.season__bar--peak { background: #2130a0; }
+.season__label { font-size: 9px; color: #999; text-align: center; margin-top: 3px; }
+.season__label--now { color: #2130a0; font-weight: 700; }
+.kwpanel__note--est { background: #fff8e8; border: 1px solid #f5d79a; color: #8a5a00; border-radius: 6px; padding: 7px 9px; line-height: 1.55; }
+
+.section { padding: 10px 14px; border-bottom: 1px solid #f0f0f0; }
+.section__header { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+.section__empty { color: #999; font-size: 12px; padding: 4px 0; }
+.section__notice { font-size: 11px; color: #999; margin-bottom: 6px; }
+
+/* §6, §8-1: ①과 ③의 시각적 분리가 핵심 안전장치 — 색/아이콘/간격을 명확히 다르게 */
+.section--violation { background: #fff5f5; border-left: 4px solid #e03131; }
+.section--suspected { background: #fffaf0; border-left: 4px solid #e8940c; }
+.section--opportunity { background: #f3f6ff; border-left: 4px solid #2130a0; }
+.section--brand { background: #f3f0ff; border-left: 4px solid #6741d9; }
+
+.finding { background: #fff; border: 1px solid #eee; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; }
+.finding--violation { border-left: 3px solid #e03131; }
+.finding--suspected { border-left: 3px solid #e8940c; }
+.finding--opportunity { border-left: 3px solid #2130a0; }
+.finding--brand { border-left: 3px solid #6741d9; }
+.finding__title { font-weight: 600; font-size: 12.5px; margin-bottom: 2px; }
+.finding__basis { font-size: 11px; color: #888; margin-bottom: 6px; }
+.finding__toggle { display: inline-block; font-size: 11px; color: #2130a0; background: none; border: none; padding: 0; margin-bottom: 6px; cursor: pointer; }
+.finding__toggle:hover { text-decoration: underline; }
+.finding__message { font-size: 12px; line-height: 1.5; white-space: pre-wrap; margin-bottom: 6px; }
+.finding__copy { font-size: 11px; padding: 3px 10px; border: 1px solid #ccc; background: #fff; border-radius: 4px; cursor: pointer; margin-right: 6px; }
+.finding__copy:hover { background: #f5f5f5; }
+.finding__guide { font-size: 11px; padding: 3px 10px; border: 1px solid #ffd43b; background: #fff9db; color: #8a6d00; border-radius: 4px; cursor: pointer; }
+.finding__guide:hover { background: #fff3bf; }
+
+.reference-block { background: #f1f3f5; border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; color: #555; }
+.reference-block__label { font-weight: 600; font-size: 12px; margin-bottom: 4px; }
+.reference-block__numbers { font-size: 11.5px; margin-bottom: 4px; }
+.reference-block__note { font-size: 11px; color: #888; }
+
+.tip-card { background: #fff9db; border-radius: 6px; padding: 8px 10px; margin-top: 6px; }
+.tip-card__title { font-weight: 600; font-size: 12px; margin-bottom: 4px; }
+.tip-card__body { font-size: 11.5px; line-height: 1.5; color: #555; }
+
+.seo-weight-note { font-size: 10.5px; color: #999; margin-bottom: 6px; }
+
+.defense-slot { margin-top: 8px; border-top: 1px dashed #ccc; padding-top: 8px; }
+.defense-slot__toggle { width: 100%; text-align: left; background: none; border: none; font-size: 12px; font-weight: 600; color: #444; cursor: pointer; padding: 4px 0; }
+
+
+.copy-all { padding: 12px 14px; }
+.copy-all button { width: 100%; padding: 10px; background: #2130a0; color: #fff; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.copy-all button:hover { background: #1a2680; }
+
+.email-draft { padding: 4px 14px 12px; border-top: 1px dashed #ddd; margin-top: 4px; padding-top: 12px; }
+.email-draft__label { font-size: 11px; color: #888; margin-bottom: 6px; }
+.email-draft__primary { width: 100%; padding: 10px; background: #fff; color: #2130a0; border: 1.5px solid #2130a0; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.email-draft__primary:hover { background: #f3f6ff; }
+
+.footer { padding: 8px 14px 14px; font-size: 10.5px; color: #aaa; text-align: center; }
+
+.report-trigger { padding: 0 14px 12px; }
+.report-trigger button { width: 100%; padding: 9px; background: #fff; color: #1a1a1a; border: 1.5px solid #ccc; border-radius: 6px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.report-trigger button:hover { background: #f5f5f5; }
+
+.report-modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 16px; }
+.report-modal { background: #fff; border-radius: 10px; max-width: 100%; max-height: 100%; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25); }
+.report-modal__head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid #eee; flex: 0 0 auto; }
+.report-modal__head-title { font-weight: 700; font-size: 13px; }
+.report-modal__close { background: none; border: none; font-size: 16px; cursor: pointer; color: #888; line-height: 1; }
+.report-modal__body { overflow: auto; padding: 16px; background: #f1f3f5; flex: 1 1 auto; }
+.report-modal__error { font-size: 11.5px; color: #c0392b; padding: 0 16px; text-align: center; }
+.report-modal__actions { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid #eee; flex: 0 0 auto; }
+.report-modal__actions button { flex: 1; padding: 9px; border-radius: 6px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.report-modal__actions button:disabled { opacity: 0.6; cursor: default; }
+.report-modal__btn-primary { background: #2130a0; color: #fff; border: none; }
+.report-modal__btn-primary:hover:not(:disabled) { background: #1a2680; }
+.report-modal__btn-secondary { background: #fff; color: #2130a0; border: 1.5px solid #2130a0; }
+.report-modal__btn-secondary:hover:not(:disabled) { background: #f3f6ff; }

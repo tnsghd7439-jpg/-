@@ -1,0 +1,11 @@
+node_modules/
+dist/
+src/lib/dictionaries.generated.json
+src/lib/bids.generated.json
+src/lib/categoryKeywords.generated.json
+dist.zip
+*.zip
+
+# 외부 유료 데이터(아이템스카우트) — 재배포 금지 소지가 있어 저장소에 올리지 않음
+data-sources/키워드_입찰가.csv
+data-sources/카테고리_메인키워드.csv

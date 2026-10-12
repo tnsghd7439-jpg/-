@@ -1,0 +1,28 @@
+{
+  "name": "smartstore-audit-extension",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dictionaries": "node scripts/build-dictionaries.mjs",
+    "predev": "npm run dictionaries",
+    "dev": "vite",
+    "prebuild": "npm run dictionaries && npm run bids && npm run catkw",
+    "build": "vite build && node scripts/validate-scripts.mjs",
+    "validate": "node scripts/validate-scripts.mjs",
+    "test": "node --test test/",
+    "bids": "node scripts/build-bids.mjs",
+    "catkw": "node scripts/build-category-keywords.mjs",
+    "editor": "node scripts/make-script-editor.mjs"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.7.1",
+    "@vitejs/plugin-react": "^6.1.1",
+    "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "html-to-image": "^1.11.13",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}
