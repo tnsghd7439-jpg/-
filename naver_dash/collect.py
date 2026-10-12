@@ -77,6 +77,9 @@ def periods(today: date) -> dict:
     }
 
 
+UNASSIGNED = "미지정"  # 담당자 없음 표시. 이 이름으로는 팀원별 파일을 만들지 않는다
+
+
 def load_team() -> dict:
     p = ROOT / "team.json"
     if not p.exists():
@@ -432,8 +435,7 @@ def render_personal(data: dict, tpl: str) -> None:
     """팀원별 파일: 그 팀원 계정 데이터만 담고 다른 팀원 목록도 없다.
     파일 이름은 추측하기 어려운 고정 토큰(sa-<토큰>.html). 토큰은 OUT/owner_links.json 에 저장해
     매일 같은 주소를 쓴다. 토큰을 바꾸려면 그 파일에서 해당 팀원 줄을 지우고 --rerender."""
-    fallback = load_team()["fallback"]
-    owners = sorted({o for a in data["accounts"] for o in a["owners"]} - {fallback})
+    owners = sorted({o for a in data["accounts"] for o in a["owners"]} - {UNASSIGNED})
     tok_file = OUT / "owner_links.json"
     tokens = json.loads(tok_file.read_text(encoding="utf-8")) if tok_file.exists() else {}
     lines = []
@@ -497,8 +499,12 @@ def main():
     ap.add_argument("--rerender", action="store_true", help="수집 없이 마지막 결과(latest.json)로 화면만 다시 만듦")
     args = ap.parse_args()
 
-    if args.rerender:  # 화면(dashboard.html) 수정만 반영할 때. API 호출 없음
-        out = render(json.loads((OUT / "latest.json").read_text(encoding="utf-8")))
+    if args.rerender:  # 화면(dashboard.html)·team.json fallback 수정만 반영할 때. API 호출 없음
+        data = json.loads((OUT / "latest.json").read_text(encoding="utf-8"))
+        fallback = load_team()["fallback"]  # 수집 뒤 fallback 을 바꿨으면 "미지정" 계정에 반영
+        for a in data["accounts"]:
+            a["owners"] = [fallback if o == UNASSIGNED else o for o in a["owners"]]
+        out = render(data)
         print(f"화면만 다시 만듦 → {out}")
         return
 
