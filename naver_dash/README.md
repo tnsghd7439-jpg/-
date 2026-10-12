@@ -78,6 +78,7 @@ python3 naver_dash/collect.py --rerender   #    수집 없이 마지막 결과�
    - 수집(또는 `--rerender`) 때 팀원별 파일 `output/naver_dash/sa-<토큰>.html` 이 만들어집니다. 그 팀원 계정 데이터만 들어 있고 다른 팀원 카드도 없습니다.
    - 팀원별 주소는 `output/naver_dash/links.txt` 에 있습니다. 토큰은 `owner_links.json` 에 저장돼 매일 같은 주소를 씁니다(링크가 새면 그 팀원 줄을 지우고 `--rerender` → 새 주소).
    - 회사 PC 에서 `naver_dash/serve.bat` 을 켜 두면 사내망에서 `http://<회사 PC IP>:8080/sa-<토큰>.html` 로 열립니다. 서버(`serve.py`)는 팀원별 파일만 열고 전체 화면·데이터·폴더 목록은 404 로 막습니다. 팀장은 전체 화면을 PC 에서 파일로 직접 엽니다.
+   - 창 없이 자동 실행(로그인할 때마다): `schtasks /Create /SC ONLOGON /TN naver6_serve /TR "pyw -3 C:\naver6\naver_dash\serve.py 8080"` → 끄기는 `schtasks /End /TN naver6_serve`, 해제는 `schtasks /Delete /TN naver6_serve /F`
    - 한계: 로그인 방식이 아니라서 팀원이 자기 링크를 남에게 전달하면 그 사람도 볼 수 있습니다. 윈도우 방화벽은 「개인 네트워크」만 허용하고, 회사 PC 가 공인 IP 면 외부 접속 여부를 IT 에 확인합니다.
 
 수집 시간 줄이기 (기본 적용)

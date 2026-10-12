@@ -1,4 +1,4 @@
-"""사내망에 팀원별 대시보드만 여는 웹 서버 (serve.bat 이 실행).
+"""사내망에 팀원별 대시보드만 여는 웹 서버 (serve.bat 이 실행, 또는 창 없이 pyw 로 자동 실행).
 
 팀원별 파일(sa-<토큰>.html)만 열어 준다. 전체 화면(dashboard.html)·데이터(json)·링크 목록·
 폴더 목록은 열지 않으므로, 팀원은 자기 링크 외에 다른 팀원 데이터를 볼 수 없다.
@@ -26,6 +26,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_HEAD(self):
         self.do_GET()
+
+    def log_message(self, fmt, *args):
+        # 창 없이(pyw) 실행하면 stderr 가 없어 기본 접속 기록이 오류를 낸다 → 그때는 기록하지 않음
+        if sys.stderr:
+            super().log_message(fmt, *args)
 
     def end_headers(self):
         self.send_header("Cache-Control", "no-store")  # 매일 바뀌는 파일이라 예전 화면이 남지 않게
