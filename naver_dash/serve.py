@@ -60,4 +60,11 @@ if __name__ == "__main__":
     print(f"링크 목록: {OUT / 'links.txt'}")
     print(f"접속 허용 대역: {', '.join(map(str, ALLOW_NETS))}" if ALLOW_NETS
           else "주의: 접속 허용 대역(team.json allowNets)이 없어 모든 IP 에서 열립니다")
-    http.server.ThreadingHTTPServer(("", port), Handler).serve_forever()
+    # 윈도우는 주소 재사용 옵션이 켜져 있으면 같은 포트에 서버가 두 개 붙는다 → 꺼서 이미 켜져 있으면 바로 종료되게
+    http.server.ThreadingHTTPServer.allow_reuse_address = os.name != "nt"
+    try:
+        server = http.server.ThreadingHTTPServer(("", port), Handler)
+    except OSError:
+        print(f"포트 {port} 에 이미 서버가 켜져 있어 종료합니다.")
+        sys.exit(0)
+    server.serve_forever()
