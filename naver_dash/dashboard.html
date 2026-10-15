@@ -627,9 +627,11 @@ function fillTable(id, rows, cols) {
 function renderGFA() {
   const A = gfaActions();
   document.getElementById("gfaCnt").textContent = A ? `${A.a1.length + A.a2.length + A.a3.length}` : "";
+  // 시트 연결 전에는 빈 표 대신 안내만 (「해당 계정이 없습니다」로 오해하지 않게)
+  for (const id of ["g1", "g2", "g3"]) document.getElementById(id).closest("section").hidden = !A;
   if (!A) {
-    document.getElementById("gfaSummary").textContent = "GFA 시트가 아직 연결되지 않았습니다. 회사 PC 에 NAVER_GFA_URL·NAVER_GFA_TOKEN 을 등록하면 표시됩니다.";
-    for (const id of ["g1", "g2", "g3"]) fillTable(id, [], [["", () => ""]]);
+    document.getElementById("gfaSummary").textContent = "GFA 시트가 아직 연결되지 않아 표시할 데이터가 없습니다. 회사 PC 에 NAVER_GFA_URL·NAVER_GFA_TOKEN 을 등록하면 표시됩니다.";
+    document.getElementById("gfaNote").textContent = "";
     return;
   }
   const box = document.getElementById("gfaPeople");
