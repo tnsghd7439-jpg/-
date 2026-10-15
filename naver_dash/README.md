@@ -119,8 +119,8 @@ python3 naver_dash/deck_export.py --account 1736106 --start 2026-06-01 --end 202
 3. **기존 라이브 계정 업셀링**: 9월 GFA 집행, 10월 누적 0원인 계정
 
 연결 방법(회사 PC, 처음 한 번)
-- GFA 시트 > 확장 프로그램 > Apps Script 에 `gfa_sheet_export.gs` 를 붙여넣고 TOKEN 을 바꾼 뒤 웹 앱으로 배포(실행: 나, 액세스: 모든 사용자)
-- `setx NAVER_GFA_URL "<웹 앱 URL>"`, `setx NAVER_GFA_TOKEN "<TOKEN 값>"` → 서버 다시 켜기
+- GFA 시트 > 확장 프로그램 > Apps Script 에 `gfa_sheet_export.gs` 를 붙여넣고 웹 앱으로 배포(실행: 나, 액세스: 모든 사용자)
+- `setx NAVER_GFA_URL "<웹 앱 URL>"` → 서버 다시 켜기. (선택) 비밀번호를 쓰려면 스크립트 TOKEN 과 같은 값을 `setx NAVER_GFA_TOKEN` 으로 등록. 비우면 주소만 알면 누구나 읽을 수 있음
 - 갱신: 매일 07:00 수집 때 + 링크 서버가 30분마다 시트를 확인해 바뀌었으면 화면만 다시 만듦(`collect.py --gfa-refresh`)
 - 시트 「기준 10/1~10/14」의 마지막 날짜가 SA 기준일(어제)보다 이르면 GFA 탭에 「아직 갱신되지 않음」 경고를 띄웁니다.
 - 11시 재확인(서버가 꺼져 있어도): `schtasks /Create /SC DAILY /ST 11:00 /TN naver6_gfa_1100 /TR C:\naver6\naver_dash\gfa_refresh.bat` (시트가 바뀌었을 때만 화면을 다시 만들고 run.log 에 기록)

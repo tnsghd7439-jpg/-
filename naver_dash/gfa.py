@@ -2,7 +2,7 @@
 
 시트 구조(팀원 탭): "① GFA 증액 독려 …"(9월 GFA 매출 있는 계정) / "② GFA 휴면 계정 …"(9월 0원) 구역,
 각 구역 첫 줄이 "광고계정 | CustomerID | 광고주 | 9월 GFA | 10월 GFA 목표 | 10월 GFA 누적 | … | 상태 | 최근 3일 평균".
-시트는 gfa_sheet_export.gs 웹 앱으로 읽는다. 환경변수 NAVER_GFA_URL, NAVER_GFA_TOKEN (공개 저장소라 파일에 적지 않음).
+시트는 gfa_sheet_export.gs 웹 앱으로 읽는다. 환경변수 NAVER_GFA_URL, (선택) NAVER_GFA_TOKEN.
 """
 import json
 import os
@@ -55,10 +55,11 @@ def parse(payload: dict) -> dict:
 
 def fetch() -> dict | None:
     """시트를 읽어 정리. 환경변수가 없거나 실패하면 None."""
-    url, token = os.environ.get("NAVER_GFA_URL"), os.environ.get("NAVER_GFA_TOKEN")
-    if not url or not token:
+    url, token = os.environ.get("NAVER_GFA_URL"), os.environ.get("NAVER_GFA_TOKEN")  # 토큰은 선택
+    if not url:
         return None
-    full = url + ("&" if "?" in url else "?") + urllib.parse.urlencode({"token": token})
+    full = url + ("&" + urllib.parse.urlencode({"token": token}) if token else "") if "?" in url \
+        else url + ("?" + urllib.parse.urlencode({"token": token}) if token else "")
     with urllib.request.urlopen(full, timeout=60) as r:  # Apps Script 는 리디렉션 후 JSON 을 준다
         payload = json.loads(r.read().decode("utf-8"))
     if not payload.get("ok"):
