@@ -461,6 +461,8 @@ def render_personal(data: dict, tpl: str) -> None:
         accs = [dict(a, accessManagerAccountNo=(a.get("memberAccess") or {}).get(owner, a.get("accessManagerAccountNo")))
                 for a in data["accounts"] if owner in a["owners"]]
         mine = dict(data, personal=owner, errors=[], accounts=accs)
+        if data.get("gfa"):
+            mine["gfa"] = dict(data["gfa"], rows=[r for r in data["gfa"]["rows"] if r["owner"] == owner])
         payload = json.dumps(mine, ensure_ascii=False).replace("</", "<\\/")
         name = f"sa-{tokens[owner]}.html"
         tmp = OUT / f".{name}.tmp"
@@ -471,6 +473,23 @@ def render_personal(data: dict, tpl: str) -> None:
     (OUT / "links.txt").write_text(
         "팀원별 링크 (serve.bat 실행 중일 때 http://<이 PC IP>:8080/<파일이름>)\n" + "\n".join(lines) + "\n",
         encoding="utf-8")
+
+
+def load_gfa(refresh: bool = True) -> dict | None:
+    """GFA 시트 데이터. refresh 면 시트에서 새로 읽어 OUT/gfa.json 에 저장, 실패하면 저장된 것을 쓴다."""
+    cache = OUT / "gfa.json"
+    if refresh:
+        sys.path.insert(0, str(ROOT))
+        import gfa
+        try:
+            g = gfa.fetch()
+            if g:
+                OUT.mkdir(parents=True, exist_ok=True)
+                cache.write_text(json.dumps(g, ensure_ascii=False), encoding="utf-8")
+                return g
+        except Exception as e:  # noqa: BLE001 — GFA 시트 문제로 SA 점검판이 멈추지 않게
+            print(f"GFA 시트 읽기 실패(저장된 데이터 사용): {e}")
+    return json.loads(cache.read_text(encoding="utf-8")) if cache.exists() else None
 
 
 def notify(data: dict) -> None:
@@ -561,7 +580,21 @@ def main():
     ap.add_argument("--rerender", action="store_true", help="수집 없이 마지막 결과(latest.json)로 화면만 다시 만듦")
     ap.add_argument("--notify-only", action="store_true", help="수집 없이 마지막 결과로 구글챗 알림만 다시 보냄")
     ap.add_argument("--no-notify", action="store_true", help="수집 후 구글챗 알림 보내지 않음")
+    ap.add_argument("--gfa-refresh", action="store_true",
+                    help="GFA 시트만 다시 읽어 바뀌었으면 화면을 다시 만듦 (serve.py 가 30분마다 실행)")
     args = ap.parse_args()
+
+    if args.gfa_refresh:
+        old = load_gfa(refresh=False)
+        new = load_gfa(refresh=True)
+        if not new or (old and old.get("updatedAt") == new.get("updatedAt") and old.get("rows") == new.get("rows")):
+            print("GFA 시트 변경 없음")
+            return
+        data = json.loads((OUT / "latest.json").read_text(encoding="utf-8"))
+        data["gfa"] = new
+        render(data)
+        print(f"GFA 시트 갱신 반영 ({new.get('updatedAt')})")
+        return
 
     if args.notify_only:
         notify(json.loads((OUT / "latest.json").read_text(encoding="utf-8")))
@@ -572,6 +605,7 @@ def main():
         fallback = load_team()["fallback"]  # 수집 뒤 fallback 을 바꿨으면 "미지정" 계정에 반영
         for a in data["accounts"]:
             a["owners"] = [fallback if o == UNASSIGNED else o for o in a["owners"]]
+        data["gfa"] = load_gfa(refresh=False) or data.get("gfa")
         out = render(data)
         print(f"화면만 다시 만듦 → {out}")
         return
@@ -651,6 +685,7 @@ def main():
                   "churnNoEditDays": CHURN_NO_EDIT_DAYS, "budgetHitPct": round(BUDGET_HIT * 100)},
         "accounts": rows,
         "errors": errors,
+        "gfa": None if args.demo else load_gfa(refresh=True),
     }
     out = render(data)
     n_alert = sum(1 for r in rows if r["alerts"])

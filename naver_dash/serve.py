@@ -9,7 +9,10 @@ import ipaddress
 import json
 import os
 import re
+import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 OUT = Path(os.environ.get("NAVER_DASH_OUT") or Path(__file__).resolve().parent.parent / "output" / "naver_dash")
@@ -54,6 +57,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
 
+GFA_REFRESH_MIN = 30  # GFA 시트 확인 주기(분). 시트가 바뀌었을 때만 화면을 다시 만든다
+
+
+def gfa_refresher():
+    """서버가 켜져 있는 동안 주기적으로 collect.py --gfa-refresh 실행 (API 호출 없음, 시트만 읽음)."""
+    script = str(Path(__file__).resolve().parent / "collect.py")
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # 창 없이(pyw) 실행 중이어도 콘솔 창이 뜨지 않게
+    while True:
+        try:
+            subprocess.run([sys.executable, script, "--gfa-refresh"], timeout=600, creationflags=flags,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:  # noqa: BLE001 — 갱신 실패가 서버를 멈추지 않게
+            pass
+        time.sleep(GFA_REFRESH_MIN * 60)
+
+
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
     print(f"팀원별 대시보드 서버 실행 중 (포트 {port}). 이 창을 닫으면 팀원 링크가 열리지 않습니다.")
@@ -67,4 +86,7 @@ if __name__ == "__main__":
     except OSError:
         print(f"포트 {port} 에 이미 서버가 켜져 있어 종료합니다.")
         sys.exit(0)
+    if os.environ.get("NAVER_GFA_URL"):
+        threading.Thread(target=gfa_refresher, daemon=True).start()
+        print(f"GFA 시트를 {GFA_REFRESH_MIN}분마다 확인합니다")
     server.serve_forever()
