@@ -41,7 +41,9 @@ def parse(payload: dict) -> dict:
                     "customerId": str(_num(r.get("CustomerID"))), "name": "" if name == "-" else name,
                     "sep": _num(r.get("9월 GFA")), "target": _num(r.get("10월 GFA 목표")),
                     "oct": _num(r.get("10월 GFA 누적")), "status": str(r.get("상태") or "").strip(),
-                    "last3": _num(r.get("최근 3일 평균")),
+                    "last3": _num(r.get("최근 3일 평균")), "proj": _num(r.get("예상 마감")),
+                    # 일별 금액: "1일"~"31일" 열 (빈칸 = 0). 변화 감지·추이 그래프용
+                    "daily": [_num(r.get(f"{d}일")) for d in range(1, 32) if f"{d}일" in header],
                 })
     note = str(payload.get("note") or "")
     m = re.search(r"마지막 업데이트\s*([\d-]+\s+[\d:]+)", note)

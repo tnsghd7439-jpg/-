@@ -149,6 +149,72 @@ th[data-tip]:hover::after, th[data-tip]:focus-within::after { opacity: 1; visibi
 details { margin-top: 28px; color: var(--muted); font-size: 13px; }
 details summary { cursor: pointer; }
 details ul { padding-left: 18px; }
+/* GFA 보고 그래프: 팀원 색 = 검증된 범주형 1~3번(파랑·주황·청록), 이름 가나다순으로 고정 */
+:root { --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --pos: #2C7466; --pos-soft: #E1EFEA; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --s1: #3987e5; --s2: #d95926; --s3: #199e70; --pos: #6CC2AE; --pos-soft: #1C3530; }
+}
+:root[data-theme="dark"] { --s1: #3987e5; --s2: #d95926; --s3: #199e70; --pos: #6CC2AE; --pos-soft: #1C3530; }
+.report { margin-top: 18px; }
+.rhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.rhead h2 { margin: 0; }
+.printbtn { font: inherit; font-size: 14px; font-weight: 700; padding: 7px 14px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--ink); background: var(--ink); color: var(--bg); }
+.printbtn:focus-visible { outline: 3px solid var(--info); outline-offset: 2px; }
+.kpis { width: 100%; border-collapse: collapse; margin-top: 10px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden; font-size: 14px; }
+.kpis th, .kpis td { padding: 8px 8px; text-align: right; border-bottom: 1px solid var(--line); }
+.kpis td { white-space: nowrap; }
+.kpiwrap { overflow-x: auto; }
+table.kpis { min-width: 0; }
+.kpis th:first-child, .kpis td:first-child { text-align: left; }
+.kpis th { color: var(--muted); font-weight: 500; font-size: 13px; }
+.kpis tr.total td { font-weight: 700; }
+.charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 14px; }
+@media (max-width: 860px) { .charts { grid-template-columns: 1fr; } }
+.chart { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.chart h3 { margin: 0 0 2px; font-size: 14px; }
+.chart .sub { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { font-family: inherit; fill: var(--muted); font-size: 11px; }
+.chart .lbl { fill: var(--ink); font-weight: 700; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.legend2 { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.legend2 i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+.legend2 .tick { width: 2px; height: 12px; background: var(--ink); }
+.legend2 .ring { width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--ink); background: var(--surface); }
+.chg { display: inline-block; min-width: 64px; text-align: center; font-size: 12px; font-weight: 700; padding: 1px 6px; border-radius: 4px; }
+.chg.up, .chg.on { background: var(--pos-soft); color: var(--pos); }
+.chg.down, .chg.off { background: var(--urgent-soft); color: var(--urgent); }
+tr.hl-up td:first-child, tr.hl-on td:first-child { box-shadow: inset 4px 0 0 var(--pos); }
+tr.hl-down td:first-child, tr.hl-off td:first-child { box-shadow: inset 4px 0 0 var(--urgent); }
+.spark { display: block; }
+.rpt-title { display: none; }
+@media print {
+  @page { size: A4 portrait; margin: 12mm; }
+  body { background: #fff; color: #000; font-size: 12px; }
+  .wrap { max-width: none; padding: 0; }
+  header p, #demo, details.guide, .views, #viewSA, #gfaPeople, .printbtn, details#rules, .toggle { display: none !important; }
+  #viewGFA { display: block !important; }
+  .rpt-title { display: block; font-size: 18px; font-weight: 700; margin: 0 0 4px; }
+  .tablebox, .tablebox.scroll { max-height: none !important; overflow: visible !important; }
+  .chart, .kpis { break-inside: avoid; }
+  .kpiwrap { overflow: visible; }
+  table, table.small { min-width: 0 !important; }
+  td:first-child { min-width: 0; }
+  table.small th, table.small td { white-space: nowrap; padding: 5px 6px; font-size: 10.5px; }
+  table.small td:nth-child(2) { white-space: normal; }
+  #g0 td:nth-child(1) { white-space: nowrap; }
+  .kpis { table-layout: fixed; }
+  .kpis th, .kpis td { padding: 4px 3px; font-size: 9.5px; white-space: normal; }
+  .kpis th:first-child, .kpis td:first-child { width: 11%; }
+  /* 휴면 목록은 길어서 인쇄 땐 상위 20개만 */
+  #g2 tr:nth-child(n+21) { display: none; }
+  #h-g2::after { content: " (인쇄: 상위 20개)"; font-weight: 400; font-size: 11px; }
+  .charts { grid-template-columns: 1fr 1fr; }
+  a { color: inherit; text-decoration: none; }
+  a::after { content: none !important; }
+}
 /* 화면 전환 탭: SA 계정 점검 / GFA 액션 */
 .views { display: flex; gap: 4px; margin: 22px 0 0; border-bottom: 2px solid var(--line); }
 .views button { font: inherit; font-size: 16px; font-weight: 700; padding: 8px 16px; cursor: pointer;
@@ -258,8 +324,22 @@ details.guide td:first-child { white-space: nowrap; font-weight: 700; }
   </section>
   </div>
   <div id="viewGFA" role="tabpanel" aria-labelledby="tabGFA" hidden>
+  <p class="rpt-title" id="rptTitle"></p>
   <p class="summary" id="gfaSummary"></p>
   <div class="tabs" id="gfaPeople" role="group" aria-label="담당 팀원"></div>
+  <section class="report" id="gfaReport" aria-labelledby="h-rpt">
+    <div class="rhead"><h2 id="h-rpt">10월 GFA 현황 보고</h2>
+      <button type="button" class="printbtn" id="printBtn">보고용 출력 (PDF 저장)</button></div>
+    <div class="kpiwrap"><table class="kpis" id="kpis"></table></div>
+    <div class="charts">
+      <figure class="chart" id="chartGoal"></figure>
+      <figure class="chart" id="chartDaily"></figure>
+    </div>
+  </section>
+  <section class="ledger" aria-labelledby="h-g0">
+    <div class="lhead"><h2 id="h-g0">변화 있는 계정</h2><span class="lkey">최근 3일 평균을 그 전 7일 평균과 비교. 증액·라이브 전환은 초록, 감액·중단은 빨강</span></div>
+    <div class="tablebox scroll"><table class="small"><thead><tr id="g0h"></tr></thead><tbody id="g0"></tbody></table></div>
+  </section>
   <section class="ledger" aria-labelledby="h-g1">
     <div class="lhead"><h2 id="h-g1">① SA 예산 → GFA 이동 검토</h2><span class="lkey">SA 광고비는 쓰고 있는데 GFA는 9·10월 모두 0원인 계정. SA 광고비가 큰 순</span></div>
     <div class="tablebox scroll"><table class="small"><thead><tr id="g1h"></tr></thead><tbody id="g1"></tbody></table></div>
@@ -628,7 +708,7 @@ function renderGFA() {
   const A = gfaActions();
   document.getElementById("gfaCnt").textContent = A ? `${A.a1.length + A.a2.length + A.a3.length}` : "";
   // 시트 연결 전에는 빈 표 대신 안내만 (「해당 계정이 없습니다」로 오해하지 않게)
-  for (const id of ["g1", "g2", "g3"]) document.getElementById(id).closest("section").hidden = !A;
+  for (const id of ["g0", "g1", "g2", "g3", "kpis"]) document.getElementById(id).closest("section").hidden = !A;
   if (!A) {
     document.getElementById("gfaSummary").textContent = "GFA 시트가 아직 연결되지 않아 표시할 데이터가 없습니다. 회사 PC 에 NAVER_GFA_URL 을 등록하면 표시됩니다.";
     document.getElementById("gfaNote").textContent = "";
@@ -646,11 +726,17 @@ function renderGFA() {
   }
   // 시트 데이터가 SA 기준일(어제)까지 와 있지 않으면 경고 (오전 집계 전이면 11시에 다시 읽음)
   const stale = A.G.periodEnd && A.G.periodEnd < DATA.baseDate;
+  const color = renderReport(A);
+  const chg = renderChanges(A, color);
+  const nChg = k => chg.filter(x => x[2].kind === k).length;
+  document.getElementById("rptTitle").textContent =
+    `네이버 GFA 현황 보고 · ${person ? person : "6팀 전체"} · ${A.G.note || ""}`;
   document.getElementById("gfaSummary").innerHTML =
     (stale ? `<span class="gfa-stale">⚠ GFA 시트가 아직 ${esc(DATA.baseDate)} 데이터로 갱신되지 않았습니다 (시트 데이터 ~${esc(A.G.periodEnd)}). 시트가 갱신되면 30분 안에, 늦어도 11시에 다시 반영됩니다.</span><br>` : "") +
     `${person ? esc(person) + " 님" : "팀 전체"} GFA 할 일: <b class="u">SA→GFA 이동 검토 ${A.a1.length}곳</b>, ` +
     `<b class="w">휴면 재라이브 ${A.a2.length}곳</b>, <b>업셀링 ${A.a3.length}곳</b>` +
-    (A.live.length ? ` · 이번 달 휴면에서 라이브 전환 ${A.live.length}곳` : "");
+    (A.live.length ? ` · 이번 달 휴면에서 라이브 전환 ${A.live.length}곳` : "") +
+    `<br>최근 변화: 증액 ${nChg("up")} · 라이브 전환·재개 ${nChg("on")} · 감액 ${nChg("down")} · 중단 ${nChg("off")}`;
   const nm = (r, sa) => sa ? link(sa.name, sa, "/dashboard") : (r.name || String(r.adAccountNo));
   const roas = sa => sa?.roas7 == null ? "–" : `${sa.roas7.toLocaleString("ko-KR")}%`;
   fillTable("g1", A.a1, [["광고주", nm], ["담당", r => r.owner], ["SA 7일 일평균", (r, sa) => won(sa.avg7)],
@@ -664,6 +750,114 @@ function renderGFA() {
   document.getElementById("gfaNote").textContent =
     `GFA: 시트 「${A.G.note || A.G.updatedAt}」 · SA 광고비: ${DATA.baseDate} 기준. GFA 시트가 바뀌면 30분 안에 이 화면도 바뀝니다.`;
 }
+// ---- GFA 변화 감지 + 보고(그래프) ----
+const CHG_RATIO = 0.2;     // 최근 3일 평균이 그 전 7일 평균 대비 ±20% 이상이면 증액/감액
+const CHG_MIN = 5000;      // 비교 대상 하루 평균이 5천원 미만이면 변화로 보지 않음 (소액 흔들림 제외)
+const avg = xs => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0;
+function gfaChange(r) {
+  const d = r.daily || [], n = d.length;
+  if (!n) return null;
+  const last3 = avg(d.slice(Math.max(0, n - 3))), prev7 = avg(d.slice(Math.max(0, n - 10), Math.max(0, n - 3)));
+  if (r.section === "dormant" && r.oct > 0) return { kind: "on", label: "라이브 전환", last3, prev7 };
+  if (prev7 >= CHG_MIN && last3 === 0) return { kind: "off", label: "중단", last3, prev7 };
+  if (Math.max(last3, prev7) < CHG_MIN) return null;
+  if (prev7 === 0 && last3 > 0) return { kind: "on", label: "재개", last3, prev7 };
+  if (last3 >= prev7 * (1 + CHG_RATIO)) return { kind: "up", label: "증액", last3, prev7 };
+  if (last3 <= prev7 * (1 - CHG_RATIO)) return { kind: "down", label: "감액", last3, prev7 };
+  return null;
+}
+const OWNER_COLOR = owners => Object.fromEntries(owners.map((o, i) => [o, `var(--s${(i % 3) + 1})`]));
+function spark(daily, color) {
+  const w = 120, h = 26, mx = Math.max(1, ...daily);
+  const pts = daily.map((v, i) => `${(i / Math.max(1, daily.length - 1)) * w},${h - 2 - (v / mx) * (h - 4)}`).join(" ");
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">` +
+    `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+const svgEl = html => { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstChild; };
+const man = v => v >= 1e6 ? `${(v / 1e6).toFixed(v >= 1e7 ? 0 : 1)}백만` : v >= 1e4 ? `${Math.round(v / 1e4)}만` : v.toLocaleString("ko-KR");
+
+function renderReport(A) {
+  const allOwners = [...new Set(A.G.rows.map(r => r.owner))].sort((a, b) => a.localeCompare(b, "ko"));
+  const color = OWNER_COLOR(allOwners);
+  const owners = person ? [person] : allOwners;
+  // 시트 「팀 요약」과 같은 기준: 9월 집행 계정(①)만 합산, 휴면→라이브 전환 매출은 따로
+  const sum = (o, k) => A.G.rows.filter(r => r.owner === o && r.section === "active").reduce((s, r) => s + r[k], 0);
+  const liveAmt = o => A.G.rows.filter(r => r.owner === o && r.section === "dormant").reduce((s, r) => s + r.oct, 0);
+  const stats = owners.map(o => ({ o, sep: sum(o, "sep"), target: sum(o, "target"), oct: sum(o, "oct"), proj: sum(o, "proj"), live: liveAmt(o) }));
+  const tot = ["sep", "target", "oct", "proj", "live"].reduce((t, k) => (t[k] = stats.reduce((s, x) => s + x[k], 0), t), { o: "팀 합계" });
+  const rate = (a, b) => b ? `${Math.round(a / b * 100)}%` : "–";
+  const kp = document.getElementById("kpis");
+  kp.innerHTML = `<thead><tr><th>마케터</th><th>9월 GFA</th><th>10월 목표</th><th>10월 누적</th><th>예상 마감</th><th>예상÷목표</th><th>예상÷9월</th><th>휴면→라이브 매출</th></tr></thead>`;
+  const tb = document.createElement("tbody");
+  for (const x of (person ? stats : [...stats, tot])) {
+    const tr = document.createElement("tr"); if (x === tot) tr.className = "total";
+    for (const v of [x.o, won(x.sep), won(x.target), won(x.oct), won(x.proj), rate(x.proj, x.target), rate(x.proj, x.sep), won(x.live)]) {
+      const td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
+    }
+    tb.appendChild(tr);
+  }
+  kp.appendChild(tb);
+
+  // 그래프 1: 팀원별 예상 마감(막대) vs 목표(세로 눈금) vs 9월(빈 원) — 한 축(원)
+  const W = 520, rowH = 44, padL = 70, padR = 70, H = owners.length * rowH + 24;
+  const mx = Math.max(1, ...stats.flatMap(x => [x.proj, x.target, x.sep]));
+  const X = v => padL + (v / mx) * (W - padL - padR);
+  let g = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="팀원별 10월 GFA 예상 마감과 목표">`;
+  for (const t of [0, 0.25, 0.5, 0.75, 1]) g += `<line class="grid" x1="${X(mx * t)}" x2="${X(mx * t)}" y1="0" y2="${H - 18}"/><text x="${X(mx * t)}" y="${H - 4}" text-anchor="middle">${man(mx * t)}</text>`;
+  stats.forEach((x, i) => {
+    const y = i * rowH + 10, c = color[x.o];
+    g += `<text class="lbl" x="${padL - 8}" y="${y + 15}" text-anchor="end">${esc(x.o)}</text>`;
+    g += `<rect x="${padL}" y="${y + 4}" width="${Math.max(2, X(x.proj) - padL)}" height="16" rx="4" fill="${c}"><title>${esc(x.o)} 예상 마감 ${won(x.proj)} · 목표 ${won(x.target)} · 9월 ${won(x.sep)}</title></rect>`;
+    g += `<line x1="${X(x.target)}" x2="${X(x.target)}" y1="${y}" y2="${y + 24}" stroke="var(--ink)" stroke-width="2"><title>목표 ${won(x.target)}</title></line>`;
+    g += `<circle cx="${X(x.sep)}" cy="${y + 12}" r="5" fill="var(--surface)" stroke="var(--ink)" stroke-width="2"><title>9월 ${won(x.sep)}</title></circle>`;
+    g += `<text x="${Math.max(X(x.proj), X(x.target), X(x.sep)) + 8}" y="${y + 16}">${rate(x.proj, x.target)}</text>`;
+  });
+  g += `</svg>`;
+  document.getElementById("chartGoal").innerHTML =
+    `<h3>10월 GFA 예상 마감 vs 목표</h3><p class="sub">막대 = 예상 마감, 세로선 = 10월 목표, 빈 원 = 9월 실적, 오른쪽 % = 목표 대비</p>` + g +
+    `<div class="legend2"><span><i style="background:var(--s1)"></i>예상 마감(팀원 색)</span><span><i class="tick"></i>목표</span><span><i class="ring"></i>9월</span></div>`;
+
+  // 그래프 2: 일별 GFA 집행 추이 (팀원별 선, 9월 집행 계정 + 라이브 전환 포함)
+  const days = Math.max(0, ...A.G.rows.map(r => (r.daily || []).length));
+  const series = owners.map(o => ({ o, v: Array.from({ length: days }, (_, d) => A.G.rows.filter(r => r.owner === o).reduce((s, r) => s + ((r.daily || [])[d] || 0), 0)) }));
+  const W2 = 520, H2 = 200, pl = 44, pr = 56, pt = 10, pb = 22;
+  const my = Math.max(1, ...series.flatMap(s => s.v));
+  const xx = d => pl + (days > 1 ? d / (days - 1) : 0) * (W2 - pl - pr), yy = v => pt + (1 - v / my) * (H2 - pt - pb);
+  let l = `<svg viewBox="0 0 ${W2} ${H2}" role="img" aria-label="일별 GFA 집행 추이">`;
+  for (const t of [0, 0.5, 1]) l += `<line class="grid" x1="${pl}" x2="${W2 - pr}" y1="${yy(my * t)}" y2="${yy(my * t)}"/><text x="${pl - 6}" y="${yy(my * t) + 4}" text-anchor="end">${man(my * t)}</text>`;
+  for (let d = 0; d < days; d += Math.max(1, Math.ceil(days / 7))) l += `<text x="${xx(d)}" y="${H2 - 6}" text-anchor="middle">${d + 1}일</text>`;
+  for (const s of series) {
+    const c = color[s.o];
+    l += `<polyline points="${s.v.map((v, d) => `${xx(d)},${yy(v)}`).join(" ")}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    s.v.forEach((v, d) => { l += `<circle cx="${xx(d)}" cy="${yy(v)}" r="7" fill="transparent"><title>${esc(s.o)} ${d + 1}일 ${won(v)}</title></circle>`; });
+    if (days) l += `<text class="lbl" x="${xx(days - 1) + 6}" y="${yy(s.v[days - 1]) + 4}">${esc(s.o)}</text>`;
+  }
+  l += `</svg>`;
+  document.getElementById("chartDaily").innerHTML =
+    `<h3>일별 GFA 집행 추이</h3><p class="sub">팀원 담당 계정의 하루 GFA 합계 (점에 마우스를 올리면 금액)</p>` + l +
+    (series.length > 1 ? `<div class="legend2">${series.map(s => `<span><i style="background:${color[s.o]}"></i>${esc(s.o)}</span>`).join("")}</div>` : "");
+  return color;
+}
+
+function renderChanges(A, color) {
+  const saBy = new Map(DATA.accounts.map(a => [String(a.customerId), a]));
+  const rows = (person ? A.G.rows.filter(r => r.owner === person) : A.G.rows)
+    .map(r => [r, saBy.get(String(r.customerId)), gfaChange(r)]).filter(x => x[2]);
+  const order = { on: 0, up: 1, off: 2, down: 3 };
+  rows.sort((p, q) => order[p[2].kind] - order[q[2].kind] || Math.abs(q[2].last3 - q[2].prev7) - Math.abs(p[2].last3 - p[2].prev7));
+  const nm = (r, sa) => sa ? link(sa.name, sa, "/dashboard") : (r.name || String(r.adAccountNo));
+  fillTable("g0", rows, [
+    ["변화", (r, sa, c) => svgEl(`<span class="chg ${c.kind}">${c.label}</span>`)],
+    ["광고주", nm], ["담당", r => r.owner],
+    ["최근 3일 평균", (r, sa, c) => won(Math.round(c.last3))], ["이전 7일 평균", (r, sa, c) => won(Math.round(c.prev7))],
+    ["변화율", (r, sa, c) => c.prev7 ? pct(c.last3 / c.prev7 - 1) : "신규"],
+    ["10월 누적", r => won(r.oct)],
+    ["일별 추이", r => svgEl(spark(r.daily || [], color[r.owner] || "var(--ink)"))],
+  ]);
+  document.querySelectorAll("#g0 tr").forEach((tr, i) => { if (rows[i]) tr.className = "hl-" + rows[i][2].kind; });
+  return rows;
+}
+
 function setView(v) {
   view = v === "gfa" ? "gfa" : "sa";
   document.getElementById("viewSA").hidden = view !== "sa";
@@ -672,6 +866,7 @@ function setView(v) {
   document.getElementById("tabGFA").setAttribute("aria-selected", String(view === "gfa"));
   renderAll();
 }
+document.getElementById("printBtn").onclick = () => window.print();
 document.getElementById("tabSA").onclick = () => setView("sa");
 document.getElementById("tabGFA").onclick = () => setView("gfa");
 
