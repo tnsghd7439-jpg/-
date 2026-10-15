@@ -45,7 +45,12 @@ def parse(payload: dict) -> dict:
                 })
     note = str(payload.get("note") or "")
     m = re.search(r"마지막 업데이트\s*([\d-]+\s+[\d:]+)", note)
-    return {"updatedAt": m.group(1) if m else "", "note": note, "rows": rows}
+    updated = m.group(1) if m else ""
+    # 시트 데이터의 마지막 날짜: "기준 10/1~10/14" → 2026-10-14 (연도는 마지막 업데이트에서)
+    p = re.search(r"기준\s*\d+/\d+\s*~\s*(\d+)/(\d+)", note)
+    year = int(updated[:4]) if updated[:4].isdigit() else None
+    period_end = f"{year}-{int(p.group(1)):02d}-{int(p.group(2)):02d}" if p and year else ""
+    return {"updatedAt": updated, "periodEnd": period_end, "note": note, "rows": rows}
 
 
 def fetch() -> dict | None:

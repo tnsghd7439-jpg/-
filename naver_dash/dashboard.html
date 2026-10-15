@@ -157,6 +157,8 @@ details ul { padding-left: 18px; }
 .views button:focus-visible { outline: 3px solid var(--info); outline-offset: 2px; }
 .views .cnt { font-weight: 500; font-size: 13px; color: var(--muted); margin-left: 4px; }
 .gfa-empty { padding: 24px 0; color: var(--muted); }
+.gfa-stale { display: inline-block; margin-bottom: 6px; padding: 4px 10px; border-radius: 6px; font-size: 14px;
+  background: var(--warn-soft); color: var(--warn); font-weight: 700; }
 .gfa-note { margin-top: 18px; color: var(--muted); font-size: 13px; }
 /* 보는 법 안내 (상단) */
 details.guide { margin: 18px 0 0; color: var(--ink); font-size: 14px; background: var(--surface);
@@ -640,7 +642,10 @@ function renderGFA() {
       box.appendChild(b);
     }
   }
+  // 시트 데이터가 SA 기준일(어제)까지 와 있지 않으면 경고 (오전 집계 전이면 11시에 다시 읽음)
+  const stale = A.G.periodEnd && A.G.periodEnd < DATA.baseDate;
   document.getElementById("gfaSummary").innerHTML =
+    (stale ? `<span class="gfa-stale">⚠ GFA 시트가 아직 ${esc(DATA.baseDate)} 데이터로 갱신되지 않았습니다 (시트 데이터 ~${esc(A.G.periodEnd)}). 시트가 갱신되면 30분 안에, 늦어도 11시에 다시 반영됩니다.</span><br>` : "") +
     `${person ? esc(person) + " 님" : "팀 전체"} GFA 할 일: <b class="u">SA→GFA 이동 검토 ${A.a1.length}곳</b>, ` +
     `<b class="w">휴면 재라이브 ${A.a2.length}곳</b>, <b>업셀링 ${A.a3.length}곳</b>` +
     (A.live.length ? ` · 이번 달 휴면에서 라이브 전환 ${A.live.length}곳` : "");

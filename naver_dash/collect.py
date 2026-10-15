@@ -588,12 +588,14 @@ def main():
         old = load_gfa(refresh=False)
         new = load_gfa(refresh=True)
         if not new or (old and old.get("updatedAt") == new.get("updatedAt") and old.get("rows") == new.get("rows")):
-            print("GFA 시트 변경 없음")
+            y = ymd(datetime.now(KST).date() - timedelta(days=1))
+            stale = new and new.get("periodEnd") and new["periodEnd"] < y
+            print("GFA 시트 변경 없음" + (f" (시트 데이터 ~{new['periodEnd']}, 어제 {y} 미반영)" if stale else ""))
             return
         data = json.loads((OUT / "latest.json").read_text(encoding="utf-8"))
         data["gfa"] = new
         render(data)
-        print(f"GFA 시트 갱신 반영 ({new.get('updatedAt')})")
+        print(f"GFA 시트 갱신 반영 ({new.get('updatedAt')}, 데이터 ~{new.get('periodEnd') or '?'})")
         return
 
     if args.notify_only:
