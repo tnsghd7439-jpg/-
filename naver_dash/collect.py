@@ -585,9 +585,15 @@ def main():
     args = ap.parse_args()
 
     if args.gfa_refresh:
+        if not os.environ.get("NAVER_GFA_URL"):
+            print("NAVER_GFA_URL 환경변수가 없습니다 (setx 로 등록한 뒤 명령 프롬프트 창을 새로 열어야 적용됨)")
+            return
         old = load_gfa(refresh=False)
         new = load_gfa(refresh=True)
-        if not new or (old and old.get("updatedAt") == new.get("updatedAt") and old.get("rows") == new.get("rows")):
+        if not new:
+            print("GFA 시트를 읽지 못했습니다 (위 오류 참고)")
+            return
+        if old and old.get("updatedAt") == new.get("updatedAt") and old.get("rows") == new.get("rows"):
             y = ymd(datetime.now(KST).date() - timedelta(days=1))
             stale = new and new.get("periodEnd") and new["periodEnd"] < y
             print("GFA 시트 변경 없음" + (f" (시트 데이터 ~{new['periodEnd']}, 어제 {y} 미반영)" if stale else ""))
