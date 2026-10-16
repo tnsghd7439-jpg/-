@@ -3,3 +3,4 @@ output/
 *.state.json
 .env
 __pycache__/
+naver_dash/team.json
