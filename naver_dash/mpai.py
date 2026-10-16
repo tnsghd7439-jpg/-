@@ -45,6 +45,17 @@ def chrome_exe() -> str | None:
     return None
 
 
+def close_profile_chrome() -> None:
+    """전용 프로필(mpai_profile)로 떠 있는 크롬만 끈다. 뒤에 남아 있으면 자동 수집이 프로필을 못 연다.
+    평소 쓰는 크롬은 프로필 경로가 달라 건드리지 않는다. 윈도우 전용."""
+    if os.name != "nt":
+        return
+    ps = ("Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+          f"Where-Object {{ $_.CommandLine -like '*{PROFILE.name}*' }} | "
+          "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }")
+    subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, timeout=60)
+
+
 def login() -> None:
     """자동화 표시 없는 일반 크롬으로 전용 프로필을 열어 사람이 로그인한다.
     (자동화 크롬에서는 구글이 로그인을 막을 수 있어 일반 크롬을 쓴다.)
@@ -57,9 +68,9 @@ def login() -> None:
     print("크롬 창에서 회사 구글 계정으로 로그인해 「내 광고주」 화면이 보이면, 크롬 창을 닫고 여기서 Enter 를 누르세요.")
     input()
     time.sleep(2)  # 창을 닫은 직후 로그인 정보가 저장되도록
-    # 전용 프로필로 뜬 크롬이 뒤에 남아 있으면 자동 수집이 프로필을 못 열어서 정리 (평소 크롬은 건드리지 않음)
     if proc.poll() is None:
         subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+    close_profile_chrome()
     print("로그인 정보가 전용 프로필에 저장됐습니다.")
 
 
@@ -162,6 +173,7 @@ def scrape(headless=True, debug=False) -> dict:
         raise LoginRequired("전용 크롬 프로필이 없습니다. 먼저 mpai.py --login")
     raw = OUT / "mpai_raw"
     raw.mkdir(parents=True, exist_ok=True)
+    close_profile_chrome()  # 로그인 때 띄운 크롬이 남아 있으면 정리
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
             str(PROFILE), channel=os.environ.get("NAVER_MPAI_CHANNEL", "chrome") or None, headless=headless,
