@@ -47,14 +47,20 @@ def chrome_exe() -> str | None:
 
 def login() -> None:
     """자동화 표시 없는 일반 크롬으로 전용 프로필을 열어 사람이 로그인한다.
-    (자동화 크롬에서는 구글이 로그인을 막을 수 있어 일반 크롬을 쓴다.) 창을 닫으면 끝."""
+    (자동화 크롬에서는 구글이 로그인을 막을 수 있어 일반 크롬을 쓴다.)
+    크롬은 창을 닫아도 뒤에 남는 경우가 있어, 창 닫기를 기다리지 않고 Enter 로 끝낸 뒤 남은 크롬을 정리한다."""
     PROFILE.mkdir(parents=True, exist_ok=True)
     exe = chrome_exe()
     if not exe:
         sys.exit("크롬(chrome.exe)을 찾지 못했습니다. 구글 크롬을 설치해 주세요.")
-    print("크롬 창이 열리면 회사 구글 계정으로 로그인해 「내 광고주」 화면이 보이는지 확인한 뒤 창을 닫아 주세요.")
-    subprocess.run([exe, f"--user-data-dir={PROFILE}", "--no-first-run", "--new-window", URL])
-    print("로그인 정보가 전용 프로필에 저장됐습니다. 이제 py -3 naver_dash\\mpai.py 로 시험 수집해 보세요.")
+    proc = subprocess.Popen([exe, f"--user-data-dir={PROFILE}", "--no-first-run", "--new-window", URL])
+    print("크롬 창에서 회사 구글 계정으로 로그인해 「내 광고주」 화면이 보이면, 크롬 창을 닫고 여기서 Enter 를 누르세요.")
+    input()
+    time.sleep(2)  # 창을 닫은 직후 로그인 정보가 저장되도록
+    # 전용 프로필로 뜬 크롬이 뒤에 남아 있으면 자동 수집이 프로필을 못 열어서 정리 (평소 크롬은 건드리지 않음)
+    if proc.poll() is None:
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+    print("로그인 정보가 전용 프로필에 저장됐습니다.")
 
 
 # ---------------------------------------------------------------- 화면 읽기
