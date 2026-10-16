@@ -194,7 +194,7 @@ tr.hl-down td:first-child, tr.hl-off td:first-child { box-shadow: inset 4px 0 0 
   @page { size: A4 portrait; margin: 12mm; }
   body { background: #fff; color: #000; font-size: 12px; }
   .wrap { max-width: none; padding: 0; }
-  header p, #demo, details.guide, .views, #viewSA, #gfaPeople, .printbtn, details#rules, .toggle { display: none !important; }
+  header p, #demo, details.guide, .views, #viewSA, #viewMP, #gfaPeople, .printbtn, details#rules, .toggle { display: none !important; }
   #viewGFA { display: block !important; }
   .rpt-title { display: block; font-size: 18px; font-weight: 700; margin: 0 0 4px; }
   .tablebox, .tablebox.scroll { max-height: none !important; overflow: visible !important; }
@@ -226,6 +226,16 @@ tr.hl-down td:first-child, tr.hl-off td:first-child { box-shadow: inset 4px 0 0 
 .gfa-stale { display: inline-block; margin-bottom: 6px; padding: 4px 10px; border-radius: 6px; font-size: 14px;
   background: var(--warn-soft); color: var(--warn); font-weight: 700; }
 .gfa-note { margin-top: 18px; color: var(--muted); font-size: 13px; }
+/* 매체 통합 (MP AI) */
+.mpd { color: var(--muted); font-size: 12px; margin-left: 4px; }
+.mpd.down { color: var(--urgent); font-weight: 700; } .mpd.up { color: var(--pos); font-weight: 700; }
+tr.mp-down td:first-child { box-shadow: inset 4px 0 0 var(--urgent); }
+tr.mp-up td:first-child { box-shadow: inset 4px 0 0 var(--pos); }
+tr.mp-total td { font-weight: 700; border-top: 2px solid var(--ink); }
+td.zero { color: var(--muted); }
+.vat { font-size: 11px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+details.mpbox { margin-top: 22px; }
+details.mpbox > summary { cursor: pointer; font-size: 15px; font-weight: 700; color: var(--muted); margin-bottom: 8px; }
 /* 보는 법 안내 (상단) */
 details.guide { margin: 18px 0 0; color: var(--ink); font-size: 14px; background: var(--surface);
   border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; }
@@ -279,6 +289,7 @@ details.guide td:first-child { white-space: nowrap; font-weight: 700; }
   <nav class="views" role="tablist" aria-label="화면">
     <button type="button" role="tab" id="tabSA" aria-selected="true" aria-controls="viewSA">SA 계정 점검</button>
     <button type="button" role="tab" id="tabGFA" aria-selected="false" aria-controls="viewGFA">GFA 액션<span class="cnt" id="gfaCnt"></span></button>
+    <button type="button" role="tab" id="tabMP" aria-selected="false" aria-controls="viewMP">매체 통합</button>
   </nav>
   <div id="viewSA" role="tabpanel" aria-labelledby="tabSA">
   <p class="summary" id="summary"></p>
@@ -353,6 +364,17 @@ details.guide td:first-child { white-space: nowrap; font-weight: 700; }
     <div class="tablebox scroll"><table class="small"><thead><tr id="g3h"></tr></thead><tbody id="g3"></tbody></table></div>
   </section>
   <p class="gfa-note" id="gfaNote"></p>
+  </div>
+  <div id="viewMP" role="tabpanel" aria-labelledby="tabMP" hidden>
+  <p class="summary" id="mpSummary"></p>
+  <div class="tabs" id="mpPeople" role="group" aria-label="담당 팀원"></div>
+  <section class="ledger" id="mpMediaSec" aria-labelledby="h-mp1">
+    <div class="lhead"><h2 id="h-mp1">담당자 × 매체 광고비</h2><span class="lkey">MP AI 「광고매출」(=광고비). 괄호는 MP AI 비교기간 대비 증감. -20% 이하 빨강, +20% 이상 초록</span></div>
+    <div class="tabs" id="mpPeriod" role="group" aria-label="기간"></div>
+    <div class="tablebox scroll"><table class="small"><thead><tr id="mp1h"></tr></thead><tbody id="mp1"></tbody></table></div>
+  </section>
+  <div id="mpLists"></div>
+  <p class="gfa-note" id="mpNote"></p>
   </div>
   <details id="rules"><summary>점검 기준과 수집 정보</summary><ul id="rulelist"></ul></details>
 </div>
@@ -858,25 +880,165 @@ function renderChanges(A, color) {
   return rows;
 }
 
+// ---- 매체 통합 (MP AI 「내 광고주」 화면을 mpai.py 가 읽어 옴) ----
+let mpPeriod = "전일";
+const MP_CHG = 20;  // 광고매출 증감 ±20% 이상이면 강조
+const mpCol = (head, test) => head.find(test);
+const mpSpendCol = head => mpCol(head, h => h.includes("광고매출") && !h.includes("증감") && !h.includes("있는"));
+const mpChgCol = head => mpCol(head, h => h.includes("증감"));
+const mpNum = v => typeof v === "number" ? v : null;
+function mpDelta(v) {
+  if (v == null || v === "") return "";
+  const n = mpNum(v);
+  if (n == null) return `<span class="mpd">(${esc(v)})</span>`;
+  const k = n <= -MP_CHG ? "down" : n >= MP_CHG ? "up" : "";
+  return `<span class="mpd ${k}">(${n > 0 ? "+" : ""}${n.toLocaleString("ko-KR")}%)</span>`;
+}
+function mpScopes() {
+  const M = DATA.mpai;
+  if (!M) return [];
+  return person ? M.scopes.filter(s => s.owner === person) : M.scopes;
+}
+function renderMP() {
+  const M = DATA.mpai;
+  const box = document.getElementById("mpPeople");
+  box.innerHTML = "";
+  document.getElementById("mpMediaSec").hidden = !M;
+  document.getElementById("mpLists").innerHTML = "";
+  if (!M) {
+    document.getElementById("mpSummary").textContent =
+      "MP AI 데이터가 아직 없습니다. 회사 PC 에서 mpai_login.bat 으로 한 번 로그인하면 매일 자동으로 채워집니다.";
+    document.getElementById("mpNote").textContent = "";
+    return;
+  }
+  if (!DATA.personal) {
+    for (const o of [null, ...M.scopes.map(s => s.owner)]) {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = o ?? "팀 전체"; b.setAttribute("aria-pressed", String(person === o));
+      b.onclick = () => { person = o; renderAll(); };
+      box.appendChild(b);
+    }
+  }
+  const pbox = document.getElementById("mpPeriod");
+  pbox.innerHTML = "";
+  for (const k of ["전일", "당월"]) {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = k; b.setAttribute("aria-pressed", String(mpPeriod === k));
+    b.onclick = () => { mpPeriod = k; renderMP(); };
+    pbox.appendChild(b);
+  }
+  const scopes = mpScopes();
+  if (!scopes.length) {
+    document.getElementById("mpMediaSec").hidden = true;
+    document.getElementById("mpSummary").textContent = `MP AI 「내 광고주」에 ${person ?? ""} 님 범위가 없습니다.`;
+    document.getElementById("mpNote").textContent = "";
+    return;
+  }
+  // 1) 담당자 × 매체: 「전체」 탭의 매체 요약표(열 「매체」)
+  const media = [], vat = {}, cell = new Map(), dates = new Set();
+  for (const s of scopes) {
+    const per = s.periods[mpPeriod];
+    if (!per) continue;
+    (per.dates || []).forEach(d => dates.add(d));
+    const t = (per.tabs["전체"] || []).find(t => t.head.includes("매체"));
+    if (!t) continue;
+    const sp = mpSpendCol(t.head), ch = mpChgCol(t.head);
+    for (const r of t.rows) {
+      const m = r["매체"];
+      if (!m) continue;
+      if (!media.includes(m)) media.push(m);
+      if (r.vat) vat[m] = r.vat;
+      cell.set(s.owner + "|" + m, { v: mpNum(r[sp]) ?? 0, d: ch ? r[ch] : null });
+    }
+  }
+  const head = document.getElementById("mp1h"), body = document.getElementById("mp1");
+  head.innerHTML = `<th>담당</th>` + media.map(m => `<th>${esc(m)}${vat[m] ? `<span class="vat">${esc(vat[m])}</span>` : ""}</th>`).join("") + `<th>합계</th>`;
+  body.innerHTML = "";
+  const tot = {};
+  for (const s of scopes) {
+    let sum = 0;
+    const tds = media.map(m => {
+      const c = cell.get(s.owner + "|" + m);
+      if (!c) return `<td class="zero">–</td>`;
+      sum += c.v; tot[m] = (tot[m] || 0) + c.v;
+      return `<td class="${c.v ? "" : "zero"}">${won(c.v)}${mpDelta(c.d)}</td>`;
+    }).join("");
+    body.insertAdjacentHTML("beforeend", `<tr><td>${esc(s.owner)}</td>${tds}<td><b>${won(sum)}</b></td></tr>`);
+  }
+  if (scopes.length > 1)
+    body.insertAdjacentHTML("beforeend", `<tr class="mp-total"><td>합계</td>${media.map(m => `<td>${won(tot[m] || 0)}</td>`).join("")}` +
+      `<td>${won(Object.values(tot).reduce((a, b) => a + b, 0))}</td></tr>`);
+  if (!media.length) body.innerHTML = `<tr><td class="empty">매체 요약표를 읽지 못했습니다.</td></tr>`;
+
+  // 2) 매체 탭별 광고주 목록 (열은 MP AI 화면 그대로, 담당 열 추가, 광고매출 큰 순)
+  const lists = document.getElementById("mpLists");
+  const tabNames = [];
+  for (const s of scopes) for (const k of Object.keys(s.periods[mpPeriod]?.tabs || {})) if (k !== "전체" && !tabNames.includes(k)) tabNames.push(k);
+  let nDown = 0, nUp = 0;
+  for (const tab of tabNames) {
+    let cols = null; const rows = [];
+    for (const s of scopes) {
+      for (const t of s.periods[mpPeriod]?.tabs?.[tab] || []) {
+        if (t.head.includes("매체") || !t.rows.length) continue;  // 매체 요약표는 위에서 표시
+        cols ||= t.head;
+        for (const r of t.rows) rows.push([s.owner, r]);
+      }
+    }
+    if (!cols) continue;
+    const sp = mpSpendCol(cols), ch = mpChgCol(cols);
+    if (sp) rows.sort((a, b) => (mpNum(b[1][sp]) ?? 0) - (mpNum(a[1][sp]) ?? 0));
+    const d = document.createElement("details");
+    d.className = "mpbox"; d.open = tabNames.indexOf(tab) < 2;
+    const live = sp ? rows.filter(([, r]) => (mpNum(r[sp]) ?? 0) > 0).length : rows.length;
+    d.innerHTML = `<summary>${esc(tab)} · 광고주 ${rows.length}곳 (${mpPeriod} 광고비 있는 곳 ${live})</summary>` +
+      `<div class="tablebox scroll"><table class="small"><thead><tr>${scopes.length > 1 ? "<th>담당</th>" : ""}` +
+      cols.map(h => `<th>${esc(h)}</th>`).join("") + `</tr></thead><tbody></tbody></table></div>`;
+    const tb = d.querySelector("tbody");
+    for (const [owner, r] of rows) {
+      const n = ch ? mpNum(r[ch]) : null;
+      const k = n == null ? "" : n <= -MP_CHG ? "mp-down" : n >= MP_CHG ? "mp-up" : "";
+      if (k === "mp-down") nDown++; if (k === "mp-up") nUp++;
+      const zero = sp && !(mpNum(r[sp]) > 0);
+      tb.insertAdjacentHTML("beforeend", `<tr class="${k}">${scopes.length > 1 ? `<td>${esc(owner)}</td>` : ""}` +
+        cols.map(h => {
+          const v = r[h];
+          const txt = typeof v === "number" ? (h === ch ? `${v > 0 ? "+" : ""}${v.toLocaleString("ko-KR")}%` : v.toLocaleString("ko-KR")) : (v ?? "");
+          return `<td class="${zero ? "zero" : ""}">${esc(txt)}</td>`;
+        }).join("") + `</tr>`);
+    }
+    lists.appendChild(d);
+  }
+  const y = new Date(Date.now() + 9 * 3600e3 - 864e5);
+  const yk = `${y.getUTCMonth() + 1}/${y.getUTCDate()}`;
+  const pend = (M.pending || []).includes(yk);
+  document.getElementById("mpSummary").innerHTML =
+    (pend ? `<span class="gfa-stale">⚠ MP AI 에서 어제(${esc(yk)}) 데이터가 아직 「미집계」였습니다. 11시에 다시 읽어 옵니다.</span><br>` : "") +
+    `${person ? esc(person) + " 님" : "팀 전체"} 매체 통합 (${esc(mpPeriod)} ${esc([...dates].sort().join(" ~ "))})` +
+    (tabNames.length ? ` · 광고매출 증감 <b class="u">-${MP_CHG}% 이하 ${nDown}곳</b>, <b>+${MP_CHG}% 이상 ${nUp}곳</b>` : "");
+  document.getElementById("mpNote").textContent =
+    `MP AI 「내 광고주」 화면을 ${M.fetchedAt}에 읽은 값입니다. 매체마다 VAT 기준이 다릅니다(매체 이름 옆 표시). 네이버는 SA 탭(API)과 집계 기준이 달라 금액이 조금 다를 수 있습니다.`;
+}
+
 function setView(v) {
-  view = v === "gfa" ? "gfa" : "sa";
-  document.getElementById("viewSA").hidden = view !== "sa";
-  document.getElementById("viewGFA").hidden = view !== "gfa";
-  document.getElementById("tabSA").setAttribute("aria-selected", String(view === "sa"));
-  document.getElementById("tabGFA").setAttribute("aria-selected", String(view === "gfa"));
+  view = v === "gfa" ? "gfa" : v === "mp" ? "mp" : "sa";
+  for (const [k, id] of [["sa", "SA"], ["gfa", "GFA"], ["mp", "MP"]]) {
+    document.getElementById("view" + id).hidden = view !== k;
+    document.getElementById("tab" + id).setAttribute("aria-selected", String(view === k));
+  }
   renderAll();
 }
 document.getElementById("printBtn").onclick = () => window.print();
 document.getElementById("tabSA").onclick = () => setView("sa");
 document.getElementById("tabGFA").onclick = () => setView("gfa");
+document.getElementById("tabMP").onclick = () => setView("mp");
 
 function renderAll() {
   const u = new URL(location.href);
   person && !DATA.personal ? u.searchParams.set("owner", person) : u.searchParams.delete("owner");
-  view === "gfa" ? u.searchParams.set("view", "gfa") : u.searchParams.delete("view");
+  view !== "sa" ? u.searchParams.set("view", view) : u.searchParams.delete("view");
   try { history.replaceState(null, "", u); } catch (e) {}
   document.getElementById("h-alerts").textContent = person ? `${person} 님 오늘 할 일 (긴급 → 적색 → 이탈 위험 → 황색 순)` : "확인할 계정";
-  renderPeople(); renderAlerts(); renderChurn(); renderBudget(); renderLedger(); renderGFA();
+  renderPeople(); renderAlerts(); renderChurn(); renderBudget(); renderLedger(); renderGFA(); renderMP();
 }
 document.getElementById("activeOnly").onchange = renderLedger;
 

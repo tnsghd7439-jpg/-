@@ -463,6 +463,8 @@ def render_personal(data: dict, tpl: str) -> None:
         mine = dict(data, personal=owner, errors=[], accounts=accs)
         if data.get("gfa"):
             mine["gfa"] = dict(data["gfa"], rows=[r for r in data["gfa"]["rows"] if r["owner"] == owner])
+        if data.get("mpai"):
+            mine["mpai"] = dict(data["mpai"], scopes=[s for s in data["mpai"]["scopes"] if s["owner"] == owner])
         payload = json.dumps(mine, ensure_ascii=False).replace("</", "<\\/")
         name = f"sa-{tokens[owner]}.html"
         tmp = OUT / f".{name}.tmp"
@@ -490,6 +492,28 @@ def load_gfa(refresh: bool = True) -> dict | None:
         except Exception as e:  # noqa: BLE001 — GFA 시트 문제로 SA 점검판이 멈추지 않게
             print(f"GFA 시트 읽기 실패(저장된 데이터 사용): {e}")
     return json.loads(cache.read_text(encoding="utf-8")) if cache.exists() else None
+
+
+def resolve_mpai(m: dict | None, data: dict) -> dict | None:
+    """MP AI 데이터의 「내 광고주」(@self)를 실제 이름으로. team.json 의 mpaiSelf 가 있으면 그 이름,
+    없으면 SA 담당자 중 MP AI 팀원 목록에 없는 한 명(로그인한 본인)."""
+    if not m:
+        return None
+    others = {s["owner"] for s in m["scopes"] if s["owner"] != "@self"}
+    me = None
+    team_file = ROOT / "team.json"
+    if team_file.exists():
+        me = json.loads(team_file.read_text(encoding="utf-8")).get("mpaiSelf")
+    if not me:
+        cand = {o for a in data.get("accounts", []) for o in a["owners"]} - others - {UNASSIGNED}
+        me = cand.pop() if len(cand) == 1 else "내 광고주"
+    return dict(m, scopes=[dict(s, owner=me if s["owner"] == "@self" else s["owner"]) for s in m["scopes"]])
+
+
+def load_mpai(data: dict) -> dict | None:
+    """mpai.py 가 저장한 MP AI(매체 통합) 데이터. 없으면 None."""
+    cache = OUT / "mpai.json"
+    return resolve_mpai(json.loads(cache.read_text(encoding="utf-8")), data) if cache.exists() else None
 
 
 def notify(data: dict) -> None:
@@ -600,6 +624,7 @@ def main():
             return
         data = json.loads((OUT / "latest.json").read_text(encoding="utf-8"))
         data["gfa"] = new
+        data["mpai"] = load_mpai(data) or data.get("mpai")
         render(data)
         print(f"GFA 시트 갱신 반영 ({new.get('updatedAt')}, 데이터 ~{new.get('periodEnd') or '?'})")
         return
@@ -614,6 +639,7 @@ def main():
         for a in data["accounts"]:
             a["owners"] = [fallback if o == UNASSIGNED else o for o in a["owners"]]
         data["gfa"] = load_gfa(refresh=False) or data.get("gfa")
+        data["mpai"] = load_mpai(data) or data.get("mpai")
         out = render(data)
         print(f"화면만 다시 만듦 → {out}")
         return
@@ -695,6 +721,7 @@ def main():
         "errors": errors,
         "gfa": None if args.demo else load_gfa(refresh=True),
     }
+    data["mpai"] = None if args.demo else load_mpai(data)
     out = render(data)
     n_alert = sum(1 for r in rows if r["alerts"])
     n_light = sum(1 for r in rows if r.get("light"))
