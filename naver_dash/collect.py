@@ -558,7 +558,8 @@ def notify(data: dict) -> None:
     pending = mp_date and f"{int(mp_date[5:7])}/{int(mp_date[8:])}" in (data.get("mpai") or {}).get("pending", [])
     if mp:  # MP AI 전일 「광고매출」 매체 합계 (네이버 포함, 매체마다 VAT 기준 다름)
         total = sum(sum(m.values()) for m in mp.values())
-        lines = [f"*[팀원 계정 점검] {mp_date} 광고비 기준* [일부 매체의 경우 집계가 안맞을 수 있습니다.]",
+        lines = [f"*[팀원 계정 점검] {mp_date} 광고비 기준 · {data['mpai'].get('fetchedAt', '')[-5:]} 집계*"
+                 " [일부 매체의 경우 집계가 안맞을 수 있습니다.]",
                  f"팀 전체 어제 광고비 {total:,.0f}원 (모든 매체 통합)"
                  + (" · MP AI 에 어제가 「미집계」로 표시돼 금액이 늘 수 있음 (점검판은 11시에 다시 갱신)" if pending else ""), ""]
     else:  # MP AI 데이터가 없거나 날짜가 안 맞으면 네이버 SA 만
@@ -654,7 +655,16 @@ def main():
         return
 
     if args.notify_only:
-        notify(json.loads((OUT / "latest.json").read_text(encoding="utf-8")))
+        # PC 를 늦게 켜서 놓친 07:00 수집이 곧 돌거나 도는 중이면 어제 기준 결과가 나올 때까지 기다린다 (최대 60분)
+        y = ymd(datetime.now(KST).date() - timedelta(days=1))
+        for i in range(61):
+            data = json.loads((OUT / "latest.json").read_text(encoding="utf-8"))
+            if data["baseDate"] >= y or i == 60:
+                break
+            if i == 0:
+                print(f"네이버 SA 결과가 {data['baseDate']} 기준이라 어제({y}) 수집이 끝나길 기다립니다 (최대 60분)")
+            time.sleep(60)
+        notify(data)
         return
 
     if args.rerender:  # 화면(dashboard.html)·team.json fallback 수정만 반영할 때. API 호출 없음

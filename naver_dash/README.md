@@ -60,6 +60,14 @@ python3 naver_dash/collect.py --demo       #    키 없이 가상 데이터로 �
 python3 naver_dash/collect.py --rerender   #    수집 없이 마지막 결과로 화면만 다시 만듦 (화면 수정 반영용)
 ```
 
+## 구글챗 공지 (매일 09:50 · 15:30)
+`notify_run.bat` 이 MP AI 를 다시 읽고 「팀원 계정 점검」 공지를 보냅니다. 금액은 MP AI 전일 매체 합계(모든 매체 통합), 네이버 SA 는 07:00 수집분. 07:00 수집(`run_daily.bat`)은 공지를 보내지 않습니다.
+등록(회사 PC PowerShell, 처음 한 번. PC 가 꺼져 있어 놓치면 켤 때 실행):
+```powershell
+foreach ($t in @(@("naver6_notify_0950","09:50"),@("naver6_notify_1530","15:30"))) { Register-ScheduledTask -TaskName $t[0] -Action (New-ScheduledTaskAction -Execute "C:\naver6\naver_dash\notify_run.bat") -Trigger (New-ScheduledTaskTrigger -Daily -At $t[1]) -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable) -Force | Out-Null; "$($t[0]) 등록 완료" }
+```
+SA 결과가 아직 어제 기준이 아니면(늦게 켜서 수집 중) 최대 60분 기다렸다 보냅니다.
+
 ## 회사 PC 에서 매일 자동 실행 (Claude 크레딧 소모 없음)
 1. 파이썬 3 설치 (python.org, 설치 시 "Add to PATH" 체크). 추가 패키지는 필요 없습니다.
 2. 이 저장소를 회사 PC 에 내려받고(`git clone`) `naver_dash/team.json` 을 둡니다 (커밋 금지 파일). `run_daily.bat` 이 실행 때마다 `git pull` 로 최신 코드를 받습니다.

@@ -13,6 +13,5 @@ netstat -ano | findstr /R /C:":8080 .*LISTENING" >nul || (echo 링크 서버 꺼
 py -3 naver_dash\collect.py --no-notify >> output\naver_dash\run.log 2>&1
 rem MP AI(GFA·지마켓·쿠팡·메타) 읽어 매체 통합 탭 갱신. 미설정·실패면 건너뜀
 py -3 naver_dash\mpai.py >> output\naver_dash\run.log 2>&1
-rem 구글챗 알림은 MP AI 까지 반영한 뒤 (모든 매체 통합 금액). MP AI 가 없으면 네이버 SA 만으로 보냄
-py -3 naver_dash\collect.py --notify-only >> output\naver_dash\run.log 2>&1
+rem 구글챗 공지는 여기서 보내지 않고 09:50·15:30 에 notify_run.bat 이 보낸다
 echo ==== %date% %time% 종료 (코드 %errorlevel%) >> output\naver_dash\run.log
