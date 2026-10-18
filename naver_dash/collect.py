@@ -520,7 +520,8 @@ def notify(data: dict) -> None:
     """구글챗 팀방으로 오늘 요약 + 팀원별 대시보드 링크를 보낸다.
     웹훅 주소는 환경변수 NAVER_GCHAT_WEBHOOK (공개 저장소라 파일에 적지 않음), 링크 앞부분은 team.json 의 linkBase."""
     url = os.environ.get("NAVER_GCHAT_WEBHOOK")
-    if not url:
+    if not url:  # 조용히 넘어가면 알림이 왜 안 오는지 알 수 없어서 run.log 에 남김
+        print("구글챗 알림 생략: NAVER_GCHAT_WEBHOOK 환경변수가 없습니다 (setx 로 등록)")
         return
     base = (load_team().get("linkBase") or "").rstrip("/")
     tok_file = OUT / "owner_links.json"
