@@ -516,6 +516,28 @@ def load_mpai(data: dict) -> dict | None:
     return resolve_mpai(json.loads(cache.read_text(encoding="utf-8")), data) if cache.exists() else None
 
 
+MEDIA_SHORT = {"네이버 GFA": "GFA"}
+
+
+def mpai_spend(data: dict) -> tuple[dict, str]:
+    """MP AI 「전일」 매체 요약표에서 담당자별 {매체: 광고매출}. SA 기준일(어제)과 날짜가 다르면 ({}, "")."""
+    m = data.get("mpai") or {}
+    out, day = {}, ""
+    for sc in m.get("scopes", []):
+        per = sc["periods"].get("전일") or {}
+        dates = per.get("dates") or []
+        if not dates or max(dates) != data["baseDate"]:
+            continue
+        day = max(dates)
+        t = next((t for t in per["tabs"].get("전체", []) if "매체" in t["head"]), None)
+        if not t:
+            continue
+        col = next((h for h in t["head"] if "광고매출" in h and "증감" not in h and "있는" not in h), None)
+        out[sc["owner"]] = {MEDIA_SHORT.get(r["매체"], r["매체"]): r.get(col) or 0
+                            for r in t["rows"] if r.get("매체") and isinstance(r.get(col), (int, float))}
+    return out, day
+
+
 def notify(data: dict) -> None:
     """구글챗 팀방으로 오늘 요약 + 팀원별 대시보드 링크를 보낸다.
     웹훅 주소는 환경변수 NAVER_GCHAT_WEBHOOK (공개 저장소라 파일에 적지 않음), 링크 앞부분은 team.json 의 linkBase."""
@@ -527,30 +549,31 @@ def notify(data: dict) -> None:
     tok_file = OUT / "owner_links.json"
     tokens = json.loads(tok_file.read_text(encoding="utf-8")) if tok_file.exists() else {}
 
-    def level(a):  # 화면의 긴급/주의 구분과 같게: 계정의 가장 높은 단계
-        lv = {x["level"] for x in a["alerts"]}
-        return "urgent" if "urgent" in lv else "warn" if "warn" in lv else None
-
-    def counts(accs):
-        u = sum(1 for a in accs if level(a) == "urgent")
-        w = sum(1 for a in accs if level(a) == "warn")
-        return u, w, sum(a["yesterday"] for a in accs)
-
     accs = data["accounts"]
-    u, w, y = counts(accs)
-    lines = [f"*[네이버 SA 계정 점검판] {data['baseDate']} 광고비 기준*",
-             f"팀 전체 어제 광고비 {y:,}원 · 긴급 {u}곳 · 주의 {w}곳", ""]
     owners = sorted({o for a in accs for o in a["owners"]} - {UNASSIGNED})
+    me = next(iter((data.get("mpai") or {}).get("scopes") or []), {}).get("owner")  # 「내 광고주」(팀장)를 맨 위에
+    owners.sort(key=lambda o: o != me)
+    mp, mp_date = mpai_spend(data)
+    owners += [o for o in mp if o not in owners]  # MP AI 에만 있는 담당자도 빠뜨리지 않게
+    pending = mp_date and f"{int(mp_date[5:7])}/{int(mp_date[8:])}" in (data.get("mpai") or {}).get("pending", [])
+    if mp:  # MP AI 전일 「광고매출」 매체 합계 (네이버 포함, 매체마다 VAT 기준 다름)
+        total = sum(sum(m.values()) for m in mp.values())
+        lines = [f"*[팀원 계정 점검] {mp_date} 광고비 기준* [일부 매체의 경우 집계가 안맞을 수 있습니다.]",
+                 f"팀 전체 어제 광고비 {total:,.0f}원 (모든 매체 통합)"
+                 + (" · MP AI 에 어제가 「미집계」로 표시돼 금액이 늘 수 있음 (점검판은 11시에 다시 갱신)" if pending else ""), ""]
+    else:  # MP AI 데이터가 없거나 날짜가 안 맞으면 네이버 SA 만
+        lines = [f"*[팀원 계정 점검] {data['baseDate']} 광고비 기준* [MP AI 미반영 — 네이버 SA 만 집계]",
+                 f"팀 전체 어제 광고비 {sum(a['yesterday'] for a in accs):,}원 (네이버 SA)", ""]
     for o in owners:
-        mine = [a for a in accs if o in a["owners"]]
-        u, w, y = counts(mine)
         link = f" · <{base}/sa-{tokens[o]}.html|내 점검판 열기>" if base and o in tokens else ""
-        lines.append(f"• *{o}* 긴급 {u} · 주의 {w} · 어제 {y:,}원{link}")
-    n_un = sum(1 for a in accs if UNASSIGNED in a["owners"])
-    if n_un:
-        lines.append(f"• 미지정 {n_un}개 (담당 관리계정 확인 필요)")
+        if mp:
+            m = mp.get(o, {})
+            detail = " · ".join(f"{k} {v:,.0f}" for k, v in m.items() if v)
+            lines.append(f"*{o}* : {sum(m.values()):,.0f}원" + (f" ({detail})" if detail else "") + link)
+        else:
+            lines.append(f"*{o}* : {sum(a['yesterday'] for a in accs if o in a['owners']):,}원{link}")
     if data.get("errors"):
-        lines.append(f"• 수집 실패 {len(data['errors'])}개")
+        lines.append(f"• 네이버 수집 실패 {len(data['errors'])}개")
     lines += ["", "링크는 사내망에서만 열립니다."]
     req = urllib.request.Request(url, data=json.dumps({"text": "\n".join(lines)}).encode("utf-8"),
                                  headers={"Content-Type": "application/json; charset=UTF-8"})
