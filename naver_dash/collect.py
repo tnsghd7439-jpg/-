@@ -520,7 +520,8 @@ MEDIA_SHORT = {"네이버 GFA": "GFA"}
 
 
 def mpai_spend(data: dict) -> tuple[dict, str]:
-    """MP AI 「전일」 매체 요약표에서 담당자별 {매체: 광고매출}. SA 기준일(어제)과 날짜가 다르면 ({}, "")."""
+    """MP AI 「전일」 매체 요약표에서 담당자별 {매체: 광고매출 또는 None(미집계)}.
+    SA 기준일(어제)과 날짜가 다르면 ({}, "")."""
     m = data.get("mpai") or {}
     out, day = {}, ""
     for sc in m.get("scopes", []):
@@ -533,8 +534,10 @@ def mpai_spend(data: dict) -> tuple[dict, str]:
         if not t:
             continue
         col = next((h for h in t["head"] if "광고매출" in h and "증감" not in h and "있는" not in h), None)
-        out[sc["owner"]] = {MEDIA_SHORT.get(r["매체"], r["매체"]): r.get(col) or 0
-                            for r in t["rows"] if r.get("매체") and isinstance(r.get(col), (int, float))}
+        # 숫자면 금액, 「미집계」 등 글자면 None (아직 집계 안 됨)
+        out[sc["owner"]] = {MEDIA_SHORT.get(r["매체"], r["매체"]):
+                            r.get(col) if isinstance(r.get(col), (int, float)) else None
+                            for r in t["rows"] if r.get("매체")}
     return out, day
 
 
@@ -553,26 +556,33 @@ def notify(data: dict) -> None:
     owners = sorted({o for a in accs for o in a["owners"]} - {UNASSIGNED})
     me = next(iter((data.get("mpai") or {}).get("scopes") or []), {}).get("owner")  # 「내 광고주」(팀장)를 맨 위에
     owners.sort(key=lambda o: o != me)
-    mp, mp_date = mpai_spend(data)
+    mp, _ = mpai_spend(data)
     owners += [o for o in mp if o not in owners]  # MP AI 에만 있는 담당자도 빠뜨리지 않게
-    pending = mp_date and f"{int(mp_date[5:7])}/{int(mp_date[8:])}" in (data.get("mpai") or {}).get("pending", [])
-    if mp:  # MP AI 전일 「광고매출」 매체 합계 (네이버 포함, 매체마다 VAT 기준 다름)
-        total = sum(sum(m.values()) for m in mp.values())
-        lines = [f"*[팀원 계정 점검] {mp_date} 광고비 기준 · {data['mpai'].get('fetchedAt', '')[-5:]} 집계*"
-                 " [일부 매체의 경우 집계가 안맞을 수 있습니다.]",
-                 f"팀 전체 어제 광고비 {total:,.0f}원 (모든 매체 통합)"
-                 + (" · MP AI 에 어제가 「미집계」로 표시돼 금액이 늘 수 있음 (점검판은 11시에 다시 갱신)" if pending else ""), ""]
-    else:  # MP AI 데이터가 없거나 날짜가 안 맞으면 네이버 SA 만
-        lines = [f"*[팀원 계정 점검] {data['baseDate']} 광고비 기준* [MP AI 미반영 — 네이버 SA 만 집계]",
-                 f"팀 전체 어제 광고비 {sum(a['yesterday'] for a in accs):,}원 (네이버 SA)", ""]
+    # 네이버는 SA API(어제 확정, VAT 포함), 나머지 매체는 MP AI. MP AI 네이버는 아침에 미집계라 쓰지 않는다
+    sa = {o: sum(a["yesterday"] for a in accs if o in a["owners"]) for o in owners}
+    y = data["baseDate"]
+    pending = bool(mp) and f"{int(y[5:7])}/{int(y[8:])}" in (data.get("mpai") or {}).get("pending", [])
+    rows, pend = {}, set()
+    for o in owners:
+        r = {"네이버": sa.get(o, 0)}
+        for k, v in mp.get(o, {}).items():
+            if k == "네이버":
+                continue
+            r[k] = v
+            if v is None:
+                pend.add(k)
+        rows[o] = r
+    total = sum(v or 0 for r in rows.values() for v in r.values())
+    when = f" · {data['mpai'].get('fetchedAt', '')[-5:]} 집계" if mp else ""
+    lines = [f"*[팀원 계정 점검] {data['baseDate']} 광고비 기준{when}* [일부 매체의 경우 집계가 안맞을 수 있습니다.]",
+             f"팀 전체 어제 광고비 {total:,.0f}원 " + ("(모든 매체 통합)" if mp else "(네이버 SA 만 — MP AI 미반영)")
+             + (f" · 미집계: {', '.join(sorted(pend))} (금액에서 빠짐)" if pend else "")
+             + (" · MP AI 에 어제 「미집계」 표시 — 0원 매체는 아직 집계 전일 수 있음" if pending and not pend else ""), ""]
     for o in owners:
         link = f" · <{base}/sa-{tokens[o]}.html|내 점검판 열기>" if base and o in tokens else ""
-        if mp:
-            m = mp.get(o, {})
-            detail = " · ".join(f"{k} {v:,.0f}" for k, v in m.items() if v)
-            lines.append(f"*{o}* : {sum(m.values()):,.0f}원" + (f" ({detail})" if detail else "") + link)
-        else:
-            lines.append(f"*{o}* : {sum(a['yesterday'] for a in accs if o in a['owners']):,}원{link}")
+        r = rows[o]
+        detail = " · ".join(f"{k} {v:,.0f}" if v is not None else f"{k} 미집계" for k, v in r.items() if v != 0)
+        lines.append(f"*{o}* : {sum(v or 0 for v in r.values()):,.0f}원" + (f" ({detail})" if mp and detail else "") + link)
     if data.get("errors"):
         lines.append(f"• 네이버 수집 실패 {len(data['errors'])}개")
     lines += ["", "링크는 사내망에서만 열립니다."]
