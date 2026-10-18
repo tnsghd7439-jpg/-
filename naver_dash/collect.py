@@ -648,6 +648,9 @@ def main():
     global WITH_HOURS
     WITH_HOURS = not args.no_hours
     today = datetime.now(KST).date()
+    if not (args.demo or args.limit):  # serve.py 가 PC 켤 때 같은 날 수집을 또 돌리지 않게 표시
+        OUT.mkdir(parents=True, exist_ok=True)
+        (OUT / "run_started.txt").write_text(ymd(today), encoding="utf-8")
     P = periods(today)
     errors = []
     if args.demo:

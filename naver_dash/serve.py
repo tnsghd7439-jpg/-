@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 OUT = Path(os.environ.get("NAVER_DASH_OUT") or Path(__file__).resolve().parent.parent / "output" / "naver_dash")
@@ -73,6 +74,34 @@ def gfa_refresher():
         time.sleep(GFA_REFRESH_MIN * 60)
 
 
+CATCHUP_DELAY_MIN = 3  # PC 켜진 뒤 네트워크가 잡힐 때까지 기다렸다가 확인
+
+
+def catch_up():
+    """PC 가 꺼져 있어 07:00 수집을 놓쳤으면 켜질 때(로그인 시 이 서버가 뜰 때) 한 번 실행한다.
+    조건: 07시 이후 + 마지막 결과가 어제 기준이 아님 + 오늘 수집이 아직 시작 안 됨(run_started.txt)."""
+    time.sleep(CATCHUP_DELAY_MIN * 60)
+    kst = datetime.now(timezone(timedelta(hours=9)))
+    today, yesterday = kst.strftime("%Y-%m-%d"), (kst - timedelta(days=1)).strftime("%Y-%m-%d")
+    if kst.hour < 7:
+        return  # 7시 예약 실행이 처리
+    try:
+        base = json.loads((OUT / "latest.json").read_text(encoding="utf-8")).get("baseDate", "")
+    except Exception:  # noqa: BLE001 — 결과가 없으면 수집 대상
+        base = ""
+    started = OUT / "run_started.txt"
+    if base >= yesterday or (started.exists() and started.read_text(encoding="utf-8").strip() == today):
+        return
+    bat = Path(__file__).resolve().parent / "run_daily.bat"
+    try:
+        with open(OUT / "run.log", "a", encoding="utf-8") as f:
+            f.write(f"==== {kst:%Y-%m-%d %H:%M} PC 켜짐: 놓친 07:00 수집 실행 (마지막 결과 {base or '없음'} 기준)\n")
+        subprocess.run(["cmd", "/c", str(bat)], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3 * 3600)
+    except Exception:  # noqa: BLE001 — 수집 실패가 서버를 멈추지 않게
+        pass
+
+
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
     print(f"팀원별 대시보드 서버 실행 중 (포트 {port}). 이 창을 닫으면 팀원 링크가 열리지 않습니다.")
@@ -89,4 +118,6 @@ if __name__ == "__main__":
     if os.environ.get("NAVER_GFA_URL"):
         threading.Thread(target=gfa_refresher, daemon=True).start()
         print(f"GFA 시트를 {GFA_REFRESH_MIN}분마다 확인합니다")
+    if os.name == "nt":
+        threading.Thread(target=catch_up, daemon=True).start()
     server.serve_forever()

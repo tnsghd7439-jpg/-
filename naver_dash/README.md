@@ -73,6 +73,7 @@ python3 naver_dash/collect.py --rerender   #    수집 없이 마지막 결과�
    ```
    schtasks /Create /SC DAILY /ST 07:00 /TN "6팀 대시보드" /TR "\"C:\경로\naver_dash\run_daily.bat\""
    ```
+   - PC 가 꺼져 있어 07:00 을 놓치면: 다음에 PC 를 켜고 로그인할 때 링크 서버(`serve.py`)가 3분 뒤 확인해서 07시 이후이고 어제 기준 결과가 없으면 `run_daily.bat` 을 한 번 실행합니다(run.log 에 「PC 켜짐: 놓친 07:00 수집 실행」). 그날 수집이 이미 시작됐으면(`run_started.txt`) 건너뜁니다.
 5. 결과: `output/naver_dash/dashboard.html` 이 매일 새 데이터로 바뀝니다(파일 이름 고정). 실행 기록은 `output/naver_dash/run.log`.
 6. 팀원에게 링크 나누기 (팀원은 자기 계정만 봄)
    - 수집(또는 `--rerender`) 때 팀원별 파일 `output/naver_dash/sa-<토큰>.html` 이 만들어집니다. 그 팀원 계정 데이터만 들어 있고 다른 팀원 카드도 없습니다.
