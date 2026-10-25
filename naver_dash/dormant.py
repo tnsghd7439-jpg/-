@@ -1,6 +1,8 @@
 """광고비를 3개월 넘게 쓰지 않은 휴면 계정 목록 (담당자별) → output/naver_dash/dormant-<날짜>.csv
 
-    py -3 naver_dash\\dormant.py
+    py -3 naver_dash\\dormant.py           (바로 실행)
+    py -3 naver_dash\\dormant.py --weekly  (run_daily.bat 이 매일 호출 → 그 주에 아직 안 만들었을 때만 실행.
+                                          월요일에 PC 가 꺼져 있었으면 그 주 첫 실행 때 만든다)
 
 마지막 수집 결과(latest.json)의 계정·담당자를 쓰고, 이번 달·지난달 광고비가 0원인 계정만
 네이버 API 로 최근 1년을 90일씩 거슬러 올라가며 광고비가 마지막으로 나간 구간을 찾는다(조회만, 변경 없음).
@@ -36,6 +38,15 @@ def idle_bucket(api, cid: str, y) -> str | None:
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--weekly", action="store_true", help="이번 주에 이미 만들었으면 건너뜀")
+    args = ap.parse_args()
+    mark = collect.OUT / "dormant_week.txt"
+    week = "{}-W{:02d}".format(*datetime.now(collect.KST).isocalendar()[:2])
+    if args.weekly and mark.exists() and mark.read_text(encoding="utf-8").strip() == week:
+        print(f"휴면 계정 목록: 이번 주({week}) 이미 만듦 — 건너뜀")
+        return
     data = json.loads((collect.OUT / "latest.json").read_text(encoding="utf-8"))
     y = datetime.fromisoformat(data["baseDate"]).date()
     cand = [a for a in data["accounts"] if not a.get("monthAvg") and not a.get("lastMonthAvg") and not a.get("yesterday")]
@@ -65,7 +76,9 @@ def main():
         for a, b in rows:
             w.writerow([", ".join(a["owners"]), a["name"], a["customerId"], a.get("adAccountNo", ""), b,
                         a.get("bizmoney", ""), a.get("lastEdit") or "", (a.get("campaigns") or {}).get("on", "")])
-    print(f"\n휴면(3개월 이상 광고비 0원) {len(rows)}개 → {out}")
+    (collect.OUT / "dormant.csv").write_bytes(out.read_bytes())  # 항상 같은 이름으로도 (즐겨찾기용)
+    mark.write_text(week, encoding="utf-8")
+    print(f"\n휴면(3개월 이상 광고비 0원) {len(rows)}개 → {out} (최신본: dormant.csv)")
     by = {}
     for a, b in rows:
         for o in a["owners"] or ["미지정"]:
