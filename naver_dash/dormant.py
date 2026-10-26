@@ -46,11 +46,54 @@ def idle_bucket(api, cid: str, y) -> str | None:
     return "1년 이상"
 
 
+ORDER = ["3~6개월", "6~9개월", "9~12개월", "1년 이상", "1년 이상 (캠페인 없음)"]
+
+
+def notify(csv_path: Path) -> None:
+    """휴면 목록 요약을 구글챗 팀방에 보낸다 (담당자별 개수 + 재라이브 우선인 3~6개월 계정 이름)."""
+    import os
+    import urllib.request
+    url = os.environ.get("NAVER_GCHAT_WEBHOOK")
+    if not url:
+        print("구글챗 공지 생략: NAVER_GCHAT_WEBHOOK 환경변수가 없습니다")
+        return
+    with open(csv_path, encoding="utf-8-sig", newline="") as f:
+        rows = list(csv.DictReader(f))
+    by = {}
+    for r in rows:
+        for o in (r["담당"] or "미지정").split(", "):
+            by.setdefault(o, []).append(r)
+    latest = json.loads((collect.OUT / "latest.json").read_text(encoding="utf-8"))
+    me = next(iter((latest.get("mpai") or {}).get("scopes") or []), {}).get("owner")  # 팀장 맨 위
+    day = csv_path.stem.replace("dormant-", "") if csv_path.stem.startswith("dormant-") else latest["baseDate"]
+    lines = [f"*[휴면 계정 점검] {day} 기준 · 네이버 SA 광고비 3개월 이상 0원*", f"전체 {len(rows)}개", ""]
+    for o in sorted(by, key=lambda o: (o != me, o)):
+        rs = by[o]
+        kinds = sorted({r["미집행 기간"] for r in rs}, key=lambda k: (ORDER.index(k) if k in ORDER else 9, k))
+        lines.append(f"*{o}* : {len(rs)}개 (" + " · ".join(f"{k} {sum(r['미집행 기간'] == k for r in rs)}" for k in kinds) + ")")
+        hot = [r["광고주"] for r in rs if r["미집행 기간"] == "3~6개월"]
+        if hot:
+            lines.append(f"    ↳ 재라이브 우선(3~6개월): {', '.join(hot[:10])}" + (f" 외 {len(hot) - 10}개" if len(hot) > 10 else ""))
+    lines += ["", "GFA·쿠팡 등 다른 매체 집행 여부는 점검판에서 함께 확인하세요."]
+    req = urllib.request.Request(url, json.dumps({"text": "\n".join(lines)}).encode("utf-8"),
+                                 {"Content-Type": "application/json; charset=UTF-8"})
+    try:
+        urllib.request.urlopen(req, timeout=30).read()
+        print("구글챗 휴면 공지 보냄")
+    except Exception as e:  # noqa: BLE001
+        print(f"구글챗 휴면 공지 실패: {e}")
+
+
 def main():
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--weekly", action="store_true", help="이번 주에 이미 만들었으면 건너뜀")
+    ap.add_argument("--notify-only", action="store_true", help="새로 조회하지 않고 최신 dormant.csv 로 구글챗 공지만")
+    ap.add_argument("--no-notify", action="store_true", help="목록만 만들고 구글챗 공지는 안 보냄")
     args = ap.parse_args()
+    if args.notify_only:
+        notify(collect.OUT / "dormant.csv")
+        return
     mark = collect.OUT / "dormant_week.txt"
     week = "{}-W{:02d}".format(*datetime.now(collect.KST).isocalendar()[:2])
     if args.weekly and mark.exists() and mark.read_text(encoding="utf-8").strip() == week:
@@ -98,6 +141,8 @@ def main():
         keys = sorted(set(bs), key=lambda k: (order.get(k, 9), k))  # 조회 실패 등 다른 값도 빠짐없이
         cnt = {k: bs.count(k) for k in keys}
         print(f"  {o}: {len(bs)}개 (" + ", ".join(f"{k} {v}" for k, v in cnt.items()) + ")")
+    if not args.no_notify:
+        notify(out)
 
 
 if __name__ == "__main__":
