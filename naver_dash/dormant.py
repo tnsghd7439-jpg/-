@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT))
 import collect  # noqa: E402
 from naver_api import NaverAdsAPI  # noqa: E402
 
+OLD_ERR = {}  # 오래된 기간 조회 오류(첫 1건)를 요약에 표시
 STEPS = [(0, 90, None), (90, 180, "3~6개월"), (180, 270, "6~9개월"), (270, 365, "9~12개월")]
 
 
@@ -32,7 +33,15 @@ def idle_bucket(api, cid: str, y) -> str | None:
     if not ids:
         return "1년 이상 (캠페인 없음)"
     for a, b, label in STEPS:
-        if collect.spend(api, cid, ids, y - timedelta(days=b - 1), y - timedelta(days=a))[0]:
+        try:
+            got = collect.spend(api, cid, ids, y - timedelta(days=b - 1), y - timedelta(days=a))[0]
+        except Exception as e:  # noqa: BLE001
+            if a == 0:
+                raise
+            # 오래된 기간은 API 가 거부할 수 있음 → 조회된 데까지만 판단
+            OLD_ERR.setdefault("msg", str(e)[:200])
+            return f"{a // 30}개월 이상 (그 이전은 조회 불가)"
+        if got:
             return label
     return "1년 이상"
 
@@ -57,7 +66,7 @@ def main():
         try:
             b = idle_bucket(api, str(a["customerId"]), y)
         except Exception as e:  # noqa: BLE001 — 한 계정 실패가 전체를 멈추지 않게
-            b = f"조회 실패: {str(e)[:80]}"
+            b = f"조회 실패(휴면 여부 모름): {str(e)[:80]}"
         with lock:
             done[0] += 1
             print(f"[{done[0]}/{len(cand)}] {a['name']}", file=sys.stderr, flush=True)
@@ -83,8 +92,11 @@ def main():
     for a, b in rows:
         for o in a["owners"] or ["미지정"]:
             by.setdefault(o, []).append(b)
+    if OLD_ERR:
+        print(f"  ※ 오래된 기간 조회 오류(예): {OLD_ERR['msg']}")
     for o, bs in sorted(by.items()):
-        cnt = {k: bs.count(k) for k in order if bs.count(k)}
+        keys = sorted(set(bs), key=lambda k: (order.get(k, 9), k))  # 조회 실패 등 다른 값도 빠짐없이
+        cnt = {k: bs.count(k) for k in keys}
         print(f"  {o}: {len(bs)}개 (" + ", ".join(f"{k} {v}" for k, v in cnt.items()) + ")")
 
 
