@@ -4,3 +4,4 @@ output/
 .env
 __pycache__/
 sa_change_report/advertisers.json
+sa_change_report/config.json

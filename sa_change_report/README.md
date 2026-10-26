@@ -6,7 +6,18 @@
 2. 검색광고 API로 **변경 전 7일 / 변경 후 성과**를 조회해 "왜 바꿨는지"를 추정하고
 3. 정순홍 팀장 말투([STYLE.md](STYLE.md))로 카톡 보고 멘트 + 근거표(csv)를 만듭니다.
 
-## 실행
+## PC에서 쓰기 (드래그앤드롭)
+1. [Python](https://www.python.org/downloads/) 설치 — 설치 첫 화면에서 **"Add python.exe to PATH" 체크**
+2. 이 폴더(`sa_change_report`)를 PC에 복사
+3. `설치.bat` 더블클릭 → 검색광고 API 액세스라이선스·비밀키 입력 (`config.json`에 저장, 1회)
+4. 검색광고 > 변경이력 > **다운로드**한 엑셀을 `변경이력보고.bat` 위로 끌어다 놓기
+   - 광고주는 소재 ID로 **자동으로 찾습니다**. 처음 보는 광고주면 광고주명·customerId·기준 효율을 한 번만 물어보고 `advertisers.json`에 기억합니다.
+   - 데이터로 이유를 알 수 없는 조정은 그 자리에서 이유를 물어봅니다(엔터 = 이유 없이 작성).
+   - 완성된 멘트는 **클립보드에 복사**되고 메모장으로 열립니다. 근거표는 `output/` 폴더의 csv.
+
+⚠️ API 키는 그 계정이 관리하는 **모든 광고주의 입찰가를 바꿀 수 있는 권한**입니다. 팀원은 가능하면 각자 계정에서 발급한 키를 쓰고, `config.json`은 메신저·메일로 돌리지 않습니다.
+
+## 실행 (명령어)
 ```bash
 python3 sa_change_report/report.py 변경이력.xlsx --customer 1234567 --target 400
 python3 sa_change_report/report.py 변경이력.xlsx --advertiser 광고주명          # advertisers.json 사용

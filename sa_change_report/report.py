@@ -12,6 +12,7 @@
   python3 sa_change_report/report.py 변경이력.xlsx --advertiser 광고주명 --target 400
   python3 sa_change_report/report.py 변경이력.xlsx --customer 1234567 --memo "캠페인명|하향=시즌 종료 대비"
   python3 sa_change_report/report.py 변경이력.xlsx --no-api          # API 없이 변경 내용만 정리
+  PC: 설치.bat 1회 실행(키 입력) → 변경이력 파일을 변경이력보고.bat 위로 끌어다 놓기 (--pc 모드)
 
 광고주명 → customerId·기준효율은 sa_change_report/advertisers.json 에 둔다 (git 제외, example 참고).
 """
@@ -297,11 +298,14 @@ def build(changes, stats_pre, stats_3d, stats_prev, stats_post, target, memos, t
                   }.get(action, "데이터 지켜보면서 조정하겠습니다.")
         if action in ("입찰가 하향", "예산 하향") and pre["roas"] is not None and pre["roas"] >= target:
             follow = "효율 유지되는지 지켜보면서 조정하겠습니다."
+        if (action in ("입찰가 하향", "예산 하향", "OFF") and d3["clkCnt"] >= MIN_CLICKS
+                and pre["roas"] and d3["roas"] and d3["roas"] > pre["roas"] * 1.2):
+            follow = f"다만 최근 3일은 {pct(d3['roas'])}로 다시 올라오는 흐름이라 데이터 좀더 지켜보고 판단하겠습니다."
         if reason:
             sentence = f"{reason} {what}하였습니다."
         else:
             sentence = f"{what}하였습니다."
-            ask.append(f"{camp} / {what}")
+            ask.append((f"{camp} / {what}", f"{camp}|{action}"))
         if post["clkCnt"] >= MIN_CLICKS and post["roas"] is not None and action != "삭제":
             sentence += f" 조정 후 효율은 {pct(post['roas'])}로 확인됩니다."
         by_campaign[camp].append(f"- {sentence} {follow}".rstrip())
@@ -330,14 +334,71 @@ def build(changes, stats_pre, stats_3d, stats_prev, stats_post, target, memos, t
 
 # ---------------------------------------------------------------- 실행
 
-def load_advertisers():
-    p = HERE / "advertisers.json"
+CONFIG = HERE / "config.json"      # PC용 API 키 (git 제외)
+ADVERTISERS = HERE / "advertisers.json"
+
+
+def load_json(p):
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+
+
+def save_json(p, data):
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def load_keys():
+    """환경변수가 없으면 config.json 의 키를 쓴다."""
+    cfg = load_json(CONFIG)
+    for env, key in (("NAVER_API_KEY", "api_key"), ("NAVER_SECRET_KEY", "secret_key")):
+        if not os.environ.get(env) and cfg.get(key):
+            os.environ[env] = cfg[key]
+    return all(os.environ.get(k) for k in ("NAVER_API_KEY", "NAVER_SECRET_KEY"))
+
+
+def setup():
+    print("네이버 검색광고 API 키를 입력합니다. (searchad.naver.com > 도구 > API 사용 관리)")
+    cfg = load_json(CONFIG)
+    cfg["api_key"] = input("액세스라이선스: ").strip() or cfg.get("api_key", "")
+    cfg["secret_key"] = input("비밀키: ").strip() or cfg.get("secret_key", "")
+    save_json(CONFIG, cfg)
+    print(f"저장했습니다: {CONFIG}")
+
+
+def find_customer(advertisers, ad_id):
+    """advertisers.json 의 광고주 중 이 소재를 가진 계정을 찾는다. (광고주명, 설정) 또는 None"""
+    for name, adv in advertisers.items():
+        try:
+            api_get(f"/ncc/ads/{ad_id}", adv["customer_id"])
+            return name, adv
+        except urllib.error.HTTPError:
+            continue
+    return None
+
+
+def ask_new_advertiser(advertisers):
+    print("\n등록되지 않은 광고주입니다. 한 번만 입력하면 다음부터 자동으로 찾습니다.")
+    name = input("광고주명: ").strip() or "광고주"
+    cid = input("customerId (검색광고 관리자 상단 계정 ID 숫자): ").strip()
+    tgt = input(f"기준 효율 % (엔터={DEFAULT_TARGET}): ").strip()
+    advertisers[name] = {"customer_id": cid, "target": float(tgt) if tgt else DEFAULT_TARGET}
+    save_json(ADVERTISERS, advertisers)
+    return name, advertisers[name]
+
+
+def to_clipboard(text):
+    if sys.platform != "win32":
+        return False
+    try:
+        import subprocess
+        subprocess.run(["clip"], input=text.encode("utf-16"), check=True)
+        return True
+    except Exception:
+        return False
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("file", type=Path, help="검색광고 변경이력 다운로드 파일 (xlsx/csv/txt)")
+    ap.add_argument("file", type=Path, nargs="?", help="검색광고 변경이력 다운로드 파일 (xlsx/csv/txt)")
     ap.add_argument("--customer", help="광고주 customerId")
     ap.add_argument("--advertiser", help="advertisers.json 의 광고주명")
     ap.add_argument("--target", type=float, help=f"기준 효율 %% (기본 {DEFAULT_TARGET})")
@@ -345,11 +406,17 @@ def main():
                     help='"캠페인명 일부=이유" 또는 "캠페인명 일부|하향=이유" (여러 번 가능)')
     ap.add_argument("--no-api", action="store_true", help="성과 조회 없이 변경 내용만 정리")
     ap.add_argument("--out", type=Path, default=HERE / "output")
+    ap.add_argument("--pc", action="store_true", help="PC 드래그앤드롭 모드: 광고주 자동 찾기, 이유 직접 입력, 클립보드 복사")
+    ap.add_argument("--setup", action="store_true", help="API 키 입력 (config.json 저장)")
     args = ap.parse_args()
+    if args.setup:
+        return setup()
+    if not args.file:
+        sys.exit("변경이력 엑셀 파일을 '변경이력보고' 아이콘 위로 끌어다 놓아주세요.")
 
-    adv = load_advertisers().get(args.advertiser or "", {})
+    advertisers = load_json(ADVERTISERS)
+    adv = advertisers.get(args.advertiser or "", {})
     customer = args.customer or adv.get("customer_id")
-    target = args.target or adv.get("target") or DEFAULT_TARGET
 
     changes = [parse_change(r) for r in read_rows(args.file)]
     changes = [c for c in changes if c["action"] != "기타" or c["kind"]]
@@ -359,12 +426,17 @@ def main():
 
     stats_pre, stats_3d, stats_prev, stats_post = {}, {}, {}, {}
     if not args.no_api:
+        if not load_keys():
+            sys.exit("API 키가 없습니다. 설치.bat(또는 --setup)으로 먼저 입력해주세요.")
+        if not customer and args.pc:
+            first = next((c["id"] for c in changes if c["id"]), None)
+            found = find_customer(advertisers, first) if first else None
+            args.advertiser, adv = found or ask_new_advertiser(advertisers)
+            customer = adv["customer_id"]
+            print(f"\n광고주: {args.advertiser}")
         if not customer:
             sys.exit("--customer(광고주 customerId) 또는 advertisers.json 의 --advertiser 가 필요합니다. "
                      "API 없이 정리만 하려면 --no-api")
-        for k in ("NAVER_API_KEY", "NAVER_SECRET_KEY"):
-            if not os.environ.get(k):
-                sys.exit(f"환경변수 {k} 가 없습니다.")
         by_day = defaultdict(list)
         for c in changes:
             if c["id"] and c["date"]:
@@ -377,8 +449,16 @@ def main():
             if d < today - timedelta(days=1):  # 변경 다음날 ~ 어제
                 stats_post.update(fetch_stats(customer, ids, d + timedelta(days=1), today - timedelta(days=1)))
 
+    target = args.target or adv.get("target") or DEFAULT_TARGET
     memos = dict(m.split("=", 1) for m in args.memo if "=" in m)
     text, table, ask = build(changes, stats_pre, stats_3d, stats_prev, stats_post, target, memos, today)
+    if ask and args.pc:
+        print("\n데이터로 이유를 알 수 없는 조정이 있습니다. 이유를 짧게 입력해주세요 (엔터=이유 없이 작성).")
+        for label, key in ask:
+            reason = input(f" · {label}\n   이유: ").strip()
+            if reason:
+                memos[key] = reason.rstrip(".") + "로"
+        text, table, ask = build(changes, stats_pre, stats_3d, stats_prev, stats_post, target, memos, today)
 
     args.out.mkdir(parents=True, exist_ok=True)
     stem = f"{args.advertiser or customer or 'report'}_{today:%Y%m%d}"
@@ -390,11 +470,16 @@ def main():
 
     print(text)
     print(f"\n[기준 효율 {target:.0f}% / 변경 전 {BEFORE_DAYS}일 ·3일 구매완료 효율(전주와 비교) 기준 / 클릭 {MIN_CLICKS}회 미만은 판단 보류]")
-    if ask:
+    if ask and not args.pc:
         print("\n[이유 확인 필요 — --memo 로 채워주세요]")
-        for a in ask:
-            print(" ·", a)
+        for label, _ in ask:
+            print(" ·", label)
     print(f"\n저장: {args.out / (stem + '_멘트.txt')}, {args.out / (stem + '_근거.csv')}")
+    if args.pc:
+        if to_clipboard(text):
+            print("\n✅ 멘트를 클립보드에 복사했습니다. 카톡에 바로 붙여넣으세요.")
+        if sys.platform == "win32":
+            os.startfile(args.out / f"{stem}_멘트.txt")
 
 
 if __name__ == "__main__":
