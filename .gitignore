@@ -3,3 +3,4 @@ output/
 *.state.json
 .env
 __pycache__/
+sa_change_report/advertisers.json
