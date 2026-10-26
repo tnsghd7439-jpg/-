@@ -1,6 +1,6 @@
 """네이버 검색광고 변경이력 → 광고주 보고 멘트 (정순홍 팀장 말투).
 
-변경이력 파일에서 무엇을 바꿨는지 읽고, 검색광고 API로 변경 전·후 성과를 조회해
+변경이력 파일에서 무엇을 바꿨는지 읽고, 검색광고 API로 변경 전 3일·7일·전주 구매완료 효율을 조회해
 "왜 바꿨는지"를 추정한 뒤 카톡 보고 멘트와 근거표를 만든다.
 
 환경변수
@@ -164,7 +164,7 @@ def api_get(uri, customer, params=None):
 
 def fetch_stats(customer, ids, since: date, until: date):
     """id 목록의 기간 합계 성과. 실패한 묶음은 건너뛰고 경고만 남긴다."""
-    fields = ["impCnt", "clkCnt", "salesAmt", "ccnt", "convAmt"]
+    fields = ["impCnt", "clkCnt", "salesAmt", "ccnt", "convAmt", "purchaseCcnt", "purchaseConvAmt"]
     out = {}
     ids = sorted(set(ids))
     for i in range(0, len(ids), 50):
@@ -185,33 +185,45 @@ def fetch_stats(customer, ids, since: date, until: date):
 def summarize(stats_list):
     s = defaultdict(float)
     for st in stats_list:
-        for k in ("impCnt", "clkCnt", "salesAmt", "ccnt", "convAmt"):
+        for k in ("impCnt", "clkCnt", "salesAmt", "ccnt", "convAmt", "purchaseCcnt", "purchaseConvAmt"):
             s[k] += float(st.get(k) or 0)
-    s["roas"] = s["convAmt"] / s["salesAmt"] * 100 if s["salesAmt"] else None
+    # 효율 = 구매완료 매출 / 광고비. convAmt(전체 전환)는 장바구니 등이 섞여 부풀려지므로 쓰지 않는다.
+    s["roas"] = s["purchaseConvAmt"] / s["salesAmt"] * 100 if s["salesAmt"] else None
     s["cpc"] = s["salesAmt"] / s["clkCnt"] if s["clkCnt"] else None
     return s
 
 
 # ---------------------------------------------------------------- 이유 추정
 
-def guess_reason(action, pre, target):
-    """변경 전 성과로 이유를 추정. (문구, 확신여부) — 확신 없으면 메모를 받도록 표시."""
-    roas, clk, cost, conv = pre["roas"], pre["clkCnt"], pre["salesAmt"], pre["ccnt"]
+def guess_reason(action, d7, d3, prev, target):
+    """변경 전 7일(d7)·3일(d3)과 그 전주(prev) 구매완료 효율로 이유를 추정. (분류, 문구, 데이터 근거 여부)
+    데이터로 설명이 안 되면 분류 "unknown" — 이유를 지어내지 않고 메모를 받는다."""
+    roas, clk, cost, buy = d7["roas"], d7["clkCnt"], d7["salesAmt"], d7["purchaseCcnt"]
+    r3 = d3.get("roas") if d3.get("clkCnt", 0) >= MIN_CLICKS else None
+    p_roas, p_cost = prev.get("roas"), prev.get("salesAmt") or 0
+    trend = f"(3일 {pct(r3)} / 전주 {pct(p_roas)})" if r3 is not None and p_roas else \
+        (f"(3일 {pct(r3)})" if r3 is not None else (f"(전주 {pct(p_roas)})" if p_roas else ""))
     if clk < MIN_CLICKS:
-        if action in ("입찰가 상향", "ON") and pre["impCnt"] < 300:
-            return "노출이 적어 노출 확보를 위해", True
-        return "", False
+        if action in ("입찰가 상향", "ON") and d7["impCnt"] < 300:
+            return "low_imp", "노출이 적어 노출 확보를 위해", True
+        return "unknown", "", False
     if action in ("입찰가 하향", "OFF", "예산 하향"):
-        if conv == 0:
-            return f"최근 {BEFORE_DAYS}일 광고비 {won(cost)}원 소진 대비 전환이 없어", True
+        if buy == 0:
+            return "no_conv", f"최근 7일 광고비 {won(cost)}원 소진 대비 구매가 없어", True
         if roas is not None and roas < target:
-            return f"최근 {BEFORE_DAYS}일 효율 {pct(roas)}로 기준({target}%) 대비 낮아", True
-        return f"효율({pct(roas)})은 양호하나 CPC 절감을 위해", False
+            return "below", f"최근 7일 구매완료 효율이 {pct(roas)}{trend}로 기준({target:.0f}%)보다 낮아", True
+        if r3 is not None and r3 < target:
+            return "drop3", f"최근 3일 효율이 {pct(r3)}로 떨어져", True
+        if p_roas and roas < p_roas * 0.7:
+            return "drop", f"효율이 전주 {pct(p_roas)}에서 최근 7일 {pct(roas)}로 하락해", True
+        if p_cost and cost > p_cost * 1.5:
+            return "spend_up", f"광고비가 전주 대비 {cost / p_cost:.1f}배로 늘어 소진 관리를 위해", True
+        return "cpc", f"효율({pct(roas)})은 유지되나 클릭당 비용 절감을 위해", False
     if action in ("입찰가 상향", "ON", "예산 상향"):
-        if roas is not None and roas >= target:
-            return f"최근 {BEFORE_DAYS}일 효율 {pct(roas)}로 높아 노출 확대를 위해", True
-        return f"효율({pct(roas or 0)})이 기준 미만이나 노출 확보를 위해", False
-    return "", False
+        if roas is not None and roas >= target and (r3 is None or r3 >= target):
+            return "high", f"최근 7일 구매완료 효율 {pct(roas)}{trend}로 기준 이상이라 노출 확대를 위해", True
+        return "reach", f"효율({pct(roas or 0)})이 기준 미만이나 노출 확보를 위해", False
+    return "unknown", "", False
 
 
 def won(v):
@@ -229,22 +241,35 @@ def short_campaign(name):
     return re.sub(r"\(.*?\)\s*$", "", name).strip() or name
 
 
-def build(changes, stats_pre, stats_post, target, memos, today):
-    """캠페인 × 액션 단위로 묶어 멘트 줄과 근거표 행을 만든다."""
+def build(changes, stats_pre, stats_3d, stats_prev, stats_post, target, memos, today):
+    """소재·키워드별로 이유를 추정한 뒤, 캠페인 × 액션 × 이유가 같은 것끼리 묶어 멘트 줄과 근거표 행을 만든다."""
     groups = defaultdict(list)
     for c in changes:
-        groups[(c["campaign"], c["action"], c["target"])].append(c)
-
-    lines, table, ask = [], [], []
-    by_campaign = defaultdict(list)
-    for (camp, action, target_name), cs in groups.items():
-        pre = summarize(stats_pre.get(c["id"], {}) for c in cs if c["id"])
-        post = summarize(stats_post.get(c["id"], {}) for c in cs if c["id"])
-        label = f"{camp} {action} {target_name}"
+        label = f"{c['campaign']} {c['action']} {c['target']}"
         memo = next((v for k, v in memos.items()
-                     if all(part.strip() in label for part in k.split("|")) or any(k == c["id"] for c in cs)), None)
-        has_data = any(c["id"] in stats_pre for c in cs)
-        reason, sure = (memo, True) if memo else (guess_reason(action, pre, target) if has_data else ("", False))
+                     if all(part.strip() in label for part in k.split("|")) or k == c["id"]), None)
+        if memo:
+            cat = ("memo", memo)
+        elif c["id"] in stats_pre:
+            one = lambda st: summarize([st.get(c["id"], {})])
+            cat = (guess_reason(c["action"], one(stats_pre), one(stats_3d), one(stats_prev), target)[0], None)
+        else:
+            cat = ("unknown", None)
+        groups[(c["campaign"], c["action"], c["target"], cat)].append(c)
+
+    table, ask = [], []
+    by_campaign = defaultdict(list)
+    for (camp, action, target_name, (cat, memo)), cs in groups.items():
+        pre = summarize(stats_pre.get(c["id"], {}) for c in cs if c["id"])
+        d3 = summarize(stats_3d.get(c["id"], {}) for c in cs if c["id"])
+        prev = summarize(stats_prev.get(c["id"], {}) for c in cs if c["id"])
+        post = summarize(stats_post.get(c["id"], {}) for c in cs if c["id"])
+        if memo:
+            reason, sure = memo, True
+        elif cat == "unknown":
+            reason, sure = "", False
+        else:
+            _, reason, sure = guess_reason(action, pre, d3, prev, target)
 
         n = len(cs)
         cnt = f"{target_name} {n}개" if n > 1 else target_name
@@ -270,6 +295,8 @@ def build(changes, stats_pre, stats_post, target, memos, today):
                   "등록": "데이터 쌓이는대로 정리해서 말씀드리겠습니다.",
                   "삭제": "",
                   }.get(action, "데이터 지켜보면서 조정하겠습니다.")
+        if action in ("입찰가 하향", "예산 하향") and pre["roas"] is not None and pre["roas"] >= target:
+            follow = "효율 유지되는지 지켜보면서 조정하겠습니다."
         if reason:
             sentence = f"{reason} {what}하였습니다."
         else:
@@ -281,12 +308,15 @@ def build(changes, stats_pre, stats_post, target, memos, today):
 
         table.append({
             "캠페인": camp, "대상": target_name, "변경": action, "건수": n,
-            "변경 전 광고비": round(pre["salesAmt"]), "변경 전 클릭": round(pre["clkCnt"]),
-            "변경 전 전환": round(pre["ccnt"]), "변경 전 효율(%)": "" if pre["roas"] is None else round(pre["roas"]),
+            "7일 광고비": round(pre["salesAmt"]), "7일 클릭": round(pre["clkCnt"]),
+            "7일 구매": round(pre["purchaseCcnt"]), "7일 효율(%)": "" if pre["roas"] is None else round(pre["roas"]),
+            "3일 효율(%)": "" if d3["roas"] is None else round(d3["roas"]),
+            "전주 광고비": round(prev["salesAmt"]), "전주 효율(%)": "" if prev["roas"] is None else round(prev["roas"]),
             "변경 후 효율(%)": "" if post["roas"] is None else round(post["roas"]),
             "이유": reason or "확인 필요", "근거": "메모" if memo else ("데이터" if sure else ("추정" if reason else "-")),
         })
 
+    lines = []
     greet = {0: "좋은아침 이십니다. 이번주도 파이팅입니다!", 4: "좋은아침 이십니다. 한주 고생하셨습니다!"}
     lines.append(greet.get(today.weekday(), "안녕하세요 좋은아침 이십니다."))
     lines += ["", "네이버 검색광고", ""]
@@ -327,7 +357,7 @@ def main():
         sys.exit("변경 내역이 비어 있습니다.")
     today = datetime.now(KST).date()
 
-    stats_pre, stats_post = {}, {}
+    stats_pre, stats_3d, stats_prev, stats_post = {}, {}, {}, {}
     if not args.no_api:
         if not customer:
             sys.exit("--customer(광고주 customerId) 또는 advertisers.json 의 --advertiser 가 필요합니다. "
@@ -341,11 +371,14 @@ def main():
                 by_day[c["date"]].append(c["id"])
         for d, ids in by_day.items():
             stats_pre.update(fetch_stats(customer, ids, d - timedelta(days=BEFORE_DAYS), d - timedelta(days=1)))
+            stats_3d.update(fetch_stats(customer, ids, d - timedelta(days=3), d - timedelta(days=1)))
+            stats_prev.update(fetch_stats(customer, ids, d - timedelta(days=BEFORE_DAYS * 2),
+                                          d - timedelta(days=BEFORE_DAYS + 1)))
             if d < today - timedelta(days=1):  # 변경 다음날 ~ 어제
                 stats_post.update(fetch_stats(customer, ids, d + timedelta(days=1), today - timedelta(days=1)))
 
     memos = dict(m.split("=", 1) for m in args.memo if "=" in m)
-    text, table, ask = build(changes, stats_pre, stats_post, target, memos, today)
+    text, table, ask = build(changes, stats_pre, stats_3d, stats_prev, stats_post, target, memos, today)
 
     args.out.mkdir(parents=True, exist_ok=True)
     stem = f"{args.advertiser or customer or 'report'}_{today:%Y%m%d}"
@@ -356,7 +389,7 @@ def main():
         w.writerows(table)
 
     print(text)
-    print(f"\n[기준 효율 {target:.0f}% / 변경 전 {BEFORE_DAYS}일 성과 기준 / 클릭 {MIN_CLICKS}회 미만은 판단 보류]")
+    print(f"\n[기준 효율 {target:.0f}% / 변경 전 {BEFORE_DAYS}일 ·3일 구매완료 효율(전주와 비교) 기준 / 클릭 {MIN_CLICKS}회 미만은 판단 보류]")
     if ask:
         print("\n[이유 확인 필요 — --memo 로 채워주세요]")
         for a in ask:
