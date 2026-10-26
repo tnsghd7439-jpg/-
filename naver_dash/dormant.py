@@ -24,7 +24,7 @@ import collect  # noqa: E402
 from naver_api import NaverAdsAPI  # noqa: E402
 
 OLD_ERR = {}  # 오래된 기간 조회 오류(첫 1건)를 요약에 표시
-STEPS = [(0, 90, None), (90, 180, "3~6개월"), (180, 270, "6~9개월"), (270, 365, "9~12개월")]
+STEPS = [(0, 90, None), (90, 180, "3~6개월"), (180, 270, "6~9개월"), (270, 360, "9~12개월")]  # 네이버 /stats 는 한 번에 92일까지만 (11004)
 
 
 def idle_bucket(api, cid: str, y) -> str | None:
