@@ -141,10 +141,48 @@ def media_tabs(page) -> list[str]:
     return list(dict.fromkeys(names))
 
 
-def member_select(page):
-    """「팀원 선택」 목록(select). 없으면 None."""
-    loc = page.locator("select").filter(has=page.locator("option", has_text="팀원 선택"))
-    return loc.first if loc.count() else None
+def member_select(page, known=()):
+    """「팀원 선택」 목록(select). 첫 칸이 「팀원 선택」이거나 SA 담당자 이름이 들어 있는 select. 없으면 None."""
+    for el in page.locator("select").all():
+        try:
+            opts = [o.strip() for o in el.locator("option").all_inner_texts()]
+        except Exception:  # noqa: BLE001
+            continue
+        if "팀원 선택" in opts or any(o in known for o in opts):
+            return el
+    return None
+
+
+def find_members(page, known, raw) -> tuple:
+    """팀원 목록이 늦게 뜨거나 「팀원 전체」를 눌러야 보이는 경우가 있어 몇 번 다시 찾는다."""
+    for attempt in range(4):
+        sel = member_select(page, known)
+        if sel is not None:
+            opts = [o.strip() for o in sel.locator("option").all_inner_texts()]
+            members = [o for o in opts if o and o != "팀원 선택"]
+            if members:
+                return sel, members
+        if attempt == 1:
+            try:  # 「팀원 전체 N명」을 누르면 목록이 채워지는 화면일 수 있음
+                click_text(page, re.sub(r"\s+", " ", page.get_by_text(re.compile(r"^팀원 전체")).first.inner_text()).strip())
+            except Exception:  # noqa: BLE001
+                pass
+        time.sleep(3)
+    try:  # 원인 확인용 (광고주 데이터 포함, output 폴더에만)
+        page.screenshot(path=str(raw / "noselect.png"), full_page=True)
+        (raw / "noselect.html").write_text(page.content(), encoding="utf-8")
+    except Exception:  # noqa: BLE001
+        pass
+    return None, []
+
+
+def sa_owners() -> set:
+    """마지막 SA 결과의 담당자 이름 (MP AI 팀원 목록·본인 이름 찾기용)."""
+    try:
+        d = json.loads((OUT / "latest.json").read_text(encoding="utf-8"))
+        return {o for a in d["accounts"] for o in a["owners"]}
+    except Exception:  # noqa: BLE001
+        return set()
 
 
 def read_scope(page, label: str) -> dict:
@@ -190,20 +228,23 @@ def scrape(headless=True, debug=False) -> dict:
             scopes = []
             click_text(page, "내 광고주")
             scopes.append({"owner": SELF, "periods": read_scope(page, "내 광고주")})
-            sel = member_select(page)
-            members = [o for o in (sel.locator("option").all_inner_texts() if sel else []) if o.strip() != "팀원 선택"]
+            known = sa_owners()
+            sel, members = find_members(page, known, raw)
+            # 「내 광고주」 본인 이름: 화면(머리글 등)에 보이는 SA 담당자 중 팀원 목록에 없는 한 명
+            mine = [n for n in known if n in body and n not in members]
+            me = mine[0] if len(mine) == 1 else None
             if sel is None:
-                print("  「팀원 선택」 목록을 찾지 못해 팀원 전체로 한 번에 읽습니다 (담당자 구분 불가)")
+                print("  「팀원 선택」 목록을 찾지 못해 팀원 전체로 한 번에 읽습니다 (담당자 구분 불가, mpai_raw/noselect.png)")
                 click_text(page, re.sub(r"\s+", " ", page.get_by_text(re.compile(r"^팀원 전체")).first.inner_text()).strip())
                 scopes.append({"owner": "팀원 전체", "periods": read_scope(page, "팀원 전체")})
             for m in members:
-                member_select(page).select_option(label=m)
+                member_select(page, known).select_option(label=m)
                 settle(page)
                 scopes.append({"owner": m.strip(), "periods": read_scope(page, m.strip())})
             if debug:
                 page.screenshot(path=str(raw / "last.png"), full_page=True)
             return {"fetchedAt": datetime.now(KST).strftime("%Y-%m-%d %H:%M"), "url": URL,
-                    "pending": pending, "scopes": scopes}
+                    "pending": pending, "self": me, "scopes": scopes}
         except Exception:
             # 실패 화면을 남겨 원인 확인 (광고주 데이터가 담기므로 저장소 밖 output 폴더에만)
             try:

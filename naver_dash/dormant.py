@@ -89,7 +89,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--weekly", action="store_true", help="이번 주에 이미 만들었으면 건너뜀")
     ap.add_argument("--notify-only", action="store_true", help="새로 조회하지 않고 최신 dormant.csv 로 구글챗 공지만")
-    ap.add_argument("--no-notify", action="store_true", help="목록만 만들고 구글챗 공지는 안 보냄")
+    ap.add_argument("--notify", action="store_true", help="목록을 만든 뒤 구글챗에도 공지 (기본은 공지 안 함)")
     args = ap.parse_args()
     if args.notify_only:
         notify(collect.OUT / "dormant.csv")
@@ -141,7 +141,7 @@ def main():
         keys = sorted(set(bs), key=lambda k: (order.get(k, 9), k))  # 조회 실패 등 다른 값도 빠짐없이
         cnt = {k: bs.count(k) for k in keys}
         print(f"  {o}: {len(bs)}개 (" + ", ".join(f"{k} {v}" for k, v in cnt.items()) + ")")
-    if not args.no_notify:
+    if args.notify:
         notify(out)
 
 

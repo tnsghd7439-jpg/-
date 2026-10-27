@@ -504,6 +504,7 @@ def resolve_mpai(m: dict | None, data: dict) -> dict | None:
     team_file = ROOT / "team.json"
     if team_file.exists():
         me = json.loads(team_file.read_text(encoding="utf-8")).get("mpaiSelf")
+    me = me or m.get("self")  # mpai.py 가 화면에서 찾은 본인 이름
     if not me:
         cand = {o for a in data.get("accounts", []) for o in a["owners"]} - others - {UNASSIGNED}
         me = cand.pop() if len(cand) == 1 else "내 광고주"
