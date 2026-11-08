@@ -23,7 +23,8 @@ $StateFile = Join-Path $Base 'state.json'
 $LogFile  = Join-Path $Base 'update.log'
 $Updater  = Join-Path $Base 'updater.ps1'
 $Desktop  = [Environment]::GetFolderPath('Desktop')     # OneDrive 바탕화면도 자동으로 잡힘
-$DeskDir  = Join-Path $Desktop '영업6팀 도구'
+$DeskDir  = Join-Path $Desktop '영업6팀 도구'   # 바로가기만 두는 곳 (신입이 옮겨도 됨)
+$FilesDir = Join-Path $Base 'files'              # 실제 파일 (자동 업데이트 대상, 신입이 건드리지 않음)
 $Quiet    = ($Mode -eq 'update')
 $Changes  = New-Object System.Collections.ArrayList
 $Errors   = New-Object System.Collections.ArrayList
@@ -118,6 +119,15 @@ function New-Shortcut([string]$lnk, [string]$target, [string]$arguments, [string
   $s.WindowStyle = $window
   $s.Save()
 }
+# 실제 파일을 여는 바로가기를 바탕화면 폴더에 만든다.
+# 처음 한 번(또는 처음 설치 실행 때)만 만든다 — 신입이 바로가기를 다른 곳으로 옮겼으면 다시 만들지 않는다.
+function Ensure-FileShortcut($st, [string]$label, [string]$file) {
+  $lnk = Join-Path $DeskDir ($label + '.lnk')
+  if ($st['lnk'] -and $Mode -ne 'install') { return }
+  if (-not (Test-Path -LiteralPath $lnk)) { New-Shortcut $lnk $file '' (Split-Path $file) 1 }
+  $st['lnk'] = 'yes'
+}
+
 function Find-Python {
   foreach ($cmd in @('py', 'python')) {
     try {
@@ -135,9 +145,14 @@ function Find-Python {
 function Do-Desktop($t) {
   if (-not $t.md5) { Say "[-] $($t.name): 배포 폴더에 파일이 아직 없습니다" 'Yellow'; return }
   $st = Get-St $t.id
-  $dest = Join-Path $DeskDir $t.target
-  if ($st['md5'] -eq $t.md5 -and (Test-Path -LiteralPath $dest)) { Say "[v] $($t.name): 최신" 'Green'; return }
+  $dest = Join-Path $FilesDir $t.target
+  $label = [IO.Path]::GetFileNameWithoutExtension($t.target)
+  if ($st['md5'] -eq $t.md5 -and (Test-Path -LiteralPath $dest)) {
+    Ensure-FileShortcut $st $label $dest
+    Say "[v] $($t.name): 최신" 'Green'; return
+  }
   Write-Atomic $dest (Get-ToolBytes $t)
+  Ensure-FileShortcut $st $label $dest
   if ($st['path'] -and $st['path'] -ne $dest) { To-RecycleBin $st['path'] }
   $isNew = -not $st['md5']
   $st['md5'] = $t.md5; $st['path'] = $dest; $st['file'] = $t.fileName
@@ -172,7 +187,13 @@ function Do-Extension($t) {
   Copy-Item -Path (Join-Path $src '*') -Destination $dest -Recurse -Force
   # 확장프로그램 폴더 밖에 들어 있는 안내 HTML(설치가이드 등)은 바탕화면 폴더로
   Get-ChildItem -Path $tmp -Recurse -Filter '*.html' | Where-Object { -not $_.FullName.StartsWith($src) } | ForEach-Object {
-    Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $DeskDir ($t.name + ' ' + $_.Name)) -Force
+    $label = $t.name + ' ' + $_.BaseName
+    $file = Join-Path $FilesDir ($label + '.html')
+    Copy-Item -LiteralPath $_.FullName -Destination $file -Force
+    Ensure-FileShortcut $st $label $file
+    # 예전 방식(바탕화면 폴더에 실제 파일)으로 들어가 있던 것은 정리
+    $old = Join-Path $DeskDir ($label + '.html')
+    if (Test-Path -LiteralPath $old) { To-RecycleBin $old }
   }
   Remove-Item -LiteralPath $tmp -Recurse -Force
   $isNew = -not $st['md5']
@@ -298,7 +319,7 @@ if ($ServerUrl -match '여기에' -or $TeamKey -match '여기에') {
   Say '[!] 설정이 비어 있습니다. 팀장님이 install.bat 위쪽의 주소와 팀 키를 채운 파일을 받아 주세요.' 'Red'
   Pause-End; exit 1
 }
-New-Item -ItemType Directory -Path $Base, $DeskDir -Force | Out-Null
+New-Item -ItemType Directory -Path $Base, $DeskDir, $FilesDir -Force | Out-Null
 Load-State
 if ($Mode -eq 'install') { Install-Self }
 
@@ -338,7 +359,10 @@ if ($Quiet) {
 
 Write-Host ''
 if ($Errors.Count) { Say "완료했지만 $($Errors.Count)개 항목에 문제가 있습니다. 위 빨간 줄을 팀장님께 캡처해서 보내 주세요." 'Yellow' }
-else { Say '모두 완료했습니다. 바탕화면 [영업6팀 도구] 폴더를 열어 보세요.' 'Cyan' }
+else {
+  Say '모두 완료했습니다. 바탕화면 [영업6팀 도구] 폴더를 열어 보세요.' 'Cyan'
+  Say '폴더 안 아이콘은 바로가기라서 원하는 곳으로 옮기거나 복사해도 항상 최신 버전이 열립니다.' 'Cyan'
+}
 foreach ($x in $Todo) { Write-Host ''; Say "★ 직접 해야 할 일 — $x" 'Yellow' }
 if ($Mode -eq 'install') { try { Start-Process explorer.exe -ArgumentList "`"$DeskDir`"" } catch {} }
 Pause-End
