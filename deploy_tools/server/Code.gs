@@ -115,7 +115,7 @@ function tidy() {
   try {
     const files = folderFiles_();
     const props = PropertiesService.getScriptProperties();
-    TOOLS.filter(t => t.match).forEach(t => {
+    TOOLS.filter(t => t.match).forEach(t => { try {
       const cands = files.filter(f => t.match.test(nfc_(f.name)))
         .sort((a, b) => new Date(b.modifiedTime) - new Date(a.modifiedTime));
       let canon = meta_(canonId_(t));
@@ -140,7 +140,10 @@ function tidy() {
         }
         DriveApp.getFileById(f.id).setTrashed(true);
       });
-    });
+    } catch (err) {
+      // 한 도구에서 실패해도(예: 수정 권한 없는 고정 파일) 나머지 도구 정리는 계속한다
+      console.warn(t.name + ' 정리 실패: ' + ((err && err.message) || err));
+    } });
   } finally {
     lock.releaseLock();
   }
