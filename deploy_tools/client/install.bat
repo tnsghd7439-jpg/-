@@ -29,6 +29,7 @@ $Quiet    = ($Mode -eq 'update')
 $Changes  = New-Object System.Collections.ArrayList
 $Errors   = New-Object System.Collections.ArrayList
 $Todo     = New-Object System.Collections.ArrayList   # 사람이 직접 해야 할 일
+$TodoIds  = New-Object System.Collections.ArrayList   # 안내를 보여 준 뒤 '안내함' 표시할 도구
 
 function Say([string]$msg, [string]$color = 'Gray') {
   if (-not $Quiet) { Write-Host "  $msg" -ForegroundColor $color }
@@ -170,11 +171,22 @@ function Do-Link($t) {
   [void]$Changes.Add($t.name)
 }
 
+function Add-ExtTodo($t, $st, [string]$dest) {
+  if ($TodoIds -contains $t.id) { return }
+  [void]$Todo.Add("크롬 확장프로그램 '$($t.name)' 등록 (처음 한 번만, 이미 등록했다면 무시):`r`n  1) 크롬 주소창에 chrome://extensions 입력`r`n  2) 오른쪽 위 '개발자 모드' 켜기`r`n  3) '압축해제된 확장 프로그램을 로드합니다' 클릭`r`n  4) 이 폴더 선택: $dest")
+  [void]$TodoIds.Add($t.id)
+  try { Set-Clipboard -Value $dest } catch { try { [Windows.Forms.Clipboard]::SetText($dest) } catch {} }
+}
+
 function Do-Extension($t) {
   if (-not $t.md5) { Say "[-] $($t.name): 배포 폴더에 파일이 아직 없습니다" 'Yellow'; return }
   $st = Get-St $t.id
   $dest = Join-Path $Base ('extensions\' + $t.target)
-  if ($st['md5'] -eq $t.md5 -and (Test-Path (Join-Path $dest 'manifest.json'))) { Say "[v] $($t.name): 최신 ($($st['version']))" 'Green'; return }
+  if ($st['md5'] -eq $t.md5 -and (Test-Path (Join-Path $dest 'manifest.json'))) {
+    Say "[v] $($t.name): 최신 ($($st['version']))" 'Green'
+    if (-not $st['notified']) { Add-ExtTodo $t $st $dest }
+    return
+  }
   $tmp = Join-Path $Base ('tmp\' + $t.id)
   Expand-ZipBytes (Get-ToolBytes $t) $tmp
   $man = Get-ChildItem -Path $tmp -Recurse -Filter 'manifest.json' | Select-Object -First 1
@@ -200,8 +212,8 @@ function Do-Extension($t) {
   $st['md5'] = $t.md5; $st['version'] = $ver; $st['path'] = $dest
   if ($isNew) {
     Say "[+] $($t.name) $ver : 파일 준비 완료 (크롬 등록은 아래 안내대로 한 번만)" 'Green'
-    [void]$Todo.Add("크롬 확장프로그램 '$($t.name)' 등록 (처음 한 번만):`r`n  1) 크롬 주소창에 chrome://extensions 입력`r`n  2) 오른쪽 위 '개발자 모드' 켜기`r`n  3) '압축해제된 확장 프로그램을 로드합니다' 클릭`r`n  4) 이 폴더 선택: $dest`r`n     (폴더 경로는 클립보드에 복사해 두었습니다. 붙여넣기 하세요)")
-    try { Set-Clipboard -Value $dest } catch { try { [Windows.Forms.Clipboard]::SetText($dest) } catch {} }
+    Add-ExtTodo $t $st $dest
+    [void]$Changes.Add("새 확장프로그램 '$($t.name)' (크롬 등록 필요)")
   } else {
     Say "[↑] $($t.name): $ver 로 교체 — 크롬을 껐다 켜면 반영됩니다" 'Cyan'
     [void]$Changes.Add("$($t.name) $ver (크롬 재시작 필요)")
@@ -351,9 +363,24 @@ foreach ($t in $tools) {
   Save-State
 }
 
+function Mark-Notified {
+  foreach ($id in $TodoIds) { (Get-St $id)['notified'] = 'yes' }
+  Save-State
+}
+$clipNote = ''
+if ($TodoIds.Count -eq 1) { $clipNote = "`r`n(폴더 경로는 클립보드에 복사되어 있습니다. 4번에서 붙여넣기 하세요)" }
+
 if ($Changes.Count) { Log ("변경: " + ($Changes -join ', ')) }
 if ($Quiet) {
-  if ($Changes.Count) { Notify '영업6팀 도구 업데이트' (($Changes -join "`n") + "`n바탕화면 '영업6팀 도구' 폴더를 확인하세요.") }
+  if ($Todo.Count) {
+    # 창 없는 자동 실행이라도 사람이 해야 할 일(새 크롬 확장 등록)은 창으로 알린다
+    try {
+      [Windows.Forms.MessageBox]::Show((($Todo -join "`r`n`r`n") + $clipNote), '영업6팀 도구 — 직접 해야 할 일', 'OK', 'Information') | Out-Null
+      Mark-Notified
+    } catch { Log "안내 창 표시 실패: $_" }
+  } elseif ($Changes.Count) {
+    Notify '영업6팀 도구 업데이트' (($Changes -join "`n") + "`n바탕화면 '영업6팀 도구' 폴더를 확인하세요.")
+  }
   exit 0
 }
 
@@ -364,5 +391,6 @@ else {
   Say '폴더 안 아이콘은 바로가기라서 원하는 곳으로 옮기거나 복사해도 항상 최신 버전이 열립니다.' 'Cyan'
 }
 foreach ($x in $Todo) { Write-Host ''; Say "★ 직접 해야 할 일 — $x" 'Yellow' }
+if ($Todo.Count) { if ($clipNote) { Say $clipNote.Trim() 'Yellow' }; Mark-Notified }
 if ($Mode -eq 'install') { try { Start-Process explorer.exe -ArgumentList "`"$DeskDir`"" } catch {} }
 Pause-End

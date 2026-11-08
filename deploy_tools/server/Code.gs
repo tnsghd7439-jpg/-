@@ -41,6 +41,8 @@ const TOOLS = [
   { id: 'note', name: '영업노트', type: 'link', url: SALES_NOTE_URL, target: '영업노트 (웹).url' },
   { id: 'supporter', name: '네이버 영업 서포터', type: 'extension', match: /서포터.*\.zip$/,
     target: 'naver-sales-supporter' },
+  { id: 'checker', name: '영업권·자사 체크', type: 'extension', match: /^영업권.*\.zip$/,
+    target: 'naver-store-checker' },
   { id: 'todo', name: '마케터 할 일', type: 'app', match: /^update.*\.zip$/i,
     target: 'marketer-todo', pinnedId: TODO_UPDATE_FILE_ID, pythonUrl: PYTHON_URL },
   { id: 'installer', name: '설치·업데이트 프로그램', type: 'self', match: /^install.*\.bat$/i },

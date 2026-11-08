@@ -20,6 +20,7 @@
 | 영업노트 가이드 | HTML | `영업노트`로 시작하고 `가이드`가 들어간 `.html` | 바탕화면 `영업6팀 도구\영업노트 가이드` (바로가기) |
 | 영업노트 (웹앱) | 웹 바로가기 | 올릴 파일 없음 (Code.gs의 `SALES_NOTE_URL`) | 바탕화면 `영업6팀 도구\영업노트 (웹).url` |
 | 네이버 영업 서포터 | 크롬 확장 | `서포터`가 들어간 `.zip` (예: `네이버영업서포터_1.1.1.zip`) | `%LOCALAPPDATA%\Team6Tools\extensions\naver-sales-supporter` |
+| 영업권·자사 체크 | 크롬 확장 | `영업권`으로 시작하는 `.zip` (예: `영업권체크_1.1.zip`) | `%LOCALAPPDATA%\Team6Tools\extensions\naver-store-checker` |
 | 마케터 할 일 | PC 앱 | 올리지 않음 (`TODO_UPDATE_FILE_ID`의 기존 update.zip 사용) | 처음 한 번 설치만 하고, 이후 업데이트는 앱이 스스로 합니다 |
 | 설치·업데이트 프로그램 | 자기 자신 | `install`로 시작하는 `.bat` | `%LOCALAPPDATA%\Team6Tools\updater.ps1` |
 
