@@ -542,6 +542,23 @@ def mpai_spend(data: dict) -> tuple[dict, str]:
     return out, day
 
 
+def mpai_reason(data: dict) -> str:
+    """공지에 MP AI 금액이 빠진 이유 (mpai.py 가 남긴 mpai_status.json / 저장된 데이터 날짜)."""
+    try:
+        st = json.loads((OUT / "mpai_status.json").read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        st = {}
+    if st and not st.get("ok"):
+        return f"{st.get('at', '')} 수집 실패 — {st.get('error', '')}"
+    m = data.get("mpai")
+    if not m:
+        return "MP AI 데이터 없음 (mpai_login.bat 로 설정 필요)"
+    dates = sorted({d for s in m.get("scopes", []) for d in (s["periods"].get("전일") or {}).get("dates") or []})
+    if not dates:
+        return f"{m.get('fetchedAt', '')} 수집분에 날짜 정보 없음 (화면 변경 가능성)"
+    return f"MP AI 데이터가 {dates[-1]} 기준 ({m.get('fetchedAt', '')} 수집)"
+
+
 def notify(data: dict) -> None:
     """구글챗 팀방으로 오늘 요약 + 팀원별 대시보드 링크를 보낸다.
     웹훅 주소는 환경변수 NAVER_GCHAT_WEBHOOK (공개 저장소라 파일에 적지 않음), 링크 앞부분은 team.json 의 linkBase."""
@@ -576,7 +593,7 @@ def notify(data: dict) -> None:
     total = sum(v or 0 for r in rows.values() for v in r.values())
     when = f" · {data['mpai'].get('fetchedAt', '')[-5:]} 집계" if mp else ""
     lines = [f"*[팀원 계정 점검] {data['baseDate']} 광고비 기준{when}* [일부 매체의 경우 집계가 안맞을 수 있습니다.]",
-             f"팀 전체 어제 광고비 {total:,.0f}원 " + ("(모든 매체 통합)" if mp else "(네이버 SA 만 — MP AI 미반영)")
+             f"팀 전체 어제 광고비 {total:,.0f}원 " + ("(모든 매체 통합)" if mp else f"(네이버 SA 만 — MP AI 미반영: {mpai_reason(data)})")
              + (f" · 미집계: {', '.join(sorted(pend))} (금액에서 빠짐)" if pend else "")
              + (" · MP AI 에 어제 「미집계」 표시 — 0원 매체는 아직 집계 전일 수 있음" if pending and not pend else ""), ""]
     for o in owners:

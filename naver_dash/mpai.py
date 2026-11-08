@@ -323,6 +323,14 @@ def notify_login() -> None:
         print(f"구글챗 알림 실패: {e}")
 
 
+def status(ok: bool, error: str) -> None:
+    """마지막 MP AI 수집 결과. 구글챗 공지가 「MP AI 미반영」일 때 사유로 쓴다."""
+    OUT.mkdir(parents=True, exist_ok=True)
+    (OUT / "mpai_status.json").write_text(json.dumps(
+        {"ok": ok, "at": datetime.now(KST).strftime("%Y-%m-%d %H:%M"), "error": error}, ensure_ascii=False),
+        encoding="utf-8")
+
+
 def rerender(m: dict) -> None:
     """마지막 SA 결과(latest.json)에 매체 통합 데이터를 붙여 점검판을 다시 만든다."""
     latest = OUT / "latest.json"
@@ -358,14 +366,19 @@ def main():
         m = tidy(scrape(headless=not args.show, debug=args.debug))
     except LoginRequired as e:
         print(f"MP AI 수집 실패: {e} → mpai_login.bat 실행 필요")
+        status(False, "로그인 풀림 (mpai_login.bat 실행 필요)")
         notify_login()
         sys.exit(2)
     except Exception as e:  # noqa: BLE001 — 화면 변경 등. 실패 화면은 mpai_raw/error.png
-        print(f"MP AI 수집 실패: {str(e).splitlines()[0][:300]} (output/naver_dash/mpai_raw/error.png 확인)")
+        msg = str(e).splitlines()[0][:300] if str(e) else type(e).__name__
+        print(f"MP AI 수집 실패: {msg} (output/naver_dash/mpai_raw/error.png 확인)")
+        status(False, msg[:120])
         sys.exit(1)
     if not any(per["tabs"] for sc in m["scopes"] for per in sc["periods"].values()):
         print("MP AI 표를 하나도 읽지 못했습니다 (output/naver_dash/mpai_raw/error.png 확인)")
+        status(False, "표를 하나도 읽지 못함 (화면 변경 가능성)")
         sys.exit(1)
+    status(True, "")
     OUT.mkdir(parents=True, exist_ok=True)
     tmp = OUT / ".mpai.json.tmp"
     tmp.write_text(json.dumps(m, ensure_ascii=False), encoding="utf-8")
