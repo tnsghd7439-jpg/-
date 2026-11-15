@@ -73,9 +73,28 @@ function Call-Api([hashtable]$params) {
   if (-not $r.ok) { throw ("서버 응답: " + $r.error) }
   return $r
 }
+# 파일 받기 — 서버가 조각(part)으로 나눠 보내면 모두 받아 합치고, 원본 지문(MD5)과 같은지 확인한다
 function Get-ToolBytes($tool) {
-  $r = Call-Api @{ action = 'get'; id = $tool.id }
-  return ,[Convert]::FromBase64String($r.data)
+  $r = Call-Api @{ action = 'get'; id = $tool.id; part = 0 }
+  $parts = 1
+  if ($r.parts) { $parts = [int]$r.parts }
+  $ms = New-Object IO.MemoryStream
+  try {
+    for ($p = 0; $p -lt $parts; $p++) {
+      if ($p -gt 0) {
+        if ($parts -gt 1) { Say ("    ... {0} 받는 중 ({1}/{2})" -f $tool.name, ($p + 1), $parts) }
+        $r = Call-Api @{ action = 'get'; id = $tool.id; part = $p }
+      }
+      $chunk = [Convert]::FromBase64String($r.data)
+      $ms.Write($chunk, 0, $chunk.Length)
+    }
+    $bytes = $ms.ToArray()
+  } finally { $ms.Dispose() }
+  if ($r.md5 -match '^[0-9a-f]{32}$') {
+    $md5 = -join ([Security.Cryptography.MD5]::Create().ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') })
+    if ($md5 -ne $r.md5) { throw "받은 파일이 손상되었습니다 (지문 불일치). 다음 확인 때 다시 받습니다" }
+  }
+  return ,$bytes
 }
 
 # ---------- 파일 도우미 ----------
@@ -255,6 +274,82 @@ function Do-App($t) {
   [void]$Changes.Add($t.name)
 }
 
+# ZIP 프로그램 — 내용을 모르는 ZIP도 알아서 설치한다.
+#  1) 고정 폴더(apps\<target>)에 풀기 (새 버전이면 폴더째 교체 — 프로그램이 켜져 있으면 다음 기회에)
+#  2) 실행 방법 찾기: install.ps1 → 실행 파일(EXE) → 설치 파일(setup/install*.exe) → 시작 배치파일 → 폴더
+#  3) 바탕화면 '영업6팀 도구'에 바로가기
+function Find-Launcher([string]$dir, [string]$name) {
+  $all = @(Get-ChildItem -LiteralPath $dir -Recurse -File -ErrorAction SilentlyContinue)
+  $skip = '^(python-|unins|vc_?redist|vcredist|dotnet|ndp|crashpad|notification_helper|update)'
+  $exes = @($all | Where-Object { $_.Extension -eq '.exe' -and $_.Name -notmatch $skip -and $_.Name -notmatch '^(setup|install)' })
+  if ($exes.Count) {
+    $hit = $exes | Where-Object { $_.BaseName -like "*$name*" } | Select-Object -First 1
+    if (-not $hit) { $hit = $exes | Sort-Object { $_.FullName.Split('\').Count }, { -$_.Length } | Select-Object -First 1 }
+    return @{ kind = 'exe'; path = $hit.FullName }
+  }
+  $setup = @($all | Where-Object { $_.Extension -eq '.exe' -and $_.Name -match '^(setup|install)' }) | Select-Object -First 1
+  if ($setup) { return @{ kind = 'setup'; path = $setup.FullName } }
+  $bat = @($all | Where-Object { $_.Extension -match '^\.(bat|cmd|vbs)$' -and $_.Name -notmatch '(?i)(uninstall|제거)' }) |
+    Sort-Object { $_.FullName.Split('\').Count } | Select-Object -First 1
+  if ($bat) { return @{ kind = 'script'; path = $bat.FullName } }
+  return @{ kind = 'folder'; path = $dir }
+}
+
+function Do-Program($t) {
+  if (-not $t.md5) { Say "[-] $($t.name): 배포 폴더에 파일이 아직 없습니다" 'Yellow'; return }
+  $st = Get-St $t.id
+  $dest = Join-Path $Base ('apps\' + $t.target)
+  if ($st['md5'] -eq $t.md5 -and (Test-Path -LiteralPath $dest)) {
+    if ($st['launch']) { Ensure-FileShortcut $st $t.name $st['launch'] }
+    Say "[v] $($t.name): 최신" 'Green'; return
+  }
+  Say "... $($t.name) 내려받는 중 (용량이 커서 몇 분 걸릴 수 있습니다)"
+  $tmp = Join-Path $Base ('tmp\' + $t.id)
+  Expand-ZipBytes (Get-ToolBytes $t) $tmp
+  # ZIP 안에 폴더 하나만 있으면 그 안을 프로그램 폴더로 쓴다
+  $root = $tmp
+  $top = @(Get-ChildItem -LiteralPath $tmp -Force)
+  if ($top.Count -eq 1 -and $top[0].PSIsContainer) { $root = $top[0].FullName }
+  if (Test-Path -LiteralPath $dest) {
+    try { Remove-Item -LiteralPath $dest -Recurse -Force }
+    catch { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue; throw "$($t.name) 이(가) 켜져 있어 교체하지 못했습니다. 프로그램을 끄고 '지금 업데이트 확인'을 다시 실행하세요" }
+  }
+  New-Item -ItemType Directory -Path (Split-Path $dest) -Force | Out-Null
+  Move-Item -LiteralPath $root -Destination $dest
+  if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue }
+
+  $isNew = -not $st['md5']
+  $installer = Join-Path $dest 'install.ps1'
+  if (Test-Path -LiteralPath $installer) {
+    if ($Quiet) { [void]$Todo.Add("'$($t.name)' 설치/업데이트를 마치려면 바탕화면 '영업6팀 도구' 폴더의 '지금 업데이트 확인'을 실행하세요"); return }
+    Say "... $($t.name) 설치 창을 엽니다 (끝날 때까지 기다려 주세요)"
+    $p = Start-Process powershell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$installer`"") -WorkingDirectory $dest -Wait -PassThru
+    if ($p.ExitCode -ne 0) { throw "설치 스크립트가 실패했습니다 (코드 $($p.ExitCode))" }
+    $launch = $dest
+  } else {
+    $l = Find-Launcher $dest $t.name
+    $launch = $l.path
+    if ($l.kind -eq 'setup') {
+      if ($Quiet) { [void]$Todo.Add("'$($t.name)' 새 버전 설치가 필요합니다. 바탕화면 '영업6팀 도구' 폴더의 '지금 업데이트 확인'을 실행하세요"); return }
+      Say "... $($t.name) 설치 프로그램을 실행합니다. 화면 안내대로 설치를 마쳐 주세요"
+      Start-Process -FilePath $l.path -WorkingDirectory (Split-Path $l.path) -Wait
+      $launch = $dest
+    } elseif ($l.kind -eq 'folder') {
+      Say "[-] $($t.name): 실행 파일을 찾지 못해 폴더 바로가기만 만듭니다" 'Yellow'
+    }
+  }
+  # 실행 파일 위치가 바뀌었으면(버전명이 들어간 EXE 등) 바로가기를 새로 만든다
+  if ($st['launch'] -and $st['launch'] -ne $launch) {
+    $st['lnk'] = $null
+    $old = Join-Path $DeskDir ($t.name + '.lnk')
+    if (Test-Path -LiteralPath $old) { Remove-Item -LiteralPath $old -Force }
+  }
+  Ensure-FileShortcut $st $t.name $launch
+  $st['md5'] = $t.md5; $st['launch'] = $launch
+  if ($isNew) { Say "[+] $($t.name): 설치 완료" 'Green' } else { Say "[↑] $($t.name): 새 버전으로 교체" 'Cyan' }
+  [void]$Changes.Add($t.name)
+}
+
 function Get-PsPart([string]$text) {
   $i = $text.IndexOf('#' + 'PS_START')
   if ($i -lt 0) { throw '업데이트 프로그램 형식이 올바르지 않습니다' }
@@ -364,6 +459,7 @@ foreach ($t in $tools) {
       'link'      { Do-Link $t }
       'extension' { Do-Extension $t }
       'app'       { Do-App $t }
+      'program'   { Do-Program $t }
       'self'      { Do-Self $t }
     }
   } catch {

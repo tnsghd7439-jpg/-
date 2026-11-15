@@ -26,6 +26,7 @@ const PYTHON_URL = 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd
  *   link      : 바탕화면 폴더에 웹 주소 바로가기(.url) 생성
  *   extension : 크롬 확장프로그램 ZIP — PC의 고정 폴더에 풀어서 교체
  *   app       : '마케터 할 일' 앱 — 처음 한 번 설치만 (이후 업데이트는 앱이 스스로 함)
+ *   program   : ZIP 프로그램 — PC의 고정 폴더에 풀고 실행 파일 바로가기 생성, 새 버전이면 폴더째 교체
  *   self      : 업데이트 프로그램(install.bat) 자기 자신
  * legacy: 처음 설치할 때 바탕화면·다운로드 폴더에서 찾아 휴지통으로 보낼 예전 파일 이름 (와일드카드)
  */
@@ -45,6 +46,8 @@ const TOOLS = [
     target: 'naver-sales-supporter' },
   { id: 'checker', name: '영업권·자사 체크', type: 'extension', match: /^영업권.*\.zip$/,
     target: 'naver-store-checker' },
+  { id: 'shopping', name: '쇼핑세팅기', type: 'program', match: /^쇼핑세팅기.*\.zip$/,
+    target: 'shopping-setter' },
   { id: 'todo', name: '마케터 할 일', type: 'app', match: /^update.*\.zip$/i,
     target: 'marketer-todo', pinnedId: TODO_UPDATE_FILE_ID, pythonUrl: PYTHON_URL },
   { id: 'installer', name: '설치·업데이트 프로그램', type: 'self', match: /^install.*\.bat$/i },
@@ -57,7 +60,7 @@ function doGet(e) {
   try {
     if (!p.key || p.key !== TEAM_KEY) return json_({ ok: false, error: '팀 키가 맞지 않습니다. 팀장에게 문의하세요.' });
     if (p.action === 'list') return json_({ ok: true, tools: listTools_() });
-    if (p.action === 'get') return json_(getTool_(p.id));
+    if (p.action === 'get') return json_(getTool_(p.id, p.part));
     return json_({ ok: false, error: '알 수 없는 요청입니다.' });
   } catch (err) {
     return json_({ ok: false, error: String((err && err.message) || err) });
@@ -166,13 +169,35 @@ function listTools_() {
   });
 }
 
-function getTool_(id) {
+const CHUNK = 8 * 1024 * 1024; // 큰 파일은 8MB씩 나눠 보낸다 (웹 앱 응답 한도 약 50MB)
+
+/**
+ * 파일 내용 응답. part 를 안 보내는(예전) 설치 프로그램에는 통째로 보낸다.
+ * part 를 보내면 Drive API 범위 요청으로 해당 조각만 읽어 보낸다 → 수십 MB 파일도 메모리 부담 없이 전송.
+ */
+function getTool_(id, part) {
   const t = TOOLS.find(x => x.id === id && x.match);
   if (!t) return { ok: false, error: '없는 도구입니다: ' + id };
   const f = meta_(canonId_(t));
   if (!f) return { ok: false, error: t.name + ' 파일이 배포 폴더에 없습니다.' };
-  const blob = DriveApp.getFileById(f.id).getBlob();
-  return { ok: true, name: f.name, md5: f.md5Checksum || f.modifiedTime, data: Utilities.base64Encode(blob.getBytes()) };
+  const md5 = f.md5Checksum || f.modifiedTime;
+  const size = Number(f.size || 0);
+  if (part === undefined || part === null || part === '') {
+    const blob = DriveApp.getFileById(f.id).getBlob();
+    return { ok: true, name: f.name, md5: md5, parts: 1, part: 0, data: Utilities.base64Encode(blob.getBytes()) };
+  }
+  const parts = Math.max(1, Math.ceil(size / CHUNK));
+  const p = Number(part);
+  if (!(p >= 0 && p < parts)) return { ok: false, error: '조각 번호가 잘못되었습니다: ' + part };
+  const from = p * CHUNK, to = Math.min(size, from + CHUNK) - 1;
+  const res = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + f.id + '?alt=media&supportsAllDrives=true', {
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken(), Range: 'bytes=' + from + '-' + to },
+    muteHttpExceptions: true,
+  });
+  if (res.getResponseCode() !== 206 && res.getResponseCode() !== 200) {
+    return { ok: false, error: '드라이브 읽기 실패 (' + res.getResponseCode() + ')' };
+  }
+  return { ok: true, name: f.name, md5: md5, size: size, parts: parts, part: p, data: Utilities.base64Encode(res.getContent()) };
 }
 
 /* ---------- 관리자가 편집기에서 한 번 실행 ---------- */
