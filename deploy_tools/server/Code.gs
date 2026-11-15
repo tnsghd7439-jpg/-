@@ -38,6 +38,8 @@ const TOOLS = [
     target: '권한분석툴.html', legacy: ['권한분석툴*.html'] },
   { id: 'note-guide', name: '영업노트 가이드', type: 'desktop', match: /^영업노트.*가이드.*\.html$/,
     target: '영업노트 가이드.html', legacy: ['영업노트*가이드*.html'] },
+  { id: 'supporter-guide', name: '영업서포터 사용가이드', type: 'desktop', match: /^영업서포터.*가이드.*\.html$/,
+    target: '영업서포터 사용가이드.html', legacy: ['영업서포터*가이드*.html'] },
   { id: 'note', name: '영업노트', type: 'link', url: SALES_NOTE_URL, target: '영업노트 (웹).url' },
   { id: 'supporter', name: '네이버 영업 서포터', type: 'extension', match: /서포터.*\.zip$/,
     target: 'naver-sales-supporter' },

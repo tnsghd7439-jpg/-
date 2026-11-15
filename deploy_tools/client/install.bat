@@ -93,23 +93,34 @@ function Write-Atomic([string]$dest, [byte[]]$bytes) {
   Move-Item -LiteralPath $tmp -Destination $dest
 }
 # ZIP 풀기 — 윈도우에서 만든 ZIP의 '\' 경로도 폴더로 풀고, 바깥으로 빠지는 경로(..)는 막는다
+# ZIP 안 한글 파일 이름 인코딩 판별 — UTF-8로 읽어서 깨진 글자(U+FFFD)가 있으면 한글 윈도우 방식(CP949)으로 다시 읽는다
+function Open-ZipArchive([byte[]]$bytes) {
+  foreach ($enc in @([Text.Encoding]::UTF8, [Text.Encoding]::GetEncoding(949))) {
+    $ms = New-Object IO.MemoryStream(,$bytes)
+    $zip = New-Object IO.Compression.ZipArchive($ms, [IO.Compression.ZipArchiveMode]::Read, $false, $enc)
+    $bad = @($zip.Entries | Where-Object { $_.FullName.Contains([char]0xFFFD) }).Count
+    if ($bad -eq 0 -or $enc.CodePage -eq 949) { return $zip }
+    $zip.Dispose()
+  }
+}
+# ZIP 풀기 — '\' 경로도 폴더로 풀고, 바깥으로 빠지는 경로(..)는 막고, 윈도우에서 못 쓰는 글자는 _ 로 바꾼다
 function Expand-ZipBytes([byte[]]$bytes, [string]$dest) {
   if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Recurse -Force }
   New-Item -ItemType Directory -Path $dest -Force | Out-Null
-  $ms = New-Object IO.MemoryStream(,$bytes)
-  $zip = New-Object IO.Compression.ZipArchive($ms, [IO.Compression.ZipArchiveMode]::Read)
+  $zip = Open-ZipArchive $bytes
+  $badChars = '[<>:"|?*\x00-\x1F]'
   try {
     foreach ($e in $zip.Entries) {
-      $rel = $e.FullName.Replace('\', '/').TrimStart('/')
-      if ($rel -eq '' -or $rel.Split('/') -contains '..') { continue }
-      $out = Join-Path $dest ($rel.Replace('/', '\'))
-      if ($rel.EndsWith('/')) { New-Item -ItemType Directory -Path $out -Force | Out-Null; continue }
+      $parts = @($e.FullName.Replace('\', '/').Split('/') | Where-Object { $_ -ne '' } | ForEach-Object { $_ -replace $badChars, '_' })
+      if (-not $parts.Count -or $parts -contains '..') { continue }
+      $out = Join-Path $dest ($parts -join '\')
+      if ($e.FullName.EndsWith('/') -or $e.FullName.EndsWith('\')) { New-Item -ItemType Directory -Path $out -Force | Out-Null; continue }
       New-Item -ItemType Directory -Path (Split-Path $out) -Force | Out-Null
       $in = $e.Open()
       $fs = [IO.File]::Create($out)
       try { $in.CopyTo($fs) } finally { $fs.Dispose(); $in.Dispose() }
     }
-  } finally { $zip.Dispose(); $ms.Dispose() }
+  } finally { $zip.Dispose() }
 }
 function New-Shortcut([string]$lnk, [string]$target, [string]$arguments, [string]$workDir, [int]$window = 1) {
   $ws = New-Object -ComObject WScript.Shell
