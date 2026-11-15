@@ -208,13 +208,63 @@ function Add-ExtTodo($t, $st, [string]$dest) {
   try { Set-Clipboard -Value $dest } catch { try { [Windows.Forms.Clipboard]::SetText($dest) } catch {} }
 }
 
+# 크롬에 압축해제 확장으로 등록된 폴더 목록 (모든 크롬 프로필의 설정 파일에서 읽음, 한 번만 읽어 둔다)
+$script:ChromeExtPaths = $null
+function Get-ChromeExtPaths {
+  if ($null -ne $script:ChromeExtPaths) { return $script:ChromeExtPaths }
+  $list = New-Object System.Collections.ArrayList
+  $root = Join-Path $env:LOCALAPPDATA 'Google\Chrome\User Data'
+  if (Test-Path -LiteralPath $root) {
+    $files = @(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+      Join-Path $_.FullName 'Secure Preferences'; Join-Path $_.FullName 'Preferences' } | Where-Object { Test-Path -LiteralPath $_ })
+    foreach ($f in $files) {
+      try { $txt = [IO.File]::ReadAllText($f, [Text.Encoding]::UTF8) } catch { continue }
+      foreach ($m in [regex]::Matches($txt, '"path"\s*:\s*"((?:[^"\\]|\\.)*)"')) {
+        try { $pth = ('"' + $m.Groups[1].Value + '"') | ConvertFrom-Json } catch { continue }
+        if ($pth -and [IO.Path]::IsPathRooted($pth) -and (Test-Path -LiteralPath (Join-Path $pth 'manifest.json'))) {
+          [void]$list.Add(([IO.Path]::GetFullPath($pth)).TrimEnd('\'))
+        }
+      }
+    }
+  }
+  $script:ChromeExtPaths = @($list | Sort-Object -Unique)
+  return $script:ChromeExtPaths
+}
+function Get-ManifestName([string]$dir) {
+  try { return [string]((Get-Content -LiteralPath (Join-Path $dir 'manifest.json') -Raw -Encoding UTF8) | ConvertFrom-Json).name } catch { return '' }
+}
+
+# 크롬 등록 상태 점검 — 업데이트 폴더에서 등록돼 있는지, 같은 확장이 다른 폴더(개발 폴더·다운로드 폴더 등)에서 등록돼 있는지
+function Check-ExtRegistration($t, $st, [string]$dest) {
+  $paths = @(Get-ChromeExtPaths)
+  if (-not $paths.Count) {   # 크롬 설정을 못 읽으면 예전 방식(처음 한 번 등록 안내)
+    if (-not $st['notified']) { Add-ExtTodo $t $st $dest }
+    return
+  }
+  $mine = ([IO.Path]::GetFullPath($dest)).TrimEnd('\')
+  $name = Get-ManifestName $dest
+  $others = @($paths | Where-Object { $_ -ne $mine -and $name -and (Get-ManifestName $_) -eq $name })
+  $registered = @($paths | Where-Object { $_ -eq $mine }).Count -gt 0
+  if ($others.Count) {
+    Say "[!] $($t.name): 크롬이 다른 폴더의 확장을 쓰고 있어 자동 업데이트가 반영되지 않습니다" 'Yellow'
+    if ($st['wrongWarned'] -ne $t.md5) {
+      $st['wrongWarned'] = $t.md5
+      [void]$Todo.Add("크롬 확장프로그램 '$($t.name)'이(가) 자동 업데이트되지 않는 폴더에서 실행 중입니다.`r`n  지금 크롬이 쓰는 폴더: $($others -join ', ')`r`n  1) 크롬 주소창에 chrome://extensions 입력`r`n  2) '$name' 카드에서 [삭제]  (위 폴더 경로의 것)`r`n  3) '압축해제된 확장 프로그램을 로드합니다' 클릭`r`n  4) 이 폴더 선택: $dest`r`n  ※ 확장 안에 저장해 둔 설정은 초기화될 수 있습니다")
+      try { Set-Clipboard -Value $dest } catch { try { [Windows.Forms.Clipboard]::SetText($dest) } catch {} }
+    }
+    return
+  }
+  if ($registered) { $st['notified'] = 'yes'; return }
+  if (-not $st['notified']) { Add-ExtTodo $t $st $dest }
+}
+
 function Do-Extension($t) {
   if (-not $t.md5) { Say "[-] $($t.name): 배포 폴더에 파일이 아직 없습니다" 'Yellow'; return }
   $st = Get-St $t.id
   $dest = Join-Path $Base ('extensions\' + $t.target)
   if ($st['md5'] -eq $t.md5 -and (Test-Path (Join-Path $dest 'manifest.json'))) {
     Say "[v] $($t.name): 최신 ($($st['version']))" 'Green'
-    if (-not $st['notified']) { Add-ExtTodo $t $st $dest }
+    Check-ExtRegistration $t $st $dest
     return
   }
   $tmp = Join-Path $Base ('tmp\' + $t.id)
@@ -242,11 +292,12 @@ function Do-Extension($t) {
   $st['md5'] = $t.md5; $st['version'] = $ver; $st['path'] = $dest
   if ($isNew) {
     Say "[+] $($t.name) $ver : 파일 준비 완료 (크롬 등록은 아래 안내대로 한 번만)" 'Green'
-    Add-ExtTodo $t $st $dest
+    Check-ExtRegistration $t $st $dest
     [void]$Changes.Add("새 확장프로그램 '$($t.name)' (크롬 등록 필요)")
   } else {
     Say "[↑] $($t.name): $ver 로 교체 — 크롬을 껐다 켜면 반영됩니다" 'Cyan'
     [void]$Changes.Add("$($t.name) $ver (크롬 재시작 필요)")
+    Check-ExtRegistration $t $st $dest
   }
 }
 
