@@ -253,9 +253,18 @@ function Do-Extension($t) {
 function Do-App($t) {
   $st = Get-St $t.id
   if ($st['installed']) { Say "[v] $($t.name): 설치됨 (업데이트는 앱이 스스로 합니다)" 'Green'; return }
-  $existing = @([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Startup')) |
-    ForEach-Object { Join-Path $_ '내 할 일.lnk' } | Where-Object { Test-Path -LiteralPath $_ }
-  if ($existing) { $st['installed'] = 'existing'; Say "[v] $($t.name): 이미 설치되어 있어 건너뜁니다" 'Green'; return }
+  # 이미 설치된 앱 찾기 — 바로가기 이름만으로는 부족하다(예전 버전은 바로가기 이름이 다를 수 있음).
+  # ① '내 할 일' 바로가기 ② 실행 중인 앱 ③ 사용자 폴더 안의 앱 폴더(todo_app.py) 중 하나라도 있으면 새로 설치하지 않는다
+  $existing = @(@([Environment]::GetFolderPath('Desktop'), [Environment]::GetFolderPath('Startup')) |
+    ForEach-Object { Join-Path $_ '내 할 일.lnk' } | Where-Object { Test-Path -LiteralPath $_ })
+  if (-not $existing.Count) {
+    $existing = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*server.py*' -and $_.CommandLine -like '*python*' })
+  }
+  if (-not $existing.Count) {
+    $existing = @(Get-ChildItem $env:USERPROFILE -Recurse -Depth 5 -Filter 'todo_app.py' -ErrorAction SilentlyContinue |
+      Where-Object { $_.DirectoryName -notlike '*\.backup*' -and (Test-Path (Join-Path $_.DirectoryName 'server.py')) })
+  }
+  if ($existing.Count) { $st['installed'] = 'existing'; Say "[v] $($t.name): 이미 설치되어 있어 건너뜁니다" 'Green'; return }
   if ($Mode -eq 'update') { return }   # 창 없는 자동 실행 중에는 설치하지 않음
   if (-not $t.md5) { Say "[-] $($t.name): 배포 폴더에 파일이 아직 없습니다" 'Yellow'; return }
   $dest = Join-Path $Base ('apps\' + $t.target)
