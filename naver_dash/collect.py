@@ -732,7 +732,11 @@ def main():
                 a["_managerNames"].append(mname)
         uniq = list(by_cid.values())
         if team["scope"]:  # 팀 관리계정에 연결된 광고계정만 (다른 팀 계정 제외)
-            uniq = [a for a in uniq if any(str(m) in team["scope"] for m in a["_managers"])]
+            # 「6팀 홍길동」 같은 팀원 관리계정은 6팀 관리계정 아래에 연결돼 있어도 API 의 6팀 하위 목록에
+            # 빠지는 경우가 있어(신입 김우창 계정 3개), managerPrefix 로 시작하는 관리계정 소속도 팀 계정으로 본다
+            pre = team["managerPrefix"]
+            uniq = [a for a in uniq if any(str(m) in team["scope"] for m in a["_managers"])
+                    or (pre and any((n or "").startswith(pre) for n in a["_managerNames"]))]
         uniq = [a for a in uniq if str(a["customerId"]) not in team["exclude"]]
         direct = set()
         if team["members"]:
