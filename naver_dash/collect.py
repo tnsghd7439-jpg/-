@@ -560,7 +560,7 @@ def mpai_reason(data: dict) -> str:
     return f"MP AI 데이터가 {dates[-1]} 기준 ({m.get('fetchedAt', '')} 수집)"
 
 
-DISCONNECT_KEEP_DAYS = 14   # 연결 끊긴 계정을 대시보드에 계속 보여주는 기간
+DISCONNECT_KEEP_DAYS = 14   # 피이관 의심 계정을 대시보드에 계속 보여주는 기간
 
 
 def detect_disconnected(prev_data: dict, rows: list, errors: list, base: str) -> list:
@@ -579,7 +579,7 @@ def detect_disconnected(prev_data: dict, rows: list, errors: list, base: str) ->
         if cid in now or cid in out:
             continue
         out[cid] = {"customerId": cid, "adAccountNo": r.get("adAccountNo"), "name": r["name"], "owners": r["owners"],
-                    "reason": "권한 없음 (조회 403)" if cid in err else "관리계정 연결 해제 (이관 가능성)",
+                    "reason": "권한 없음 (조회 403)" if cid in err else "관리계정 목록에서 빠짐",
                     "since": base, "lastSeen": prev_data.get("baseDate"),
                     "avg7": r.get("avg7", 0), "lastMonthAvg": r.get("lastMonthAvg", 0)}
     return sorted(out.values(), key=lambda d: -(d.get("avg7") or 0))
@@ -629,7 +629,7 @@ def notify(data: dict) -> None:
         lines.append(f"*{o}* : {sum(v or 0 for v in r.values()):,.0f}원" + (f" ({detail})" if mp and detail else "") + link)
     new = [d for d in data.get("disconnected") or [] if d["since"] == data["baseDate"]]
     if new:
-        lines.append(f"• *연결 끊긴 계정 {len(new)}개* (이관 여부 확인 필요): " + ", ".join(
+        lines.append(f"• *피이관 의심 계정 {len(new)}개* (광고센터 관리계정 이력 확인 필요): " + ", ".join(
             f"{d['name']}({'/'.join(d['owners'])}, 하루 {d['avg7']:,.0f}원)" for d in new[:5]) + (" 외" if len(new) > 5 else ""))
     if data.get("errors"):
         lines.append(f"• 네이버 수집 실패 {len(data['errors'])}개")
