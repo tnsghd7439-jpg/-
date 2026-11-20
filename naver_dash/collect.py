@@ -490,7 +490,8 @@ def render_personal(data: dict, tpl: str) -> None:
         tokens.setdefault(owner, secrets.token_hex(5))
         accs = [dict(a, accessManagerAccountNo=(a.get("memberAccess") or {}).get(owner, a.get("accessManagerAccountNo")))
                 for a in data["accounts"] if owner in a["owners"]]
-        mine = dict(data, personal=owner, errors=[], accounts=accs)
+        mine = dict(data, personal=owner, errors=[], accounts=accs,
+                    disconnected=[d for d in data.get("disconnected") or [] if owner in d["owners"]])
         mine["saGoal"] = sa_goal(data, owner)
         if data.get("gfa"):
             mine["gfa"] = dict(data["gfa"], rows=[r for r in data["gfa"]["rows"] if r["owner"] == owner])
@@ -590,6 +591,31 @@ def mpai_reason(data: dict) -> str:
     return f"MP AI 데이터가 {dates[-1]} 기준 ({m.get('fetchedAt', '')} 수집)"
 
 
+DISCONNECT_KEEP_DAYS = 14   # 피이관 의심 계정을 대시보드에 계속 보여주는 기간
+
+
+def detect_disconnected(prev_data: dict, rows: list, errors: list, base: str) -> list:
+    """어제까지 있던 계정이 오늘 관리계정 목록에서 빠졌거나(이관·연결 해제), 조회 권한이 없어진(403) 계정.
+    처음 발견한 날(since)부터 DISCONNECT_KEEP_DAYS 동안, 다시 연결되기 전까지 계속 표시한다."""
+    if not prev_data:
+        return []
+    now = {r["customerId"] for r in rows}
+    err = {e["customerId"]: e for e in errors if "403" in e.get("error", "")}
+    prev_rows = {r["customerId"]: r for r in prev_data.get("accounts", [])}
+    out = {}
+    for d in prev_data.get("disconnected") or []:  # 전날까지 끊겨 있던 계정 이어서 표시
+        if d["customerId"] not in now and (date.fromisoformat(base) - date.fromisoformat(d["since"])).days < DISCONNECT_KEEP_DAYS:
+            out[d["customerId"]] = d
+    for cid, r in prev_rows.items():
+        if cid in now or cid in out:
+            continue
+        out[cid] = {"customerId": cid, "adAccountNo": r.get("adAccountNo"), "name": r["name"], "owners": r["owners"],
+                    "reason": "권한 없음 (조회 403)" if cid in err else "관리계정 목록에서 빠짐",
+                    "since": base, "lastSeen": prev_data.get("baseDate"),
+                    "avg7": r.get("avg7", 0), "lastMonthAvg": r.get("lastMonthAvg", 0)}
+    return sorted(out.values(), key=lambda d: -(d.get("avg7") or 0))
+
+
 def notify(data: dict) -> None:
     """구글챗 팀방으로 오늘 요약 + 팀원별 대시보드 링크를 보낸다.
     웹훅 주소는 환경변수 NAVER_GCHAT_WEBHOOK (공개 저장소라 파일에 적지 않음), 링크 앞부분은 team.json 의 linkBase."""
@@ -638,6 +664,10 @@ def notify(data: dict) -> None:
         gm = sa_goal(data, o)  # 팀원별 목표가 있으면 진도 표시
         gtxt = f" · SA 진도 {gm['progress']:.0f}% (예상 {gm['pace']:.0f}% {gm['state']})" if gm else ""
         lines.append(f"*{o}* : {sum(v or 0 for v in r.values()):,.0f}원" + (f" ({detail})" if mp and detail else "") + gtxt + link)
+    new = [d for d in data.get("disconnected") or [] if d["since"] == data["baseDate"]]
+    if new:
+        lines.append(f"• *피이관 의심 계정 {len(new)}개* (광고센터 관리계정 이력 확인 필요): " + ", ".join(
+            f"{d['name']}({'/'.join(d['owners'])}, 하루 {d['avg7']:,.0f}원)" for d in new[:5]) + (" 외" if len(new) > 5 else ""))
     if data.get("errors"):
         lines.append(f"• 네이버 수집 실패 {len(data['errors'])}개")
     lines += ["", "링크는 사내망에서만 열립니다."]
@@ -781,9 +811,11 @@ def main():
             direct = {o["adAccountNo"] for o in own}
         if args.limit:
             uniq = uniq[: args.limit]
-        prev = {}
-        if (OUT / "latest.json").exists() and not args.full:
-            prev = {r["customerId"]: r for r in json.loads((OUT / "latest.json").read_text(encoding="utf-8"))["accounts"]}
+        prev, prev_data = {}, {}
+        if (OUT / "latest.json").exists():
+            prev_data = json.loads((OUT / "latest.json").read_text(encoding="utf-8"))
+            if not args.full:
+                prev = {r["customerId"]: r for r in prev_data["accounts"]}
         prune_hourly(today)
         base = ymd(P["yesterday"][0])
         rows, done, lock = [], [0], threading.Lock()
@@ -825,6 +857,8 @@ def main():
                   "churnNoEditDays": CHURN_NO_EDIT_DAYS, "budgetHitPct": round(BUDGET_HIT * 100)},
         "accounts": rows,
         "errors": errors,
+        # 일부만 수집(--limit)하면 나머지가 모두 끊긴 것으로 보이므로 전체 수집 때만 판정
+        "disconnected": [] if (args.demo or args.limit) else detect_disconnected(prev_data, rows, errors, ymd(P["yesterday"][0])),
         "gfa": None if args.demo else load_gfa(refresh=True),
     }
     data["mpai"] = None if args.demo else load_mpai(data)

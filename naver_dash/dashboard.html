@@ -309,6 +309,13 @@ details.guide td:first-child { white-space: nowrap; font-weight: 700; }
       <ul class="alerts" id="alerts"></ul>
     </section>
   </div>
+  <section class="ledger" aria-labelledby="h-gone" id="goneBox" hidden>
+    <div class="lhead"><h2 id="h-gone">피이관 의심 계정</h2>
+      <span class="lkey">어제까지 있던 계정이 관리계정에서 빠졌거나 조회 권한이 없어졌습니다. 다른 대행사로 이관됐는지 광고센터 관리계정 이력에서 확인하세요 (14일간 표시)</span></div>
+    <div class="tablebox"><table class="small">
+      <thead><tr><th>광고주</th><th>담당</th><th>사유</th><th data-tip="처음 발견한 기준일">발견일</th><th data-tip="빠지기 직전 수집 때의 7일 하루 평균 광고비">빠지기 전 7일 일평균</th><th data-tip="빠지기 직전 수집 때의 지난달 하루 평균 광고비">지난달 일평균</th><th data-tip="빠지기 전 7일 일평균 × 30일. 피이관이 맞다면 이만큼 월 광고비가 빠집니다">예상 월 감소</th></tr></thead>
+      <tbody id="goneRows"></tbody></table></div>
+  </section>
   <section class="ledger" aria-labelledby="h-churn">
     <div class="lhead"><h2 id="h-churn">이탈 위험 광고주</h2>
       <span class="lkey" id="churnKey"></span></div>
@@ -658,6 +665,20 @@ function campaignDetail(a) {
       a.budgetHits.map(b => [link(b.name, a, `/sa/campaigns/${b.id}`), [won(b.budget)], [`7일 중 ${b.hitDays}일`], [b.lastHit], [b.avgHitTime ?? "–"]])));
   }
   return box;
+}
+
+function renderGone() {
+  const list = (DATA.disconnected || []).filter(d => !person || d.owners.includes(person));
+  document.getElementById("goneBox").hidden = !list.length;
+  const body = document.getElementById("goneRows");
+  body.innerHTML = "";
+  for (const d of list) {
+    const tr = document.createElement("tr"); tr.className = "lv-urgent";
+    for (const c of [d.name, d.owners.join(", "), d.reason, d.since, won(d.avg7 || 0), won(d.lastMonthAvg || 0), won((d.avg7 || 0) * 30)]) {
+      const td = document.createElement("td"); td.textContent = c; tr.appendChild(td);
+    }
+    body.appendChild(tr);
+  }
 }
 
 function renderChurn() {
@@ -1044,7 +1065,7 @@ function renderAll() {
   view !== "sa" ? u.searchParams.set("view", view) : u.searchParams.delete("view");
   try { history.replaceState(null, "", u); } catch (e) {}
   document.getElementById("h-alerts").textContent = person ? `${person} 님 오늘 할 일 (긴급 → 적색 → 이탈 위험 → 황색 순)` : "확인할 계정";
-  renderPeople(); renderAlerts(); renderChurn(); renderBudget(); renderLedger(); renderGFA(); renderMP();
+  renderPeople(); renderAlerts(); renderGone(); renderChurn(); renderBudget(); renderLedger(); renderGFA(); renderMP();
 }
 document.getElementById("activeOnly").onchange = renderLedger;
 
