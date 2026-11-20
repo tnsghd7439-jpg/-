@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>네이버 전담팀 원보드</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+<style>
+  :root{
+    --g900:#0f3d2c; --g800:#14513a; --g600:#1d7a52; --g500:#25935f; --g200:#c5e3d1; --g100:#e3f1e8; --g50:#f3f9f5;
+    --paper:#ffffff; --ink:#13261d; --ink2:#4b5f55; --ink3:#86978e; --line:#d8e5dc;
+    --warn:#c2410c; --warnbg:#fff3ea; --bad:#b42318; --badbg:#fdeceb; --blue:#2563a8; --bluebg:#e9f1fb; --teal:#0f766e;
+    --font:"Pretendard Variable",Pretendard,-apple-system,"Malgun Gothic",sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--font);background:var(--paper);color:var(--ink);font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  button,input,select,textarea{font:inherit;color:inherit}
+  button{cursor:pointer}
+  :focus-visible{outline:3px solid var(--g500);outline-offset:2px}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 20px}
+
+  /* 머리 */
+  .top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:22px 0 18px;flex-wrap:wrap}
+  .brand{font-size:27px;font-weight:900;letter-spacing:-.02em;color:var(--g900);border:3px solid var(--g900);border-radius:12px;padding:4px 18px 6px}
+  .who{display:flex;align-items:center;gap:10px;font-size:14px;color:var(--ink2);flex-wrap:wrap}
+  .who b{color:var(--ink)}
+  .role{font-size:12px;font-weight:700;padding:2px 9px;border-radius:99px;background:var(--g100);color:var(--g800)}
+  .linkbtn{background:none;border:none;color:var(--g600);font-weight:700;text-decoration:underline;text-underline-offset:3px;padding:2px}
+
+  /* 탭 */
+  .tabs{display:flex;flex-wrap:wrap;gap:10px;padding-bottom:22px;border-bottom:1px solid var(--line)}
+  .tab{position:relative;border:2.5px solid var(--g900);background:#fff;color:var(--g900);border-radius:11px;padding:9px 20px;font-size:16px;font-weight:800;transition:background .12s}
+  .tab:hover{background:var(--g50)}
+  .tab.on{background:var(--g900);color:#fff}
+  .tab.lead{border-style:dashed}
+  .tab .n{position:absolute;top:-9px;right:-9px;min-width:22px;height:22px;padding:0 6px;border-radius:99px;background:var(--warn);color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center;border:2px solid #fff}
+
+  main{padding:26px 0 70px;min-height:60vh}
+  h2{font-size:22px;font-weight:800;letter-spacing:-.01em}
+  h3{font-size:17px;font-weight:800;margin-bottom:10px}
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+  .head p{color:var(--ink2);font-size:14px;margin-top:2px}
+  .sec{margin-top:30px}
+  .muted{color:var(--ink3)} .small{font-size:13px}
+
+  /* 버튼·입력 */
+  .btn{border:1.5px solid var(--g900);background:#fff;color:var(--g900);border-radius:9px;padding:7px 14px;font-weight:700;font-size:14px;white-space:nowrap}
+  .btn:hover{background:var(--g50)}
+  .btn.pri{background:var(--g900);color:#fff}
+  .btn.pri:hover{background:var(--g800)}
+  .btn.ok{background:var(--g600);border-color:var(--g600);color:#fff}
+  .btn.no{border-color:var(--bad);color:var(--bad)}
+  .btn.ghost{border-color:var(--line);color:var(--ink2)}
+  .btn.sm{padding:4px 10px;font-size:13px;border-radius:7px}
+  .btn:disabled{opacity:.45;cursor:default}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{border:1.5px solid var(--line);background:#fff;border-radius:99px;padding:5px 13px;font-size:13.5px;font-weight:700;color:var(--ink2)}
+  .chip.on{border-color:var(--g900);background:var(--g900);color:#fff}
+  label.f{display:block;margin-bottom:12px}
+  label.f span{display:block;font-size:13px;font-weight:700;color:var(--ink2);margin-bottom:4px}
+  input[type=text],input[type=number],input[type=date],input[type=month],select,textarea{width:100%;border:1.5px solid var(--line);border-radius:9px;padding:8px 11px;background:#fff}
+  input:focus,select:focus,textarea:focus{border-color:var(--g600);outline:none}
+  textarea{min-height:90px;resize:vertical}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+
+  /* 카드 */
+  .card{border:1.5px solid var(--line);border-radius:14px;padding:16px 18px;background:#fff}
+  .card+.card{margin-top:10px}
+  .cols>.card{margin-top:0}
+  .card.hot{border-color:var(--warn);box-shadow:inset 4px 0 0 var(--warn)}
+  .card.done{background:var(--g50)}
+  .ct{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .ct .t{font-weight:800;font-size:16px}
+  .tag{font-size:12px;font-weight:700;padding:2px 9px;border-radius:6px;background:var(--g100);color:var(--g800);white-space:nowrap}
+  .tag.warn{background:var(--warnbg);color:var(--warn)}
+  .tag.bad{background:var(--badbg);color:var(--bad)}
+  .tag.blue{background:var(--bluebg);color:var(--blue)}
+  .tag.gray{background:#eef1ef;color:var(--ink2)}
+  .meta{font-size:13px;color:var(--ink3);margin-top:3px}
+  .body{white-space:pre-wrap;color:var(--ink2);margin-top:8px;font-size:14.5px}
+  .bar{height:10px;border-radius:99px;background:var(--g100);overflow:hidden;margin:10px 0 6px;position:relative}
+  .bar i{display:block;height:100%;background:var(--g600);border-radius:99px}
+  .bar b{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink)}
+  .kv{display:flex;gap:18px;flex-wrap:wrap;font-size:13.5px;color:var(--ink2)}
+  .kv b{color:var(--ink);font-weight:800}
+  details summary{cursor:pointer;font-size:13.5px;font-weight:700;color:var(--g600);margin-top:8px}
+  details[open] summary{margin-bottom:4px}
+  .cols{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
+  .empty{border:2px dashed var(--line);border-radius:14px;padding:30px;text-align:center;color:var(--ink2)}
+  .empty b{display:block;color:var(--ink);font-size:16px;margin-bottom:4px}
+
+  /* 숫자 띠 */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));border:2px solid var(--g900);border-radius:14px;overflow:hidden}
+  .stat{padding:14px 18px;border-right:1px solid var(--line)}
+  .stat:last-child{border-right:none}
+  .stat .l{font-size:13px;color:var(--ink2);font-weight:700}
+  .stat .v{font-size:26px;font-weight:900;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:var(--g900)}
+  .stat .d{font-size:13px;font-weight:700}
+  .up{color:var(--g600)} .down{color:var(--bad)}
+
+  /* 표 */
+  .tbl{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+  .tbl th{font-size:12.5px;color:var(--ink2);text-align:left;font-weight:700;padding:8px 10px;border-bottom:2px solid var(--g900);white-space:nowrap}
+  .tbl td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  .tbl td.r,.tbl th.r{text-align:right}
+  .tbl tr.warn td{background:var(--warnbg)}
+  .scroll{overflow-x:auto}
+
+  /* AHI */
+  .ahi{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+  .ax{border:1.5px solid var(--line);border-radius:12px;padding:12px 14px}
+  .ax.warn{border-color:var(--warn);background:var(--warnbg)}
+  .ax .top2{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;font-weight:700;color:var(--ink2)}
+  .ax .nm{font-weight:800;font-size:15px;margin-top:2px}
+  .ax .v{font-size:22px;font-weight:900;font-variant-numeric:tabular-nums}
+  .ax .h{font-size:12.5px;color:var(--ink3)}
+
+  /* 캘린더 */
+  .cal{display:grid;grid-template-columns:repeat(7,1fr);border:2px solid var(--g900);border-radius:14px;overflow:hidden}
+  .cal .dow{background:var(--g900);color:#fff;font-size:13px;font-weight:700;text-align:center;padding:6px 0}
+  .cal .day{min-height:108px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:5px 6px;background:#fff;text-align:left;border-top:none;border-left:none;display:flex;flex-direction:column;gap:2px;overflow:hidden}
+  .cal .day:nth-child(7n){border-right:none}
+  .cal .day.out{background:#fafcfb;color:var(--ink3)}
+  .cal .day.today .dn{background:var(--g900);color:#fff;border-radius:99px;padding:0 7px}
+  .cal .day.sel{box-shadow:inset 0 0 0 2.5px var(--g500)}
+  .cal .dn{font-size:13px;font-weight:800;align-self:flex-start}
+  .cal .dn.sun{color:var(--bad)}
+  .ev{font-size:11.5px;font-weight:700;border-radius:5px;padding:1px 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .ev.팀{background:var(--g100);color:var(--g800)} .ev.개인{background:#e2f4f1;color:var(--teal)}
+  .ev.미팅{background:var(--bluebg);color:var(--blue)} .ev.프로모션{background:var(--warnbg);color:var(--warn)}
+  .ev.마감{background:#eef1ef;color:var(--ink)}
+  .ck{font-size:11.5px;font-weight:800;margin-top:auto}
+  .ck .o{color:var(--g600)} .ck .x{color:var(--bad)}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);margin:10px 0}
+
+  /* 가이드 */
+  .guide{display:grid;grid-template-columns:220px 1fr;gap:22px}
+  .mlist{display:flex;flex-direction:column;gap:6px}
+  .mlist button{text-align:left;border:1.5px solid var(--line);background:#fff;border-radius:10px;padding:9px 13px;font-weight:700}
+  .mlist button.on{border-color:var(--g900);background:var(--g900);color:#fff}
+  .gbody{white-space:pre-wrap;font-size:14.5px;color:var(--ink2)}
+  .gbody a{color:var(--g600)}
+
+  /* 모달·알림 */
+  .modal{position:fixed;inset:0;background:rgba(15,61,44,.45);display:flex;align-items:flex-start;justify-content:center;padding:6vh 16px;z-index:50;overflow:auto}
+  .modal[hidden]{display:none}
+  .sheet{background:#fff;border-radius:16px;width:100%;max-width:560px;padding:22px 22px 18px;position:relative;border:2.5px solid var(--g900)}
+  .sheet h3{font-size:19px;padding-right:30px}
+  .close{position:absolute;top:12px;right:12px;width:34px;height:34px;border-radius:9px;border:1.5px solid var(--line);background:#fff;font-size:18px;line-height:1}
+  .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex-wrap:wrap}
+  .pop{border-left:5px solid var(--warn);background:var(--warnbg);padding:10px 14px;border-radius:8px;margin-bottom:10px}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--g900);color:#fff;padding:10px 18px;border-radius:10px;font-weight:700;z-index:60;max-width:90vw;display:none}
+  .toast.err{background:var(--bad)}
+  .loading{color:var(--ink3);padding:30px 0}
+  .fatal{border:2px solid var(--bad);background:var(--badbg);border-radius:14px;padding:22px;color:var(--bad);font-weight:700}
+  code{background:var(--g50);border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:13px;word-break:break-all}
+
+  @media (max-width:760px){
+    .wrap{padding:0 16px}
+    .brand{font-size:22px}
+    .tab{padding:7px 13px;font-size:14.5px}
+    .guide{grid-template-columns:1fr}
+    .mlist{flex-direction:row;flex-wrap:wrap}
+    .cal .day{min-height:64px;padding:3px}
+    .cal .ev{display:none}
+    .cal .day .dot{display:block}
+    .grid2{grid-template-columns:1fr}
+    .stat{border-right:none;border-bottom:1px solid var(--line)}
+  }
+  .dot{display:none;width:6px;height:6px;border-radius:99px;background:var(--g500)}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">네이버 전담팀</div>
+    <div class="who" id="who"></div>
+  </header>
+  <nav class="tabs" id="tabs" aria-label="메뉴"></nav>
+  <main id="view"><div class="loading">불러오는 중…</div></main>
+</div>
+<div class="modal" id="modal" hidden><div class="sheet" role="dialog" aria-modal="true"><button class="close" aria-label="닫기" onclick="closeModal()">×</button><div id="mbody"></div></div></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+/* ───────── 공통 ───────── */
+var B = null;            // bootstrap 데이터
+var CUR = null;          // 현재 탭
+var ST = { planWho: '', calMonth: '', calWho: '', calDay: '', perfWho: '', guideMedia: '', noticeFilter: '전체' };
+var HOUR = 60 * 60 * 1000;
+
+function call(action, payload) {
+  return new Promise(function (res, rej) {
+    google.script.run
+      .withSuccessHandler(function (t) { var r = JSON.parse(t); r.ok ? res(r.data) : rej(new Error(r.error)); })
+      .withFailureHandler(function (e) { rej(e); })
+      .api(action, payload || {});
+  });
+}
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function $(id) { return document.getElementById(id); }
+function isLead() { return B && B.me.role === 'lead'; }
+function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
+function toast(msg, err) { var t = $('toast'); t.textContent = msg; t.className = 'toast' + (err ? ' err' : ''); t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(function () { t.style.display = 'none'; }, err ? 5000 : 2200); }
+function fail(e) { toast(e && e.message ? e.message : String(e), true); }
+function openModal(html) { $('mbody').innerHTML = html; $('modal').hidden = false; var f = $('mbody').querySelector('input,select,textarea,button'); if (f) f.focus(); }
+function closeModal() { $('modal').hidden = true; $('mbody').innerHTML = ''; }
+document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('modal').hidden) closeModal(); });
+function val(id) { var el = $(id); return el ? el.value : ''; }
+function opts(list, cur) { return list.map(function (o) { var v = typeof o === 'string' ? o : o.v, l = typeof o === 'string' ? o : o.l; return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(l) + '</option>'; }).join(''); }
+
+function won(n) {
+  n = Math.round(Number(n) || 0); var s = n < 0 ? '-' : ''; n = Math.abs(n);
+  if (n >= 1e8) { var man = Math.round((n % 1e8) / 1e4); return s + Math.floor(n / 1e8) + '억' + (man ? ' ' + man.toLocaleString() + '만' : ''); }
+  if (n >= 1e4) return s + Math.round(n / 1e4).toLocaleString() + '만';
+  return s + n.toLocaleString() + '원';
+}
+function num(n) { n = Number(n) || 0; return Number.isInteger(n) ? n.toLocaleString() : (Math.round(n * 10) / 10).toLocaleString(); }
+function amt(n, unit) { return unit === '원' ? won(n) : num(n) + (unit || ''); }
+function chg(cur, prev) {
+  if (!prev) return '<span class="muted">비교 없음</span>';
+  var p = (cur / prev - 1) * 100, c = p >= 0 ? 'up' : 'down';
+  return '<span class="' + c + '">' + (p >= 0 ? '▲ ' : '▼ ') + Math.abs(p).toFixed(1) + '%</span>';
+}
+function md(s) { return s ? Number(s.slice(5, 7)) + '/' + Number(s.slice(8, 10)) : ''; }
+function addDays(s, n) { var a = s.split('-').map(Number); var d = new Date(Date.UTC(a[0], a[1] - 1, a[2] + n)); return d.toISOString().slice(0, 10); }
+function addMonths(m, n) { var a = m.split('-').map(Number); return new Date(Date.UTC(a[0], a[1] - 1 + n, 1)).toISOString().slice(0, 7); }
+function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'); }
+function memberOpts(cur, withAll) { var l = withAll ? [{ v: '', l: '팀원 전체' }] : []; B.members.forEach(function (m) { l.push({ v: m.email, l: m.name + (m.role === 'lead' ? ' (팀장)' : '') }); }); return opts(l, cur); }
+
+/* ───────── 시작 ───────── */
+function start() {
+  call('bootstrap').then(function (d) {
+    B = d;
+    $('who').innerHTML = '<span><b>' + esc(d.me.name) + '</b> 님</span><span class="role">' + (isLead() ? '팀장' : '팀원') + '</span>'
+      + '<span class="muted small">' + esc(d.today) + '</span><button class="linkbtn" onclick="alertSetup()">알리미 연결</button>';
+    drawTabs();
+    google.script.url.getLocation(function (loc) {
+      var want = loc.parameter && loc.parameter.tab;
+      var first = (want && B.tabs.some(function (t) { return t.id === want; })) ? want : (store('ob-tab') || B.tabs[0].id);
+      if (!B.tabs.some(function (t) { return t.id === first; })) first = B.tabs[0].id;
+      go(first);
+      nudge(true);
+    });
+    setInterval(function () { nudge(false); }, HOUR);
+  }).catch(function (e) {
+    $('view').innerHTML = '<div class="fatal">' + esc(e.message || e) + '</div>';
+  });
+}
+
+function drawTabs() {
+  var b = B.badges || {};
+  var cnt = { notice: b.unread, plan: isLead() ? (b.pending || 0) + (b.talk || 0) : b.todo };
+  $('tabs').innerHTML = B.tabs.map(function (t) {
+    var n = cnt[t.id];
+    return '<button class="tab' + (t.id === CUR ? ' on' : '') + (t.lead ? ' lead' : '') + '" onclick="go(\'' + t.id + '\')"' + (t.lead ? ' title="팀장만 보이는 탭"' : '') + '>'
+      + esc(t.name) + (n ? '<span class="n">' + n + '</span>' : '') + '</button>';
+  }).join('');
+}
+
+function go(id) {
+  CUR = id; store('ob-tab', id); drawTabs();
+  $('view').innerHTML = '<div class="loading">불러오는 중…</div>';
+  ({ perf: viewPerf, plan: viewPlan, notice: viewNotice, solution: viewSolution, guide: viewGuide, calendar: viewCalendar, admin: viewAdmin }[id] || viewPlan)();
+}
+function refreshBadges() { return call('badges').then(function (b) { B.badges = b; drawTabs(); return b; }); }
+
+/** 보드를 열어둔 동안: 미확인 공지는 1시간마다, 오늘 할 일은 하루 한 번 팝업 */
+function nudge(first) {
+  refreshBadges().then(function (b) {
+    if (b.unread) return noticePopup();
+    if (first && b.todo && store('ob-todo') !== B.today) { store('ob-todo', B.today); todoPopup(); }
+  }).catch(function () {});
+}
+
+/* ───────── 공지사항 ───────── */
+function noticePopup() {
+  call('noticeList').then(function (list) {
+    var un = list.filter(function (n) { return !n.read; });
+    if (!un.length || !$('modal').hidden) return;
+    openModal('<h3>확인하지 않은 공지가 ' + un.length + '건 있어요</h3><p class="muted small" style="margin:4px 0 12px">확인을 누르기 전까지 1시간마다 다시 알려드려요.</p>'
+      + un.map(function (n) {
+        return '<div class="pop"><div class="ct"><span class="tag' + (n.type === '회사 공지' ? ' blue' : '') + '">' + esc(n.type) + '</span>' + (n.important ? '<span class="tag bad">중요</span>' : '')
+          + '<span class="t">' + esc(n.title) + '</span></div><div class="body">' + linkify(n.body) + '</div><div class="meta">' + esc(n.author) + ' · ' + esc(n.at) + '</div></div>';
+      }).join('')
+      + '<div class="actions"><button class="btn pri" onclick="ackAll([' + un.map(function (n) { return '\'' + n.id + '\''; }).join(',') + '])">모두 확인했어요</button></div>');
+  });
+}
+function ackAll(ids) {
+  call('noticeAck', { ids: ids }).then(function (b) { B.badges = b; drawTabs(); closeModal(); toast('확인했어요'); if (CUR === 'notice') viewNotice(); }).catch(fail);
+}
+
+function viewNotice() {
+  call('noticeList').then(function (list) {
+    var f = ST.noticeFilter;
+    var shown = list.filter(function (n) { return f === '전체' || (f === '미확인' ? !n.read : n.type === f); });
+    $('view').innerHTML = '<div class="head"><div><h2>공지사항</h2><p>팀장 공지와 회사 공지를 모아 봅니다. 읽고 나면 꼭 확인을 눌러주세요.</p></div>'
+      + (isLead() ? '<button class="btn pri" onclick="noticeForm()">공지 쓰기</button>' : '') + '</div>'
+      + '<div class="chips" style="margin-bottom:14px">' + ['전체', '미확인', '팀장 공지', '회사 공지'].map(function (c) {
+        return '<button class="chip' + (c === f ? ' on' : '') + '" onclick="ST.noticeFilter=\'' + c + '\';viewNotice()">' + c + '</button>';
+      }).join('') + '</div>'
+      + (shown.length ? shown.map(noticeCard).join('') : '<div class="empty"><b>공지가 없어요</b>' + (isLead() ? '공지 쓰기로 첫 공지를 올려보세요.' : '새 공지가 올라오면 여기와 알림으로 알려드려요.') + '</div>');
+    window._notices = list;
+  }).catch(fail);
+}
+function noticeCard(n) {
+  var readers = '';
+  if (n.readers) {
+    var r = n.readers.filter(function (x) { return x.read; }).length;
+    var no = n.readers.filter(function (x) { return !x.read; });
+    readers = '<details><summary>확인 ' + r + '/' + n.readers.length + '명' + (no.length ? ' · 미확인 ' + no.map(function (x) { return esc(x.name); }).join(', ') : '') + '</summary>'
+      + '<table class="tbl small">' + n.readers.map(function (x) { return '<tr><td>' + esc(x.name) + '</td><td>' + (x.read ? '<span class="up">확인 ' + esc(x.at) + '</span>' : '<span class="down">미확인</span>') + '</td></tr>'; }).join('') + '</table></details>';
+  }
+  return '<div class="card' + (n.read ? '' : ' hot') + '"><div class="ct"><span class="tag' + (n.type === '회사 공지' ? ' blue' : '') + '">' + esc(n.type) + '</span>'
+    + (n.important ? '<span class="tag bad">중요</span>' : '') + '<span class="t">' + esc(n.title) + '</span></div>'
+    + '<div class="meta">' + esc(n.author) + ' · ' + esc(n.at) + '</div><div class="body">' + linkify(n.body) + '</div>'
+    + '<div class="row" style="margin-top:10px">' + (n.read ? '<span class="tag gray">확인함 ' + esc(n.readAt) + '</span>' : '<button class="btn ok sm" onclick="ackAll([\'' + n.id + '\'])">확인했어요</button>')
+    + (isLead() ? '<button class="btn ghost sm" onclick="noticeForm(\'' + n.id + '\')">수정</button><button class="btn ghost sm" onclick="noticeDel(\'' + n.id + '\')">삭제</button>' : '') + '</div>'
+    + readers + '</div>';
+}
+function noticeForm(id) {
+  var n = id ? window._notices.find(function (x) { return x.id === id; }) : { type: '팀장 공지', title: '', body: '', important: false };
+  openModal('<h3>' + (id ? '공지 수정' : '공지 쓰기') + '</h3><div class="grid2" style="margin-top:12px"><label class="f"><span>구분</span><select id="n_type">' + opts(B.options.noticeTypes, n.type) + '</select></label>'
+    + '<label class="f"><span>중요 표시</span><select id="n_imp">' + opts([{ v: '', l: '일반' }, { v: 'Y', l: '중요' }], n.important ? 'Y' : '') + '</select></label></div>'
+    + '<label class="f"><span>제목</span><input type="text" id="n_title" value="' + esc(n.title) + '"></label>'
+    + '<label class="f"><span>내용</span><textarea id="n_body" style="min-height:160px">' + esc(n.body) + '</textarea></label>'
+    + (id ? '<label class="row small"><input type="checkbox" id="n_reset"> 내용이 크게 바뀌어서 모두 다시 확인하게 하기</label>' : '<p class="muted small">올리면 팀원 화면과 알리미에 바로 알림이 갑니다.</p>')
+    + '<div class="actions"><button class="btn ghost" onclick="closeModal()">취소</button><button class="btn pri" onclick="noticeSave(\'' + (id || '') + '\')">' + (id ? '저장' : '올리기') + '</button></div>');
+}
+function noticeSave(id) {
+  call('noticeSave', { id: id, type: val('n_type'), important: val('n_imp') === 'Y', title: val('n_title'), body: val('n_body'), resetRead: $('n_reset') && $('n_reset').checked })
+    .then(function () { closeModal(); toast(id ? '저장했어요' : '공지를 올렸어요'); viewNotice(); refreshBadges(); }).catch(fail);
+}
+function noticeDel(id) { if (!confirm('이 공지를 삭제할까요? 확인 기록도 함께 지워집니다.')) return; call('noticeDelete', { id: id }).then(function () { toast('삭제했어요'); viewNotice(); refreshBadges(); }).catch(fail); }
+
+/* ───────── 개인별 액션플랜 ───────── */
+function todoPopup() {
+  call('goalList', { email: B.me.email }).then(function (list) {
+    var act = list.filter(function (g) { return g.active && !g.todayCheck; });
+    if (!act.length || !$('modal').hidden) return;
+    openModal('<h3>오늘은 이것부터 해요</h3><p class="muted small" style="margin:4px 0 12px">' + esc(B.today) + ' · 끝나면 액션플랜에서 달성/실패를 체크해주세요.</p>'
+      + act.map(function (g) {
+        return '<div class="card"><div class="ct"><span class="tag">' + esc(g.period) + '</span><span class="t">' + esc(g.title) + '</span></div>'
+          + '<div class="kv" style="margin-top:6px"><span>오늘 기준 <b>' + amt(g.daily, g.unit) + '</b></span><span>지금까지 <b>' + amt(g.achieved, g.unit) + ' / ' + amt(g.target, g.unit) + '</b> (' + g.rate + '%)</span></div>'
+          + (g.plan ? '<div class="body small">' + esc(g.plan) + '</div>' : '') + '</div>';
+      }).join('') + '<div class="actions"><button class="btn pri" onclick="closeModal();go(\'plan\')">액션플랜 열기</button></div>');
+  });
+}
+
+function viewPlan() {
+  var who = isLead() ? ST.planWho : B.me.email;
+  var jobs = [call('goalList', { email: who }), call('failureList', { email: who, all: !isLead() })];
+  Promise.all(jobs).then(function (r) {
+    var goals = r[0], fails = r[1];
+    window._goals = goals;
+    var mine = goals.filter(function (g) { return g.email === B.me.email; });
+    var today = mine.filter(function (g) { return g.active; });
+    var pending = goals.filter(function (g) { return g.status === '대기'; });
+    var rejected = goals.filter(function (g) { return g.status === '반려'; });
+    var running = goals.filter(function (g) { return g.status === '승인' && g.end >= B.today; });
+    var past = goals.filter(function (g) { return g.status === '완료' || (g.status === '승인' && g.end < B.today); });
+    var h = '<div class="head"><div><h2>개인별 액션플랜</h2><p>주·월·분기 목표를 세우고 팀장 승인을 받은 뒤, 매일 달성/실패를 체크합니다.</p></div>'
+      + '<div class="row"><button class="btn ghost" onclick="evalForm()">월별 평가자료 받기</button><button class="btn pri" onclick="goalForm()">목표 추가</button></div></div>';
+    if (isLead()) {
+      h += '<div class="row" style="margin-bottom:6px"><span class="small muted">팀원 선택</span><select id="planWho" style="width:auto" onchange="ST.planWho=this.value;viewPlan()">' + memberOpts(who, true) + '</select></div>';
+    }
+    if (today.length) {
+      h += '<div class="sec"><h3>오늘 할 일 <span class="muted small">' + esc(B.today) + '</span></h3><div class="cols">' + today.map(todayCard).join('') + '</div></div>';
+    }
+    if (isLead()) {
+      h += '<div class="sec"><h3>승인 기다리는 목표 ' + pending.length + '건</h3>' + (pending.length ? pending.map(goalCard).join('') : '<p class="muted small">기다리는 목표가 없어요.</p>') + '</div>';
+      h += '<div class="sec"><h3>소통이 필요한 실패 ' + fails.length + '건</h3><p class="muted small" style="margin:-6px 0 10px">팀원이 적은 사유를 보고 이야기를 나눈 뒤 소통완료를 체크하세요.</p>'
+        + (fails.length ? '<div class="scroll"><table class="tbl"><tr><th>날짜</th><th>팀원</th><th>목표</th><th>실패 사유</th><th></th></tr>' + fails.map(function (c) {
+          return '<tr><td>' + md(c.date) + '</td><td>' + esc(c.who) + '</td><td>' + esc(c.goalTitle) + '</td><td>' + esc(c.reason) + (c.memo ? '<div class="muted small">' + esc(c.memo) + '</div>' : '') + '</td>'
+            + '<td><button class="btn sm ok" onclick="talkForm(\'' + c.id + '\')">소통완료</button></td></tr>';
+        }).join('') + '</table></div>' : '<p class="muted small">모두 소통했어요.</p>') + '</div>';
+    } else {
+      if (pending.length || rejected.length) h += '<div class="sec"><h3>승인 대기 · 반려</h3>' + rejected.concat(pending).map(goalCard).join('') + '</div>';
+    }
+    h += '<div class="sec"><h3>진행 중인 목표</h3>' + (running.length ? groupByPeriod(running) : '<div class="empty"><b>진행 중인 목표가 없어요</b>목표 추가를 눌러 이번 주 목표부터 세워보세요. 팀장이 승인하면 시작됩니다.</div>') + '</div>';
+    if (isLead() && rejected.length) h += '<div class="sec"><h3>반려한 목표</h3>' + rejected.map(goalCard).join('') + '</div>';
+    if (!isLead() && fails.length) {
+      h += '<div class="sec"><h3>내 실패 기록</h3><div class="scroll"><table class="tbl"><tr><th>날짜</th><th>목표</th><th>사유</th><th>팀장 소통</th></tr>' + fails.map(function (c) {
+        return '<tr><td>' + md(c.date) + '</td><td>' + esc(c.goalTitle) + '</td><td>' + esc(c.reason) + '</td><td>' + (c.talked ? '<span class="tag">소통완료 ' + esc(md(c.talkedAt)) + '</span>' + (c.talkMemo ? '<div class="muted small">' + esc(c.talkMemo) + '</div>' : '') : '<span class="tag warn">대기</span>') + '</td></tr>';
+      }).join('') + '</table></div></div>';
+    }
+    if (past.length) h += '<div class="sec"><details><summary>지난 목표 ' + past.length + '건 보기</summary>' + past.map(goalCard).join('') + '</details></div>';
+    $('view').innerHTML = h;
+  }).catch(fail);
+}
+function groupByPeriod(list) {
+  return ['주', '월', '분기'].map(function (p) {
+    var l = list.filter(function (g) { return g.period === p; });
+    return l.length ? '<h3 class="small muted" style="margin:14px 0 8px">' + p + ' 목표</h3><div class="cols">' + l.map(goalCard).join('') + '</div>' : '';
+  }).join('');
+}
+function statusTag(s) { return '<span class="tag ' + ({ '대기': 'warn', '반려': 'bad', '승인': '', '완료': 'gray' }[s]) + '">' + ({ '대기': '승인 대기', '반려': '반려', '승인': '진행 중', '완료': '완료' }[s] || esc(s)) + '</span>'; }
+function goalCard(g) {
+  var exp = g.target ? Math.min(100, g.expected / g.target * 100) : 0;
+  var pace = g.status === '승인' && g.elapsed ? (g.pace >= 0 ? '<span class="up">예정보다 ' + amt(g.pace, g.unit) + ' 앞서요</span>' : '<span class="down">예정보다 ' + amt(-g.pace, g.unit) + ' 뒤처져요</span>') : '';
+  var own = g.email === B.me.email;
+  var h = '<div class="card' + (g.status === '반려' ? ' hot' : '') + '"><div class="ct">' + statusTag(g.status) + '<span class="tag gray">' + esc(g.period) + ' · ' + esc(g.category) + '</span>'
+    + (isLead() ? '<span class="tag blue">' + esc(g.who) + '</span>' : '') + '</div>'
+    + '<div class="t" style="font-weight:800;font-size:16px;margin-top:6px">' + esc(g.title) + '</div>'
+    + '<div class="meta">' + md(g.start) + ' ~ ' + md(g.end) + ' · 근무일 ' + g.workdays + '일 · 하루 기준 ' + amt(g.daily, g.unit) + '</div>'
+    + '<div class="bar"><i style="width:' + Math.min(100, g.rate) + '%"></i>' + (g.status === '승인' ? '<b style="left:' + exp + '%" title="오늘까지 예정"></b>' : '') + '</div>'
+    + '<div class="kv"><span><b>' + amt(g.achieved, g.unit) + '</b> / ' + amt(g.target, g.unit) + '</span><span>달성률 <b>' + g.rate + '%</b></span>' + (pace ? '<span>' + pace + '</span>' : '') + '</div>'
+    + '<div class="kv" style="margin-top:4px"><span>달성 <b>' + g.ok + '</b>일</span><span>실패 <b>' + g.fail + '</b>일</span>' + (g.talkPending ? '<span class="down">소통 대기 ' + g.talkPending + '</span>' : '') + '</div>'
+    + (g.plan ? '<details><summary>달성하려면 이렇게 할게요</summary><div class="body">' + esc(g.plan) + '</div></details>' : '')
+    + (g.comment ? '<div class="pop small" style="margin-top:10px"><b>' + esc(g.reviewer) + '</b> ' + esc(g.comment) + '</div>' : '')
+    + '<div class="row" style="margin-top:10px">';
+  if (isLead() && g.status === '대기') h += '<button class="btn ok sm" onclick="review(\'' + g.id + '\',\'승인\')">승인</button><button class="btn no sm" onclick="rejectForm(\'' + g.id + '\')">반려</button>';
+  if (isLead() && g.status === '승인') h += '<button class="btn ghost sm" onclick="review(\'' + g.id + '\',\'완료\')">완료 처리</button>';
+  if (own || isLead()) h += '<button class="btn ghost sm" onclick="goalForm(\'' + g.id + '\')">수정</button>';
+  if ((own && g.status !== '승인') || isLead()) h += '<button class="btn ghost sm" onclick="goalDel(\'' + g.id + '\')">삭제</button>';
+  return h + '</div></div>';
+}
+function todayCard(g) {
+  var c = g.todayCheck;
+  return '<div class="card' + (c ? ' done' : ' hot') + '"><div class="ct"><span class="tag">' + esc(g.period) + '</span><span class="t">' + esc(g.title) + '</span></div>'
+    + '<div class="kv" style="margin-top:6px"><span>오늘 기준 <b>' + amt(g.daily, g.unit) + '</b></span><span>누적 <b>' + amt(g.achieved, g.unit) + ' / ' + amt(g.target, g.unit) + '</b></span></div>'
+    + '<div class="row" style="margin-top:10px">' + (c
+      ? '<span class="tag ' + (c.result === '달성' ? '' : 'bad') + '">' + c.result + ' · ' + amt(c.amount, g.unit) + '</span>' + (c.talked ? '<span class="tag">소통완료</span>' : '<button class="btn ghost sm" onclick="checkForm(\'' + g.id + '\',\'' + c.result + '\')">고치기</button><button class="btn ghost sm" onclick="checkUndo(\'' + c.id + '\')">취소</button>')
+      : '<button class="btn ok sm" onclick="checkForm(\'' + g.id + '\',\'달성\')">달성</button><button class="btn no sm" onclick="checkForm(\'' + g.id + '\',\'실패\')">실패</button>')
+    + '</div></div>';
+}
+function goalById(id) { return (window._goals || []).find(function (g) { return g.id === id; }); }
+function goalForm(id) {
+  var g = id ? goalById(id) : { period: '주', category: B.options.goalCategories[0], title: '', target: '', unit: '건', plan: '', start: B.today, email: ST.planWho || B.me.email };
+  openModal('<h3>' + (id ? '목표 수정' : '목표 추가') + '</h3>'
+    + (!id && !isLead() ? '<p class="muted small" style="margin:4px 0 12px">팀장이 승인하면 그때부터 진행됩니다. 매출뿐 아니라 영상 제작·편집, 블로그 포스팅도 목표로 세울 수 있어요.</p>' : '')
+    + (id && !isLead() && g.status === '승인' ? '<p class="pop small">승인된 목표를 고치면 다시 팀장 승인을 받아야 해요.</p>' : '')
+    + (isLead() && !id ? '<label class="f"><span>누구의 목표인가요</span><select id="g_who">' + memberOpts(g.email, false) + '</select></label>' : '')
+    + '<div class="grid2"><label class="f"><span>기간</span><select id="g_period">' + opts(B.options.goalPeriods, g.period) + '</select></label>'
+    + '<label class="f"><span>기준일 (이 날짜가 들어간 주·월·분기)</span><input type="date" id="g_base" value="' + esc(g.start) + '"></label></div>'
+    + '<div class="grid2"><label class="f"><span>분류</span><select id="g_cat">' + opts(B.options.goalCategories, g.category) + '</select></label>'
+    + '<label class="f"><span>목표 이름</span><input type="text" id="g_title" value="' + esc(g.title) + '" placeholder="예: 광고주 사례 블로그 포스팅"></label></div>'
+    + '<div class="grid2"><label class="f"><span>목표 수치</span><input type="number" id="g_target" min="0" step="any" value="' + esc(g.target) + '"></label>'
+    + '<label class="f"><span>단위</span><input type="text" id="g_unit" value="' + esc(g.unit) + '" placeholder="건, 개, 편, 원"></label></div>'
+    + '<label class="f"><span>달성하려면 무엇을 할지</span><textarea id="g_plan" placeholder="예: 월·수·금 오전에 1편씩 작성. 주제는 이번 달 신규 광고주 세팅 사례.">' + esc(g.plan) + '</textarea></label>'
+    + '<div class="actions"><button class="btn ghost" onclick="closeModal()">취소</button><button class="btn pri" onclick="goalSave(\'' + (id || '') + '\')">' + (id ? '저장' : (isLead() ? '등록' : '승인 요청')) + '</button></div>');
+}
+function goalSave(id) {
+  call('goalSave', { id: id, email: val('g_who'), period: val('g_period'), base: val('g_base'), category: val('g_cat'), title: val('g_title'), target: val('g_target'), unit: val('g_unit'), plan: val('g_plan') })
+    .then(function () { closeModal(); toast(isLead() ? '저장했어요' : '팀장에게 승인 요청했어요'); viewPlan(); refreshBadges(); }).catch(fail);
+}
+function goalDel(id) { if (!confirm('이 목표와 일일 기록을 모두 삭제할까요?')) return; call('goalDelete', { id: id }).then(function () { toast('삭제했어요'); viewPlan(); refreshBadges(); }).catch(fail); }
+function review(id, d, comment) { call('goalReview', { id: id, decision: d, comment: comment || '' }).then(function () { closeModal(); toast(d === '승인' ? '승인했어요' : d === '반려' ? '반려했어요' : '처리했어요'); viewPlan(); refreshBadges(); }).catch(fail); }
+function rejectForm(id) {
+  openModal('<h3>반려 사유</h3><label class="f" style="margin-top:12px"><span>팀원이 무엇을 고치면 될지 적어주세요</span><textarea id="r_c"></textarea></label>'
+    + '<div class="actions"><button class="btn ghost" onclick="closeModal()">취소</button><button class="btn no" onclick="review(\'' + id + '\',\'반려\',val(\'r_c\'))">반려</button></div>');
+}
+function checkForm(goalId, result) {
+  var g = goalById(goalId), c = g.todayCheck || {};
+  var fail = result === '실패';
+  openModal('<h3>' + esc(g.title) + ' · 오늘 ' + (fail ? '실패' : '달성') + '</h3>'
+    + '<div class="chips" style="margin:12px 0"><button class="chip' + (!fail ? ' on' : '') + '" onclick="checkForm(\'' + goalId + '\',\'달성\')">달성</button><button class="chip' + (fail ? ' on' : '') + '" onclick="checkForm(\'' + goalId + '\',\'실패\')">실패</button></div>'
+    + '<label class="f"><span>오늘 한 양 (' + esc(g.unit) + ')</span><input type="number" id="c_amt" min="0" step="any" value="' + esc(c.amount != null ? c.amount : (fail ? 0 : g.daily)) + '"></label>'
+    + (fail ? '<label class="f"><span>실패 사유 (필수)</span><textarea id="c_reason" placeholder="예: 광고주 긴급 세팅 요청 2건 처리로 작성 시간을 못 냄">' + esc(c.reason || '') + '</textarea></label><p class="muted small" style="margin-top:-6px;margin-bottom:10px">팀장이 사유를 보고 이야기를 나눈 뒤 소통완료로 체크합니다.</p>' : '')
+    + '<label class="f"><span>메모 (선택)</span><input type="text" id="c_memo" value="' + esc(c.memo || '') + '"></label>'
+    + '<div class="actions"><button class="btn ghost" onclick="closeModal()">취소</button><button class="btn ' + (fail ? 'no' : 'ok') + '" onclick="checkSave(\'' + goalId + '\',\'' + result + '\')">' + (fail ? '실패로 기록' : '달성으로 기록') + '</button></div>');
+}
+function checkSave(goalId, result) {
+  call('checkSave', { goalId: goalId, date: B.today, result: result, amount: val('c_amt'), reason: val('c_reason'), memo: val('c_memo') })
+    .then(function () { closeModal(); toast('기록했어요'); viewPlan(); refreshBadges(); }).catch(fail);
+}
+function checkUndo(id) { call('checkUndo', { id: id }).then(function () { toast('취소했어요'); viewPlan(); refreshBadges(); }).catch(fail); }
+function talkForm(id) {
+  openModal('<h3>소통완료</h3><label class="f" style="margin-top:12px"><span>나눈 이야기 (선택)</span><textarea id="t_memo" placeholder="예: 다음 주 화요일 오전으로 작성 시간 고정하기로 함"></textarea></label>'
+    + '<div class="actions"><button class="btn ghost" onclick="closeModal()">취소</button><button class="btn ok" onclick="talkSave(\'' + id + '\')">소통완료</button></div>');
+}
+function talkSave(id) { call('checkTalked', { id: id, memo: val('t_memo') }).then(function () { closeModal(); toast('소통완료로 표시했어요'); if (CUR === 'calendar') viewCalendar(); else if (CUR === 'admin') viewAdmin(); else viewPlan(); refreshBadges(); }).catch(fail); }
+
+/* ───────── 월별 평가자료 (엑셀) ───────── */
+function evalForm(email) {
+  var m = B.today.slice(0, 7);
+  openModal('<h3>월별 평가자료 받기</h3><p class="muted small" style="margin:4px 0 12px">목표 달성률과 세부 기록, 개인 매출, 매체별·계정별 매출을 엑셀 파일 하나로 받습니다.</p>'
+    + (isLead() ? '<label class="f"><span>팀원</span><select id="e_who">' + memberOpts(email || ST.planWho || B.me.email, false) + '</select></label>' : '')
+    + '<label class="f"><span>월</span><input type="month" id="e_month" value="' + m + '"></label>'
+    + '<div class="actions"><button class="btn ghost" onclick="closeModal()">취소</button><button class="btn pri" onclick="evalDownload()">엑셀 받기</button></div>');
+}
+function evalDownload() {
+  if (!window.XLSX) return fail(new Error('엑셀 도구를 불러오지 못했어요. 새로고침 후 다시 시도하세요.'));
+  call('evaluation', { email: val('e_who'), month: val('e_month') }).then(function (d) {
+    var wb = XLSX.utils.book_new();
+    var g = d.goals, s = d.sales;
+    var ok = d.checks.filter(function (c) { return c.result === '달성'; }).length, fl = d.checks.length - ok;
+    var summary = [
+      ['월별 평가자료', d.month], ['이름', d.member.name], ['만든 시각', d.generatedAt], [],
+      ['목표 수', g.length], ['평균 달성률(%)', g.length ? Math.round(g.reduce(function (t, x) { return t + x.rate; }, 0) / g.length * 10) / 10 : ''],
+      ['일일 체크 달성', ok], ['일일 체크 실패', fl], ['일일 달성 비율(%)', d.checks.length ? Math.round(ok / d.checks.length * 1000) / 10 : ''],
+      ['소통 대기 실패', d.checks.filter(function (c) { return c.result === '실패' && !c.talked; }).length], [],
+      ['이번 달 매출(원)', s.hasData ? s.total : '실적 데이터 연결 전'], ['지난달 매출(원)', s.hasData ? s.prevTotal : ''],
+      ['전월 대비(%)', s.hasData && s.prevTotal ? Math.round((s.total / s.prevTotal - 1) * 1000) / 10 : ''],
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), '요약');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(g.map(function (x) {
+      return { '기간': x.period, '시작일': x.start, '종료일': x.end, '분류': x.category, '목표': x.title, '목표수치': x.target, '단위': x.unit,
+        '실적': x.achieved, '달성률(%)': x.rate, '달성일': x.ok, '실패일': x.fail, '상태': x.status, '실행계획': x.plan, '팀장 의견': x.comment };
+    })), '목표 달성');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(d.checks.map(function (c) {
+      return { '날짜': c.date, '목표': c.goalTitle, '결과': c.result, '실적': c.amount, '단위': c.unit, '실패 사유': c.reason, '팀장 소통': c.talked ? '완료' : (c.result === '실패' ? '대기' : ''), '소통 메모': c.talkMemo, '메모': c.memo };
+    })), '일일 기록');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(s.media.map(function (m) {
+      return { '매체': m.media, '이번 달(원)': m.cur, '지난달(원)': m.prev, '증감(%)': m.prev ? Math.round((m.cur / m.prev - 1) * 1000) / 10 : '' };
+    })), '매체별 매출');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(s.accounts.map(function (a) {
+      return { '매체': a.media, '광고주ID': a.id, '광고주명': a.name, '이번 달(원)': a.cur, '지난달(원)': a.prev, '증감(%)': a.prev ? Math.round((a.cur / a.prev - 1) * 1000) / 10 : '' };
+    })), '계정별 매출');
+    XLSX.writeFile(wb, '월별평가_' + d.member.name + '_' + d.month + '.xlsx');
+    closeModal(); toast('엑셀을 내려받았어요');
+  }).catch(fail);
+}
+
+/* ───────── 캘린더 ───────── */
+function viewCalendar() {
+  if (!ST.calMonth) ST.calMonth = B.today.slice(0, 7);
+  var who = isLead() ? ST.calWho : '';
+  call('calendar', { month: ST.calMonth, email: who }).then(function (d) {
+    window._cal = d;
+    var first = d.month + '-01';
+    var a = first.split('-').map(Number), w = new Date(Date.UTC(a[0], a[1] - 1, 1)).getUTCDay();
+    var startDay = addDays(first, -w);
+    var ok = d.checks.filter(function (c) { return c.result === '달성'; }).length, fl = d.checks.length - ok;
+    var h = '<div class="head"><div><h2>캘린더</h2><p>팀·개인·미팅·프로모션 일정과 목표 마감, 일일 달성/실패가 함께 표시됩니다.</p></div>'
+      + '<button class="btn pri" onclick="eventForm()">일정 추가</button></div>'
+      + '<div class="row" style="justify-content:space-between;margin-bottom:10px"><div class="row"><button class="btn ghost sm" aria-label="이전 달" onclick="ST.calMonth=addMonths(ST.calMonth,-1);viewCalendar()">◀</button>'
+      + '<b style="font-size:19px">' + Number(d.month.slice(0, 4)) + '년 ' + Number(d.month.slice(5)) + '월</b>'
+      + '<button class="btn ghost sm" aria-label="다음 달" onclick="ST.calMonth=addMonths(ST.calMonth,1);viewCalendar()">▶</button><button class="btn ghost sm" onclick="ST.calMonth=\'\';ST.calDay=B.today;viewCalendar()">오늘</button></div>'
+      + (isLead() ? '<select style="width:auto" onchange="ST.calWho=this.value;viewCalendar()">' + memberOpts(who, true) + '</select>' : '') + '</div>'
+      + '<div class="kv" style="margin-bottom:6px"><span>이번 달 일일 체크 <b class="up">달성 ' + ok + '</b> · <b class="down">실패 ' + fl + '</b></span>'
+      + (d.checks.length ? '<span>달성 비율 <b>' + Math.round(ok / d.checks.length * 100) + '%</b></span>' : '') + '</div>';
+    if (isLead() && !who && d.checks.length) {
+      var by = {};
+      d.checks.forEach(function (c) { by[c.who] = by[c.who] || { o: 0, x: 0 }; c.result === '달성' ? by[c.who].o++ : by[c.who].x++; });
+      h += '<div class="chips" style="margin-bottom:6px">' + Object.keys(by).map(function (k) { return '<span class="tag gray">' + esc(k) + ' <span class="up">✓' + by[k].o + '</span> <span class="down">✗' + by[k].x + '</span></span>'; }).join('') + '</div>';
+    }
+    h += '<div class="legend"><span class="ev 팀">팀</span><span class="ev 개인">개인</span><span class="ev 미팅">미팅</span><span class="ev 프로모션">프로모션</span><span class="ev 마감">목표 마감</span><span><span class="up">✓달성</span> <span class="down">✗실패</span></span></div>';
+    h += '<div class="cal">' + ['일', '월', '화', '수', '목', '금', '토'].map(function (x) { return '<div class="dow">' + x + '</div>'; }).join('');
+    for (var i = 0; i < 42; i++) {
+      var day = addDays(startDay, i);
+      if (i >= 35 && day.slice(0, 7) !== d.month) break;
+      var evs = d.events.filter(function (e) { return e.start <= day && e.end >= day; });
+      var dl = d.deadlines.filter(function (x) { return x.date === day; });
+      var cks = d.checks.filter(function (c) { return c.date === day; });
+      var o = cks.filter(function (c) { return c.result === '달성'; }).length, x = cks.length - o;
+      var items = evs.map(function (e) { return '<span class="ev ' + esc(e.type) + '">' + esc(e.title) + '</span>'; })
+        .concat(dl.map(function (e) { return '<span class="ev 마감">마감 ' + esc(e.title) + '</span>'; }));
+      h += '<button class="day' + (day.slice(0, 7) !== d.month ? ' out' : '') + (day === B.today ? ' today' : '') + (day === ST.calDay ? ' sel' : '') + '" onclick="ST.calDay=\'' + day + '\';viewCalendar()">'
+        + '<span class="dn' + (i % 7 === 0 ? ' sun' : '') + '">' + Number(day.slice(8)) + '</span>' + items.slice(0, 3).join('') + (items.length > 3 ? '<span class="small muted">+' + (items.length - 3) + '</span>' : '')
+        + (items.length ? '<span class="dot"></span>' : '')
+        + (cks.length ? '<span class="ck">' + (o ? '<span class="o">✓' + o + '</span> ' : '') + (x ? '<span class="x">✗' + x + '</span>' : '') + '</span>' : '') + '</button>';
+    }
+    h += '</div><div id="dayDetail" class="sec"></div>';
+    $('view').innerHTML = h;
+    if (ST.calDay && ST.calDay.slice(0, 7) === d.month) dayDetail(ST.calDay);
+  }).catch(fail);
+}
+function dayDetail(day) {
+  var d = window._cal;
+  var evs = d.events.filter(function (e) { return e.start <= day && e.end >= day; });
+  var dl = d.deadlines.filter(function (x) { return x.date === day; });
+  var cks = d.checks.filter(function (c) { return c.date === day; });
+  var h = '<div class="row" style="justify-content:space-between"><h3>' + md(day) + ' 상세</h3><button class="btn sm" onclick="eventForm(null,\'' + day + '\')">이 날 일정 추가</button></div>';
+  if (!evs.length && !dl.length && !cks.length) h += '<p class="muted small">기록이 없어요.</p>';
+  h += evs.map(function (e) {
+    return '<div class="card"><div class="ct"><span class="ev ' + esc(e.type) + '">' + esc(e.type) + '</span><span class="t">' + esc(e.title) + '</span>' + (e.time ? '<span class="muted small">' + esc(e.time) + '</span>' : '') + '</div>'
+      + '<div class="meta">' + (e.start !== e.end ? md(e.start) + ' ~ ' + md(e.end) + ' · ' : '') + (e.who ? esc(e.who) + ' · ' : '') + '등록 ' + esc(e.author) + '</div>' + (e.memo ? '<div class="body">' + esc(e.memo) + '</div>' : '')
+      + ((e.mine || isLead()) ? '<div class="row" style="margin-top:8px"><button class="btn ghost sm" onclick="eventForm(\'' + e.id + '\')">수정</button><button class="btn ghost sm" onclick="eventDel(\'' + e.id + '\')">삭제</button></div>' : '') + '</div>';
+  }).join('');
+  h += dl.map(function (x) { return '<div class="card"><span class="ev 마감">목표 마감</span> <b>' + esc(x.title) + '</b> <span class="muted small">' + esc(x.who) + ' · ' + esc(x.period) + ' 목표</span></div>'; }).join('');
+  if (cks.length) h += '<div class="scroll" style="margin-top:10px"><table class="tbl"><tr><th>팀원</th><th>목표</th><th>결과</th><th>사유·메모</th><th>소통</th></tr>' + cks.map(function (c) {
+    return '<tr><td>' + esc(c.who) + '</td><td>' + esc(c.goalTitle) + '</td><td>' + (c.result === '달성' ? '<span class="up">✓ 달성</span>' : '<span class="down">✗ 실패</span>') + ' ' + amt(c.amount, c.unit) + '</td>'
+      + '<td>' + esc(c.reason || c.memo) + '</td><td>' + (c.result === '실패' ? (c.talked ? '<span class="tag">완료</span>' : (isLead() ? '<button class="btn ok sm" onclick="talkForm(\'' + c.id + '\')">소통완료</button>' : '<span class="tag warn">대기</span>')) : '') + '</td></tr>';
+  }).join('') + '</table></div>';
+  $('dayDetail').innerHTML = h;
+}
+function eventForm(id, day) {
+  var e = id ? window._cal.events.find(function (x) { return x.id === id; }) : { type: '팀', title: '', start: day || ST.calDay || B.today, end: day || ST.calDay || B.today, time: '', memo: '' };
+  openModal('<h3>' + (id ? '일정 수정' : '일정 추가') + '</h3><div class="grid2" style="margin-top:12px"><label class="f"><span>종류</span><select id="e_type" onchange="$(\'e_whoRow\').style.display=this.value===\'개인\'&&' + isLead() + '?\'block\':\'none\'">' + opts(B.options.eventTypes, e.type) + '</select></label>'
+    + '<label class="f"><span>시간 (선택)</span><input type="text" id="e_time" value="' + esc(e.time) + '" placeholder="14:00"></label></div>'
+    + '<label class="f" id="e_whoRow" style="display:' + (isLead() && e.type === '개인' ? 'block' : 'none') + '"><span>누구의 일정</span><select id="e_who">' + memberOpts(B.me.email, false) + '</select></label>'
+    + '<label class="f"><span>제목</span><input type="text" id="e_title" value="' + esc(e.title) + '" placeholder="예: OO광고주 미팅, 11월 블프 프로모션"></label>'
+    + '<div class="grid2"><label class="f"><span>시작일</span><input type="date" id="e_start" value="' + esc(e.start) + '"></label><label class="f"><span>종료일</span><input type="date" id="e_end" value="' + esc(e.end) + '"></label></div>'
+    + '<label class="f"><span>메모 (선택)</span><textarea id="e_memo">' + esc(e.memo) + '</textarea></label>'
+    + '<div class="actions"><button class="btn ghost" onclick="closeModal()">취소</button><button class="btn pri" onclick="eventSave(\'' + (id || '') + '\')">저장</button></div>');
+}
+function eventSave(id) {
+  call('eventSave', { id: id, type: val('e_type'), title: val('e_title'), start: val('e_start'), end: val('e_end'), time: val('e_time'), memo: val('e_memo'), who: val('e_who') })
+    .then(function () { closeModal(); toast('저장했어요'); ST.calDay = val('e_start') || ST.calDay; viewCalendar(); }).catch(fail);
+}
+function eventDel(id) { if (!confirm('이 일정을 삭제할까요?')) return; call('eventDelete', { id: id }).then(function () { toast('삭제했어요'); viewCalendar(); }).catch(fail); }
+
+/* ───────── 솔루션 ───────── */
+function viewSolution() {
+  call('solutions').then(function (d) {
+    var h = '<div class="head"><div><h2>솔루션</h2><p>팀장이 만든 업무 프로그램입니다. 드라이브 폴더에 새 버전을 올리면 여기서 자동으로 최신 버전이 보입니다.</p></div>'
+      + (d.configured ? '<a class="btn" href="' + esc(d.folderUrl) + '" target="_blank" rel="noopener">드라이브 폴더 열기</a>' : '') + '</div>';
+    if (!d.configured) {
+      h += '<div class="empty"><b>솔루션 폴더가 아직 연결되지 않았어요</b>' + (isLead() ? '원보드 시트의 <code>설정</code> 탭에서 <code>솔루션폴더ID</code> 값에 드라이브 폴더 주소를 붙여넣으세요.' : '팀장이 폴더를 연결하면 여기에 나타나요.') + '</div>';
+    } else if (!d.list.length) {
+      h += '<div class="empty"><b>폴더가 비어 있어요</b>프로그램 파일을 폴더에 올리면 바로 보입니다.</div>';
+    } else {
+      h += '<div class="cols">' + d.list.map(function (s) {
+        var l = s.latest;
+        return '<div class="card"><div class="ct"><span class="t">' + esc(s.name) + '</span><span class="tag">최신</span></div>'
+          + '<div class="meta">' + esc(l.name) + ' · ' + esc(l.updated) + ' · ' + (l.size ? Math.max(1, Math.round(l.size / 1024)).toLocaleString() + 'KB' : '') + '</div>'
+          + (l.desc ? '<div class="body small">' + esc(l.desc) + '</div>' : '')
+          + '<div class="row" style="margin-top:10px"><a class="btn pri sm" href="' + esc(l.download) + '" target="_blank" rel="noopener">최신 버전 받기</a><a class="btn ghost sm" href="' + esc(l.url) + '" target="_blank" rel="noopener">드라이브에서 보기</a></div>'
+          + (s.older.length ? '<details><summary>이전 버전 ' + s.older.length + '개</summary>' + s.older.map(function (o) { return '<div class="small" style="padding:3px 0"><a href="' + esc(o.download) + '" target="_blank" rel="noopener">' + esc(o.name) + '</a> <span class="muted">' + esc(o.updated) + '</span></div>'; }).join('') + '</details>' : '')
+          + '</div>';
+      }).join('') + '</div>';
+    }
+    $('view').innerHTML = h;
+  }).catch(function (e) { $('view').innerHTML = '<div class="fatal">솔루션 폴더를 열 수 없어요: ' + esc(e.message) + '<br><span class="small">폴더 주소가 맞는지, 보드를 배포한 계정이 그 폴더를 볼 수 있는지 확인하세요.</span></div>'; });
+}
+
+/* ───────── 매체별 가이드 ───────── */
+function viewGuide() {
+  call('guideList').then(function (list) {
+    window._guides = list;
+    var media = []; list.forEach(function (g) { if (media.indexOf(g.media) < 0) media.push(g.media); });
+    if (!ST.guideMedia || media.indexOf(ST.guideMedia) < 0) ST.guideMedia = media[0] || '';
+    var h = '<div class="head"><div><h2>매체별 가이드</h2><p>매체마다 맵핑 방법, 세팅 방법, 문의 경로를 정리합니다.</p></div>'
+      + (isLead() ? '<button class="btn pri" onclick="guideForm()">가이드 추가</button>' : '') + '</div>';
+    if (!media.length) { $('view').innerHTML = h + '<div class="empty"><b>가이드가 없어요</b>' + (isLead() ? '가이드 추가로 첫 매체를 등록하세요.' : '') + '</div>'; return; }
+    h += '<div class="guide"><div class="mlist">' + media.map(function (m) { return '<button class="' + (m === ST.guideMedia ? 'on' : '') + '" onclick="ST.guideMedia=\'' + esc(m).replace(/'/g, '') + '\';viewGuide()">' + esc(m) + '</button>'; }).join('') + '</div><div>';
+    B.options.guideSections.forEach(function (sec) {
+      var items = list.filter(function (g) { return g.media === ST.guideMedia && g.section === sec; });
+      h += '<div style="margin-bottom:22px"><h3>' + esc(sec) + '</h3>' + (items.length ? items.map(function (g) {
+        return '<div class="card"><div class="ct"><span class="t">' + esc(g.title) + '</span><span class="muted small">수정 ' + esc(g.updated) + '</span></div>'
+          + '<div class="gbody" style="margin-top:6px">' + linkify(g.body) + '</div>' + (g.link ? '<div style="margin-top:8px"><a class="btn sm" href="' + esc(g.link) + '" target="_blank" rel="noopener">관련 페이지 열기</a></div>' : '')
+          + (isLead() ? '<div class="row" style="margin-top:8px"><button class="btn ghost sm" onclick="guideForm(\'' + g.id + '\')">수정</button><button class="btn ghost sm" onclick="guideDel(\'' + g.id + '\')">삭제</button></div>' : '') + '</div>';
+      }).join('') : '<p class="muted small">아직 없어요.</p>') + '</div>';
+    });
+    $('view').innerHTML = h + '</div></div>';
+  }).catch(fail);
+}
+function guideForm(id) {
+  var g = id ? window._guides.find(function (x) { return x.id === id; }) : { media: ST.guideMedia, section: B.options.guideSections[0], title: '', body: '', link: '', order: 100 };
+  openModal('<h3>' + (id ? '가이드 수정' : '가이드 추가') + '</h3><div class="grid2" style="margin-top:12px"><label class="f"><span>매체</span><input type="text" id="gd_media" value="' + esc(g.media) + '" placeholder="네이버 검색광고"></label>'
+    + '<label class="f"><span>구분</span><select id="gd_sec">' + opts(B.options.guideSections, g.section) + '</select></label></div>'
+    + '<label class="f"><span>제목</span><input type="text" id="gd_title" value="' + esc(g.title) + '"></label>'
+    + '<label class="f"><span>내용 (줄마다 - 로 시작하면 목록처럼 보여요)</span><textarea id="gd_body" style="min-height:200px">' + esc(g.body) + '</textarea></label>'
+    + '<div class="grid2"><label class="f"><span>관련 링크 (선택)</span><input type="text" id="gd_link" value="' + esc(g.link) + '"></label><label class="f"><span>순서 (작을수록 위)</span><input type="number" id="gd_order" value="' + esc(g.order) + '"></label></div>'
+    + '<div class="actions"><button class="btn ghost" onclick="closeModal()">취소</button><button class="btn pri" onclick="guideSave(\'' + (id || '') + '\')">저장</button></div>');
+}
+function guideSave(id) { call('guideSave', { id: id, media: val('gd_media'), section: val('gd_sec'), title: val('gd_title'), body: val('gd_body'), link: val('gd_link'), order: val('gd_order') }).then(function () { ST.guideMedia = val('gd_media'); closeModal(); toast('저장했어요'); viewGuide(); }).catch(fail); }
+function guideDel(id) { if (!confirm('이 가이드를 삭제할까요?')) return; call('guideDelete', { id: id }).then(function () { toast('삭제했어요'); viewGuide(); }).catch(fail); }
+
+/* ───────── 계정별 실적 ───────── */
+function viewPerf() {
+  var who = isLead() ? ST.perfWho : '';
+  call('perf', { email: who }).then(function (d) {
+    var h = '<div class="head"><div><h2>계정별 실적</h2><p>매체별·계정별 매출 변화와 AHI가 떨어질 신호를 매일 확인합니다. 금액은 공급가액(VAT 제외) 기준입니다.</p></div>'
+      + (isLead() ? '<select style="width:auto" onchange="ST.perfWho=this.value;viewPerf()">' + memberOpts(who, true) + '</select>' : '') + '</div>';
+    if (d.empty) {
+      $('view').innerHTML = h + '<div class="empty"><b>아직 실적 데이터가 연결되지 않았어요</b>매일 아침 인트라넷 매출이 원보드 시트(<code>실적_일별</code>, <code>실적_월별</code>)로 자동으로 들어오면 여기에 표시됩니다.'
+        + (isLead() ? '<br><span class="small">담당자 이름은 <code>팀원</code> 탭의 <code>담당자명</code>과 인트라넷 담당자 이름이 같아야 합니다. 지금 찾는 이름: ' + esc(d.managers.join(', ')) + '</span>' : '') + '</div>';
+      return;
+    }
+    var x = d.daily;
+    if (x) {
+      h += '<div class="stats"><div class="stat"><div class="l">이번 달 누적 (' + md(x.month + '-01') + '~' + md(x.latest) + ')</div><div class="v">' + won(x.mtd) + '</div><div class="d">' + (x.hasPrev ? '지난달 같은 기간 대비 ' + chg(x.mtd, x.prevMtd) : '<span class="muted">지난달 일별 데이터 없음</span>') + '</div></div>'
+        + '<div class="stat"><div class="l">어제 (' + md(x.latest) + ')</div><div class="v">' + won(x.last) + '</div><div class="d">직전 7일 평균 대비 ' + chg(x.last, x.avg7) + '</div></div>'
+        + '<div class="stat"><div class="l">확인할 계정</div><div class="v" style="color:' + (x.alerts.length ? 'var(--warn)' : 'var(--g900)') + '">' + x.alerts.length + '곳</div><div class="d muted">소진중단·급락</div></div></div>';
+      h += '<div class="sec"><h3>최근 30일 일별 매출</h3>' + trendSvg(x.trend) + '</div>';
+      if (x.alerts.length) {
+        h += '<div class="sec"><h3>오늘 먼저 확인할 계정</h3><div class="scroll"><table class="tbl"><tr><th>상태</th><th>매체</th><th>광고주</th><th class="r">어제</th><th class="r">직전 7일 평균</th><th class="r">이번 달 누적</th></tr>'
+          + x.alerts.map(function (a) { return '<tr class="warn"><td><span class="tag ' + (a.status === '소진중단' ? 'bad' : 'warn') + '">' + a.status + '</span></td><td>' + esc(a.media) + '</td><td>' + esc(a.name) + ' <span class="muted small">' + esc(a.id) + '</span></td><td class="r">' + won(a.last) + '</td><td class="r">' + won(a.avg7) + '</td><td class="r">' + won(a.mtd) + '</td></tr>'; }).join('')
+          + '</table></div></div>';
+      }
+      h += '<div class="sec"><h3>매체별 매출 변화</h3><div class="scroll"><table class="tbl"><tr><th>매체</th><th class="r">이번 달 누적</th><th class="r">지난달 같은 기간</th><th class="r">증감</th><th class="r">어제</th><th class="r">비중</th></tr>'
+        + x.media.map(function (m) { return '<tr><td><b>' + esc(m.media) + '</b></td><td class="r">' + won(m.mtd) + '</td><td class="r">' + won(m.prevMtd) + '</td><td class="r">' + chg(m.mtd, m.prevMtd) + '</td><td class="r">' + won(m.last) + '</td><td class="r">' + (x.mtd ? (m.mtd / x.mtd * 100).toFixed(1) + '%' : '') + '</td></tr>'; }).join('')
+        + '</table></div></div>';
+      var acc = x.accounts;
+      var drops = acc.filter(function (a) { return a.mtd < a.prevMtd; }).slice(-15).reverse();
+      drops.sort(function (a, b) { return (a.mtd - a.prevMtd) - (b.mtd - b.prevMtd); });
+      var ups = acc.filter(function (a) { return a.mtd > a.prevMtd; }).slice(0, 10);
+      h += '<div class="sec"><h3>계정별 매출 변화</h3><p class="muted small" style="margin:-6px 0 10px">이번 달 누적을 지난달 같은 기간과 비교합니다.</p><div class="cols">'
+        + accTable('많이 줄어든 계정', drops) + accTable('많이 늘어난 계정', ups) + '</div>'
+        + '<details><summary>전체 계정 ' + acc.length + '곳 보기</summary>' + accTable('', acc.slice().sort(function (a, b) { return b.mtd - a.mtd; })) + '</details></div>';
+    }
+    if (d.ahi) h += ahiBlock(d.ahi);
+    $('view').innerHTML = h;
+  }).catch(fail);
+}
+function accTable(title, list) {
+  return '<div>' + (title ? '<h3 class="small muted">' + title + '</h3>' : '') + '<div class="scroll"><table class="tbl"><tr><th>광고주</th><th class="r">이번 달</th><th class="r">지난달 같은 기간</th><th class="r">증감</th></tr>'
+    + (list.length ? list.map(function (a) { return '<tr><td>' + esc(a.name) + ' <span class="muted small">' + esc(a.media) + '</span></td><td class="r">' + won(a.mtd) + '</td><td class="r">' + won(a.prevMtd) + '</td><td class="r">' + chg(a.mtd, a.prevMtd) + '</td></tr>'; }).join('') : '<tr><td colspan="4" class="muted">없음</td></tr>')
+    + '</table></div></div>';
+}
+function trendSvg(t) {
+  var max = Math.max.apply(null, t.map(function (x) { return x.amt; }).concat([1]));
+  var W = 900, H = 150, bw = W / t.length;
+  var bars = t.map(function (x, i) {
+    var h = Math.max(1, x.amt / max * (H - 24));
+    var we = new Date(x.date + 'T00:00:00Z').getUTCDay(); we = we === 0 || we === 6;
+    return '<g><title>' + x.date + ' ' + won(x.amt) + '</title><rect x="' + (i * bw + 2) + '" y="' + (H - 18 - h) + '" width="' + (bw - 4) + '" height="' + h + '" rx="3" fill="' + (i === t.length - 1 ? '#0f3d2c' : (we ? '#c5e3d1' : '#25935f')) + '"/>'
+      + (i % 5 === 4 || i === t.length - 1 ? '<text x="' + (i * bw + bw / 2) + '" y="' + (H - 3) + '" font-size="11" text-anchor="middle" fill="#4b5f55">' + md(x.date) + '</text>' : '') + '</g>';
+  }).join('');
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="최근 30일 일별 매출 막대그래프">' + bars + '</svg><p class="muted small">연한 막대는 주말, 진한 막대는 가장 최근 날짜입니다.</p>';
+}
+function ahiBlock(a) {
+  var warns = a.metrics.filter(function (m) { return m.warn; });
+  var h = '<div class="sec"><h3>AHI 건강 신호 <span class="muted small">' + Number(a.month.slice(5)) + '월 마감 기준 · ' + Number(a.prevMonth.slice(5)) + '월과 비교</span></h3>'
+    + '<p class="muted small" style="margin:-6px 0 12px">점수 구간표 없이, AHI를 만드는 원재료 지표가 전월보다 나빠졌는지만 봅니다. 주황색 칸이 먼저 챙길 곳이고, 비중이 큰 축부터 보여줍니다.</p>';
+  if (warns.length) h += '<div class="pop"><b>' + warns.map(function (m) { return m.axis + '·' + m.label; }).join(', ') + '</b> 이(가) 떨어지고 있어요. AHI가 내려갈 수 있는 신호입니다.</div>';
+  h += '<div class="ahi">' + a.metrics.map(function (m) {
+    var v = m.cur === null ? '<span class="muted" style="font-size:15px">계산 불가</span>' : num(m.cur) + '<span style="font-size:14px">' + m.unit + '</span>';
+    var dl = m.delta === null ? '' : (function () { var good = m.good === 'up' ? m.delta >= 0 : m.delta <= 0; return '<span class="' + (good ? 'up' : 'down') + '">' + (m.delta >= 0 ? '▲' : '▼') + ' ' + Math.abs(m.delta) + m.deltaUnit + '</span>'; })();
+    return '<div class="ax' + (m.warn ? ' warn' : '') + '"><div class="top2"><span>' + m.axis + ' 축 · 비중 ' + m.weight + '%</span>' + (m.warn ? '<span class="tag warn">주의</span>' : '') + '</div>'
+      + '<div class="nm">' + m.label + '</div><div class="row"><span class="v">' + v + '</span>' + dl + '</div><div class="h">' + esc(m.note || m.hint) + '</div></div>';
+  }).join('') + '</div>';
+  if (a.lost.length) h += '<details><summary>지난달엔 집행했는데 이번 달 멈춘 계정 ' + a.lost.length + '곳</summary><table class="tbl small">' + a.lost.map(function (l) { return '<tr><td>' + esc(l.name) + '</td><td>' + esc(l.media) + '</td><td class="r">' + won(l.prev) + '</td></tr>'; }).join('') + '</table></details>';
+  h += '<p class="muted small" style="margin-top:8px">이력이 3~6개월 이상 쌓여야 계산되는 지표가 있습니다. 데이터 시작: ' + esc(a.dataStart) + '</p></div>';
+  return h;
+}
+
+/* ───────── 팀 현황 (팀장) ───────── */
+function viewAdmin() {
+  var month = ST.adminMonth || B.today.slice(0, 7);
+  call('teamStats', { month: month }).then(function (d) {
+    var h = '<div class="head"><div><h2>팀 현황</h2><p>팀장만 보는 화면입니다. 달성과 실패가 어디에 몰리는지 보고 팀원별로 관리 방식을 정하세요.</p></div>'
+      + '<div class="row"><input type="month" style="width:auto" value="' + month + '" onchange="ST.adminMonth=this.value;viewAdmin()"></div></div>'
+      + '<div class="scroll"><table class="tbl"><tr><th>팀원</th><th class="r">달성</th><th class="r">실패</th><th class="r">달성 비율</th><th class="r">소통 대기</th><th class="r">승인 대기</th><th class="r">진행 목표</th><th class="r">미확인 공지</th><th>마지막 체크</th><th>알리미</th><th></th></tr>'
+      + d.members.map(function (m) {
+        var hot = m.rate !== null && m.rate < 60;
+        return '<tr' + (hot ? ' class="warn"' : '') + '><td><b>' + esc(m.name) + '</b></td><td class="r up">' + m.ok + '</td><td class="r down">' + m.fail + '</td><td class="r">' + (m.rate === null ? '-' : m.rate + '%') + '</td>'
+          + '<td class="r">' + (m.talkPending || '') + '</td><td class="r">' + (m.pending || '') + '</td><td class="r">' + m.active + '</td><td class="r">' + (m.unread ? '<span class="down">' + m.unread + '</span>' : '0') + '</td>'
+          + '<td>' + (m.lastCheck ? md(m.lastCheck) : '<span class="muted">없음</span>') + '</td><td>' + (m.hasAlert ? '<span class="tag">연결</span>' : '<span class="tag gray">미연결</span>') + '</td>'
+          + '<td><button class="btn sm ghost" onclick="evalForm(\'' + m.email + '\')">평가자료</button></td></tr>';
+      }).join('') + '</table></div>'
+      + '<p class="muted small" style="margin-top:8px">달성 비율이 60% 미만이면 주황색으로 표시합니다. 팀원 추가·삭제와 담당자명은 원보드 시트의 <code>팀원</code> 탭에서 바꿉니다.</p>'
+      + '<div class="sec"><h3>팀장 전용 메뉴 늘리기</h3><p class="muted small">관리자 회의록 요약 같은 팀장 전용 탭은 코드의 <code>TABS</code> 목록에 한 줄을 추가하면 이 탭처럼 팀장에게만 보입니다.</p></div>';
+    $('view').innerHTML = h;
+  }).catch(fail);
+}
+
+/* ───────── 알리미 연결 ───────── */
+function alertSetup(renew) {
+  call('alertCode', { renew: !!renew }).then(function (d) {
+    openModal('<h3>원보드 알리미 연결</h3><p class="muted small" style="margin:6px 0 12px">알리미(크롬 확장)를 설치하면 보드 창을 닫아도, 크롬이 켜져 있는 동안 공지 미확인 알림이 1시간마다, 오늘 할 일 알림이 아침에 뜹니다.</p>'
+      + '<ol class="small" style="padding-left:18px;color:var(--ink2)"><li>팀장에게 받은 알리미 폴더를 크롬 <code>chrome://extensions</code> 에서 <b>압축해제된 확장 프로그램 로드</b>로 설치</li><li>알리미 아이콘 → <b>연결 코드</b>에 아래 코드를 붙여넣고 저장</li></ol>'
+      + '<label class="f" style="margin-top:12px"><span>내 연결 코드 (다른 사람에게 주지 마세요)</span><input type="text" id="a_code" readonly value="' + esc(d.connect) + '" onclick="this.select()"></label>'
+      + '<div class="actions"><button class="btn ghost" onclick="if(confirm(\'새 코드를 만들면 기존 연결은 끊깁니다. 계속할까요?\'))alertSetup(true)">새 코드 만들기</button><button class="btn pri" onclick="copyCode()">코드 복사</button></div>');
+  }).catch(fail);
+}
+function copyCode() { var i = $('a_code'); i.select(); try { document.execCommand('copy'); toast('복사했어요'); } catch (e) { toast('직접 선택해서 복사하세요', true); } }
+
+start();
+</script>
+</body>
+</html>

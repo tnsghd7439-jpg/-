@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<style>
+  body{font-family:"Pretendard Variable",Pretendard,"Malgun Gothic",sans-serif;width:320px;margin:0;padding:14px 16px;color:#13261d;font-size:13.5px;background:#fff}
+  h1{font-size:16px;margin:0 0 10px;color:#0f3d2c;border:2.5px solid #0f3d2c;border-radius:9px;display:inline-block;padding:2px 10px}
+  .msg{border-radius:8px;padding:8px 10px;margin:8px 0;background:#f3f9f5}
+  .err{background:#fdeceb;color:#b42318}
+  ul{padding-left:18px;margin:6px 0}
+  button{font:inherit;border:1.5px solid #0f3d2c;background:#0f3d2c;color:#fff;border-radius:8px;padding:6px 12px;font-weight:700;cursor:pointer}
+  button.g{background:#fff;color:#0f3d2c}
+  input{width:100%;box-sizing:border-box;border:1.5px solid #d8e5dc;border-radius:8px;padding:7px 9px;font:inherit;margin:4px 0 8px}
+  .row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .muted{color:#86978e;font-size:12px}
+  details summary{cursor:pointer;color:#1d7a52;font-weight:700;margin-top:10px}
+</style>
+</head>
+<body>
+  <h1>원보드 알리미</h1>
+  <div id="status" class="msg">확인 중…</div>
+  <div class="row"><button id="open">보드 열기</button><button id="now" class="g">지금 확인</button></div>
+  <details id="cfg"><summary>연결 코드 설정</summary>
+    <p class="muted">원보드 오른쪽 위 <b>알리미 연결</b>에서 복사한 코드를 붙여넣으세요.</p>
+    <input id="code" type="password" placeholder="https://script.google.com/...#코드">
+    <button id="save">저장</button>
+  </details>
+  <p class="muted" id="when"></p>
+<script src="popup.js"></script>
+</body>
+</html>
