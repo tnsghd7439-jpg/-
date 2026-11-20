@@ -35,6 +35,7 @@ header p { margin: 0; color: var(--muted); }
 .summary { margin: 22px 0 28px; font-size: 18px; max-width: 70ch; }
 .summary b { font-weight: 700; }
 .summary .u { color: var(--urgent); } .summary .w { color: var(--warn); }
+.summary .goal { font-size: 15px; color: var(--muted); }
 
 .grid { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 28px; align-items: start; }
 @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
@@ -382,6 +383,7 @@ details.guide td:first-child { white-space: nowrap; font-weight: 700; }
 const DATA = /*__DATA__*/null;
 const esc = s => String(s).replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
 const won = n => n.toLocaleString("ko-KR") + "원";
+const manW = n => Math.round(n / 1e4).toLocaleString("ko-KR") + "만";
 const TYPES = [["all", "전체"], ["bizmoney", "비즈머니"], ["churn", "이탈 위험"], ["off", "광고 꺼짐"],
                ["drop", "어제 감소"], ["month", "월 소진 차이"], ["health", "관리 경보"]];
 const RANK = { urgent: 0, warn: 1, info: 2 };
@@ -408,7 +410,11 @@ document.getElementById("summary").innerHTML =
   `어제 ${DATA.personal ? "담당 계정" : "팀 전체"} 광고비는 <b>${won(totalY)}</b>입니다. ` +
   (urgentN + warnN
     ? `오늘은 <b class="u">긴급 ${urgentN}곳</b>, <b class="w">주의 ${warnN}곳</b>을 먼저 확인하세요.`
-    : "긴급하거나 주의할 계정은 없습니다.");
+    : "긴급하거나 주의할 계정은 없습니다.") +
+  // team.json saTarget 이 있으면 이번 달 SA 목표 진도 (collect.py sa_goal)
+  (DATA.saGoal ? (g => `<br><span class="goal">SA ${g.month}월 목표 ${manW(g.target)} · 누적 ${manW(g.done)} (${g.progress.toFixed(1)}%) · ` +
+    `예상 달성 <b class="${g.state === "순항" ? "" : g.state === "주의" ? "w" : "u"}">${g.pace.toFixed(1)}% ${g.state}</b> · ` +
+    `일평균 ${manW(g.avg)} → 필요 ${manW(Math.max(g.need, 0))}</span>`)(DATA.saGoal) : "");
 
 function renderPeople() {
   const ul = document.getElementById("people");

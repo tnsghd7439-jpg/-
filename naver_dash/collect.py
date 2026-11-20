@@ -325,6 +325,7 @@ def collect_account(api, acc, team, direct, P) -> dict:
         "avg7": round(s["prev7"][0] / 7),
         "last7Avg": round(s["last7"][0] / 7),
         "monthAvg": round(s["month"][0] / P["month"][1].day),
+        "monthSpend": s["month"][0],  # 이번 달 누적 광고비 (SA 목표 진도율용)
         "lastMonthAvg": round(s["last_month"][0] / P["last_month"][1].day),
         "roas7": roas(s["last7"]),
         "roas14": roas(s["last14"]),
@@ -430,8 +431,37 @@ def judge(r: dict) -> list:
 
 # ---------------------------------------------------------------- 출력
 
+def sa_goal(data: dict, owner: str | None = None) -> dict | None:
+    """team.json 의 saTarget 으로 이번 달 SA 목표 진도. 예) "saTarget": {"2026-11": 92340000}
+    또는 팀원별 {"2026-11": {"팀": 92340000, "박송희": 30000000}}. 목표가 없으면 None."""
+    team_file = ROOT / "team.json"
+    if not team_file.exists():
+        return None
+    base = date.fromisoformat(data["baseDate"])
+    t = (json.loads(team_file.read_text(encoding="utf-8")).get("saTarget") or {}).get(base.strftime("%Y-%m"))
+    target = (t.get(owner or "팀") if isinstance(t, dict) else (None if owner else t))
+    if not target:
+        return None
+    accs = [a for a in data["accounts"] if owner is None or owner in a["owners"]]
+    done = sum(a.get("monthSpend", a.get("monthAvg", 0) * base.day) for a in accs)
+    days = calendar.monthrange(base.year, base.month)[1]
+    avg = done / base.day
+    left = days - base.day
+    pace = avg * days / target * 100
+    return {"month": base.month, "target": target, "done": done, "progress": done / target * 100,
+            "pace": pace, "avg": avg, "need": (target - done) / left if left else 0, "daysLeft": left,
+            "state": "순항" if pace >= 100 else "주의" if pace >= 90 else "위험"}
+
+
+def goal_line(g: dict) -> str:
+    man = lambda v: f"{v / 1e4:,.0f}만"  # noqa: E731
+    return (f"SA {g['month']}월 목표 {man(g['target'])} · 누적 {man(g['done'])} ({g['progress']:.1f}%) · "
+            f"예상 달성 {g['pace']:.1f}% {g['state']} · 일평균 {man(g['avg'])} → 필요 {man(max(g['need'], 0))}")
+
+
 def render(data: dict) -> Path:
     OUT.mkdir(parents=True, exist_ok=True)
+    data["saGoal"] = sa_goal(data)
     stem = f"dashboard-{data['baseDate']}"
     (OUT / f"{stem}.json").write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     tpl = (ROOT / "dashboard.html").read_text(encoding="utf-8")
@@ -461,6 +491,7 @@ def render_personal(data: dict, tpl: str) -> None:
         accs = [dict(a, accessManagerAccountNo=(a.get("memberAccess") or {}).get(owner, a.get("accessManagerAccountNo")))
                 for a in data["accounts"] if owner in a["owners"]]
         mine = dict(data, personal=owner, errors=[], accounts=accs)
+        mine["saGoal"] = sa_goal(data, owner)
         if data.get("gfa"):
             mine["gfa"] = dict(data["gfa"], rows=[r for r in data["gfa"]["rows"] if r["owner"] == owner])
         if data.get("mpai"):
@@ -595,12 +626,18 @@ def notify(data: dict) -> None:
     lines = [f"*[팀원 계정 점검] {data['baseDate']} 광고비 기준{when}* [일부 매체의 경우 집계가 안맞을 수 있습니다.]",
              f"팀 전체 어제 광고비 {total:,.0f}원 " + ("(모든 매체 통합)" if mp else f"(네이버 SA 만 — MP AI 미반영: {mpai_reason(data)})")
              + (f" · 미집계: {', '.join(sorted(pend))} (금액에서 빠짐)" if pend else "")
-             + (" · MP AI 에 어제 「미집계」 표시 — 0원 매체는 아직 집계 전일 수 있음" if pending and not pend else ""), ""]
+             + (" · MP AI 에 어제 「미집계」 표시 — 0원 매체는 아직 집계 전일 수 있음" if pending and not pend else "")]
+    g = sa_goal(data)
+    if g:
+        lines.append(goal_line(g))
+    lines.append("")
     for o in owners:
         link = f" · <{base}/sa-{tokens[o]}.html|내 점검판 열기>" if base and o in tokens else ""
         r = rows[o]
         detail = " · ".join(f"{k} {v:,.0f}" if v is not None else f"{k} 미집계" for k, v in r.items() if v != 0)
-        lines.append(f"*{o}* : {sum(v or 0 for v in r.values()):,.0f}원" + (f" ({detail})" if mp and detail else "") + link)
+        gm = sa_goal(data, o)  # 팀원별 목표가 있으면 진도 표시
+        gtxt = f" · SA 진도 {gm['progress']:.0f}% (예상 {gm['pace']:.0f}% {gm['state']})" if gm else ""
+        lines.append(f"*{o}* : {sum(v or 0 for v in r.values()):,.0f}원" + (f" ({detail})" if mp and detail else "") + gtxt + link)
     if data.get("errors"):
         lines.append(f"• 네이버 수집 실패 {len(data['errors'])}개")
     lines += ["", "링크는 사내망에서만 열립니다."]
