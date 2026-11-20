@@ -26,7 +26,11 @@ const DEFAULT_SETTINGS = [
   ['솔루션폴더ID', '', '솔루션 파일을 올리는 구글 드라이브 폴더 주소에서 folders/ 뒤의 값'],
   ['보드주소', '', '배포한 원보드 웹 앱 주소(/exec 로 끝남). 알리미가 알림을 누르면 이 주소를 엽니다'],
   ['알림주소', '', '알리미 전용 배포 주소(/exec). 비워두면 보드주소를 씁니다'],
-  ['수집토큰', '', '실적 수집기가 보낼 때 쓰는 비밀 문자열. 수집기의 BOARD_TOKEN 과 같은 값'],
+  ['VAT포함매체', '네이버,네이버GFA,지마켓', 'MP AI에서 VAT 포함으로 나오는 매체(이름 일부만 맞아도 적용). 1.1로 나눠 공급가액으로 저장'],
+  ['제외계정', '', '실적에서 뺄 광고주ID (쉼표로 구분). 월간보고 제외 계정과 같게'],
+  ['절반반영계정', '', '수익쉐어라 50%만 반영할 광고주ID (쉼표로 구분)'],
+  ['수집시각', '11', '팀장 알리미가 MP AI 매출을 가져오는 시각(0~23시). MP AI 전일 집계 이후로'],
+  ['마지막수집', '', '자동으로 기록됩니다'],
   ['아침알림시각', '9','알리미가 오늘 할 일 알림을 띄우는 시각(0~23시)'],
   ['경고_비율하락', '5', '유지율·정착률·신규 매출 비중이 전월보다 몇 %p 이상 떨어지면 경고'],
   ['경고_성장률하락', '5', '동일 광고주 성장률이 전월보다 몇 %p 이상 떨어지면 경고'],
@@ -76,26 +80,53 @@ function api(action, payload) {
 }
 
 /**
- * 실적 수집기(mp_report/board_sync.py)가 매출을 보내는 곳.
+ * 알리미(크롬 확장)가 MP AI 매출을 보내는 곳. 팀장 알리미의 연결 코드로만 받습니다.
  * 같은 날짜·같은 월 데이터는 지우고 다시 씁니다. 일별은 최근 120일만 남깁니다(월별에 이력이 남음).
+ * 월간보고와 같은 기준이 되도록 '설정' 탭의 VAT·제외 계정·절반 반영 규칙을 적용해서 저장합니다.
  */
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
-    const token = settings_()['수집토큰'];
-    if (!token || body.token !== token) return json_({ ok: false, error: 'token' });
+    const lead = members_().find(function (m) { return m.role === 'lead' && m.code && m.code === body.code; });
+    if (!lead) return json_({ ok: false, error: '팀장 알리미의 연결 코드로만 매출을 보낼 수 있습니다.' });
     return json_(locked_(function () {
+      const rule = salesRules_();
       const out = { ok: true };
       if (body.daily) {
         const keep = addDays_(today_(), -120);
-        out.daily = replaceRows_('실적_일별', '날짜', body.daily.dates || [], body.daily.rows || [], function (v) { return v < keep; });
+        out.daily = replaceRows_('실적_일별', '날짜', body.daily.dates || [], normalizeSales_(body.daily.rows || [], rule),
+          function (v) { return v < keep; });
       }
-      if (body.monthly) out.monthly = replaceRows_('실적_월별', '월', body.monthly.months || [], body.monthly.rows || []);
+      if (body.monthly) {
+        out.monthly = replaceRows_('실적_월별', '월', body.monthly.months || [], normalizeSales_(body.monthly.rows || [], rule));
+      }
+      update_('설정', '키', '마지막수집', { '값': now_() + ' (' + lead.name + ')' });
       return out;
     }));
   } catch (err) {
     return json_({ ok: false, error: String(err && err.message || err) });
   }
+}
+
+function list_(v) { return String(v || '').split(/[,\n]/).map(function (x) { return x.trim(); }).filter(String); }
+
+function salesRules_() {
+  const s = settings_();
+  return { vat: list_(s['VAT포함매체']), exclude: list_(s['제외계정']), half: list_(s['절반반영계정']) };
+}
+
+/** VAT 포함 매체는 1.1로 나눠 공급가액으로, 제외 계정은 빼고, 수익쉐어 계정은 50%만 */
+function normalizeSales_(rows, rule) {
+  return rows.filter(function (r) { return rule.exclude.indexOf(String(r['광고주ID'])) < 0; }).map(function (r) {
+    let amt = num_(r['매출']);
+    const media = String(r['매체'] || '');
+    if (rule.vat.some(function (v) { return media.indexOf(v) >= 0; })) amt = amt / 1.1;
+    if (rule.half.indexOf(String(r['광고주ID'])) >= 0) amt = amt * 0.5;
+    const o = {};
+    Object.keys(r).forEach(function (k) { o[k] = r[k]; });
+    o['매출'] = Math.round(amt);
+    return o;
+  });
 }
 
 function replaceRows_(name, keyCol, keys, rows, dropIf) {
@@ -146,7 +177,6 @@ function setup() {
   DEFAULT_SETTINGS.forEach(function (s) {
     if (settings.indexOf(s[0]) < 0) insert_('설정', { '키': s[0], '값': s[1], '설명': s[2] });
   });
-  if (!settings_()['수집토큰']) update_('설정', '키', '수집토큰', { '값': Utilities.getUuid().replace(/-/g, '') });
   const email = (Session.getActiveUser().getEmail() || '').toLowerCase();
   if (email &&!rows_('팀원').some(function (r) { return low_(r['이메일']) === email; })) {
     insert_('팀원', { '이메일': email, '이름': email.split('@')[0], '역할': '팀장', '담당자명': '', '사용': 'Y' });
@@ -1034,6 +1064,8 @@ function alerts_(code) {
   if (m.role === 'lead') {
     out.pending = rows_('목표').filter(function (g) { return g['상태'] === '대기'; }).length;
     out.talk = rows_('일일체크').filter(function (c) { return c['결과'] === '실패' && c['소통완료'] !== 'Y'; }).length;
+    out.syncHour = num_(s['수집시각'] || 11);
+    out.lastSync = s['마지막수집'] || '';
   }
   return out;
 }

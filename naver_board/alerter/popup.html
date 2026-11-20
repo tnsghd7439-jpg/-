@@ -20,6 +20,11 @@
   <h1>원보드 알리미</h1>
   <div id="status" class="msg">확인 중…</div>
   <div class="row"><button id="open">보드 열기</button><button id="now" class="g">지금 확인</button></div>
+  <div id="syncBox" style="display:none;margin-top:12px;border-top:1px solid #d8e5dc;padding-top:10px">
+    <b>MP AI 매출 가져오기</b> <span class="muted">(팀장)</span>
+    <div id="syncMsg" class="muted" style="margin:4px 0"></div>
+    <div class="row"><button id="sync" class="g">지금 가져오기</button><button id="backfill" class="g">처음: 이력 채우기</button></div>
+  </div>
   <details id="cfg"><summary>연결 코드 설정</summary>
     <p class="muted">원보드 오른쪽 위 <b>알리미 연결</b>에서 복사한 코드를 붙여넣으세요.</p>
     <input id="code" type="password" placeholder="https://script.google.com/...#코드">

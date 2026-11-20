@@ -656,11 +656,11 @@ function guideDel(id) { if (!confirm('이 가이드를 삭제할까요?')) retur
 function viewPerf() {
   var who = isLead() ? ST.perfWho : '';
   call('perf', { email: who }).then(function (d) {
-    var h = '<div class="head"><div><h2>계정별 실적</h2><p>매체별·계정별 매출 변화와 AHI가 떨어질 신호를 매일 확인합니다. 금액은 공급가액(VAT 제외) 기준입니다.</p></div>'
+    var h = '<div class="head"><div><h2>계정별 실적</h2><p>MP AI 기준 매체별·계정별 매출 변화와 AHI가 떨어질 신호를 매일 확인합니다. 금액은 공급가액(VAT 제외) 기준입니다.</p></div>'
       + (isLead() ? '<select style="width:auto" onchange="ST.perfWho=this.value;viewPerf()">' + memberOpts(who, true) + '</select>' : '') + '</div>';
     if (d.empty) {
-      $('view').innerHTML = h + '<div class="empty"><b>아직 실적 데이터가 연결되지 않았어요</b>매일 아침 인트라넷 매출이 원보드 시트(<code>실적_일별</code>, <code>실적_월별</code>)로 자동으로 들어오면 여기에 표시됩니다.'
-        + (isLead() ? '<br><span class="small">담당자 이름은 <code>팀원</code> 탭의 <code>담당자명</code>과 인트라넷 담당자 이름이 같아야 합니다. 지금 찾는 이름: ' + esc(d.managers.join(', ')) + '</span>' : '') + '</div>';
+      $('view').innerHTML = h + '<div class="empty"><b>아직 실적 데이터가 연결되지 않았어요</b>팀장 크롬의 알리미가 매일 MP AI 매출을 가져오면 여기에 표시됩니다.'
+        + (isLead() ? '<br><span class="small">알리미 아이콘 → <b>처음: 이력 채우기</b>를 한 번 눌러주세요. 담당자 이름은 <code>팀원</code> 탭의 <code>담당자명</code>과 MP AI 담당자 이름이 같아야 합니다. 지금 찾는 이름: ' + esc(d.managers.join(', ')) + '</span>' : '') + '</div>';
       return;
     }
     var x = d.daily;

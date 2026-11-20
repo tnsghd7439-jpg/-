@@ -2,6 +2,8 @@
 // 10분마다 원보드에 물어보고,
 //  - 새 공지는 바로, 확인 안 한 공지는 1시간마다 다시 알림 (확인할 때까지 닫히지 않는 알림)
 //  - 오늘 할 일은 아침 알림 시각 이후 하루 한 번
+importScripts('mpai.js');
+
 const POLL_MIN = 10;
 const REMIND_MS = 60 * 60 * 1000;
 
@@ -13,6 +15,7 @@ function schedule() {
 chrome.alarms.onAlarm.addListener((a) => { if (a.name === 'poll') poll(false); });
 chrome.runtime.onMessage.addListener((msg, _s, reply) => {
   if (msg && msg.type === 'poll') { poll(true).then(reply); return true; }
+  if (msg && msg.type === 'sync') { runSync(msg.backfill).then(reply); return true; }
   return false;
 });
 
@@ -62,7 +65,29 @@ async function poll(manual) {
     if (lines.length) notify('plan', `${d.name}님, 오늘은 이것부터 해요`, lines.slice(0, 5).join('\n'), false);
     await chrome.storage.local.set({ lastTodo: d.today });
   }
+
+  // 팀장 알리미: 하루 한 번, 수집 시각 이후 MP AI 매출을 원보드로 보냄
+  if (d.role === 'lead' && d.hour >= (d.syncHour || 11)) {
+    const { syncDay } = await chrome.storage.local.get('syncDay');
+    if (syncDay !== d.today) {
+      await chrome.storage.local.set({ syncDay: d.today });
+      const r = await runSync(false);
+      if (!r.ok) notify('sync', 'MP AI 매출을 가져오지 못했어요', r.error + '\n알리미 아이콘에서 다시 시도할 수 있어요.', false);
+    }
+  }
   return d;
+}
+
+async function runSync(backfill) {
+  let out;
+  try {
+    const n = backfill ? await syncMpai(62, 7) : await syncMpai(3, 2);
+    out = { ok: true, at: Date.now(), daily: n.daily, monthly: n.monthly, backfill: !!backfill };
+  } catch (e) {
+    out = { ok: false, at: Date.now(), error: String(e && e.message || e) };
+  }
+  await chrome.storage.local.set({ syncStatus: out });
+  return out;
 }
 
 function notify(id, title, message, sticky) {
@@ -75,6 +100,7 @@ function notify(id, title, message, sticky) {
 
 chrome.notifications.onClicked.addListener(async (id) => {
   const { last } = await chrome.storage.local.get('last');
-  if (last && last.board) chrome.tabs.create({ url: last.board + '?tab=' + (id === 'notice' ? 'notice' : 'plan') });
+  if (id === 'sync') { chrome.action.openPopup && chrome.action.openPopup().catch(() => {}); }
+  else if (last && last.board) chrome.tabs.create({ url: last.board + '?tab=' + (id === 'notice' ? 'notice' : 'plan') });
   chrome.notifications.clear(id);
 });
