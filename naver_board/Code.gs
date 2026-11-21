@@ -18,8 +18,8 @@ const SCHEMA = {
               '소통시각', '기록시각'],
   '일정': ['id', '유형', '제목', '시작일', '종료일', '시간', '대상', '작성자', '메모'],
   '가이드': ['id', '매체', '구분', '제목', '내용', '링크', '순서', '수정일'],
-  '실적_일별': ['날짜', '담당자', '매체', '광고주ID', '광고주명', '매출'],
-  '실적_월별': ['월', '담당자', '매체', '광고주ID', '광고주명', '매출'],
+  '실적_일별': ['날짜', '담당자', '매체', '광고주ID', '광고주명', '매출', '출처'],
+  '실적_월별': ['월', '담당자', '매체', '광고주ID', '광고주명', '매출', '출처'],
 };
 
 const DEFAULT_SETTINGS = [
@@ -29,6 +29,9 @@ const DEFAULT_SETTINGS = [
   ['VAT포함매체', '', 'MP AI가 공급가액을 주므로 보통 비워둡니다. 넣은 매체(이름 일부만 맞아도 적용)는 1.1로 나눠 저장'],
   ['제외계정', '', '실적에서 뺄 광고주ID (쉼표로 구분). 월간보고 제외 계정과 같게'],
   ['절반반영계정', '', 'MP AI 공유 비율과 별개로 50%만 반영할 광고주ID (쉼표로 구분). 보통 비워둡니다'],
+  ['인트라넷보충매체', '11번가,카카오,에이블리', 'MP AI에 아직 없는 매체만 인트라넷에서 보충. MP AI에 들어오기 시작하면 여기서 지우세요(겹치는 기간은 자동으로 MP AI 우선)'],
+  ['수집토큰', '', '인트라넷 보충 수집기(GitHub Actions)가 보낼 때 쓰는 비밀 문자열. BOARD_TOKEN 과 같은 값'],
+  ['마지막인트라넷수집', '', '자동으로 기록됩니다'],
   ['수집시각', '11', '팀장 알리미가 MP AI 매출을 가져오는 시각(0~23시). MP AI 전일 집계 이후로'],
   ['마지막수집', '', '자동으로 기록됩니다'],
   ['아침알림시각', '9','알리미가 오늘 할 일 알림을 띄우는 시각(0~23시)'],
@@ -80,27 +83,30 @@ function api(action, payload) {
 }
 
 /**
- * 알리미(크롬 확장)가 MP AI 매출을 보내는 곳. 팀장 알리미의 연결 코드로만 받습니다.
- * 같은 날짜·같은 월 데이터는 지우고 다시 씁니다. 일별은 최근 120일만 남깁니다(월별에 이력이 남음).
- * 월간보고와 같은 기준이 되도록 '설정' 탭의 VAT·제외 계정·절반 반영 규칙을 적용해서 저장합니다.
+ * 매출을 받는 곳. 두 군데서 옵니다.
+ *  - MP AI: 팀장 알리미(크롬 확장)가 팀장 연결 코드로 보냄
+ *  - 인트라넷: 보충 수집기(mp_report/board_sync.py)가 수집토큰으로 보냄. '인트라넷보충매체'에 적힌 매체만 저장
+ * 같은 출처·같은 날짜(월) 데이터는 지우고 다시 씁니다. 일별은 최근 120일만 남깁니다(월별에 이력이 남음).
  */
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
-    const lead = members_().find(function (m) { return m.role === 'lead' && m.code && m.code === body.code; });
-    if (!lead) return json_({ ok: false, error: '팀장 알리미의 연결 코드로만 매출을 보낼 수 있습니다.' });
+    const s = settings_();
+    const lead = body.code ? members_().find(function (m) { return m.role === 'lead' && m.code && m.code === body.code; }) : null;
+    const viaToken = !lead && !!s['수집토큰'] && body.token === s['수집토큰'];
+    if (!lead && !viaToken) return json_({ ok: false, error: '팀장 알리미 연결 코드 또는 수집토큰이 맞지 않습니다.' });
+    const source = viaToken ? '인트라넷' : 'MP AI';
     return json_(locked_(function () {
       const rule = salesRules_();
-      const out = { ok: true };
+      const norm = function (rows) { return normalizeSales_(rows || [], rule, lead, source); };
+      const out = { ok: true, source: source };
       if (body.daily) {
         const keep = addDays_(today_(), -120);
-        out.daily = replaceRows_('실적_일별', '날짜', body.daily.dates || [], normalizeSales_(body.daily.rows || [], rule, lead),
+        out.daily = replaceRows_('실적_일별', '날짜', body.daily.dates || [], norm(body.daily.rows), source,
           function (v) { return v < keep; });
       }
-      if (body.monthly) {
-        out.monthly = replaceRows_('실적_월별', '월', body.monthly.months || [], normalizeSales_(body.monthly.rows || [], rule, lead));
-      }
-      update_('설정', '키', '마지막수집', { '값': now_() + ' (' + lead.name + ')' });
+      if (body.monthly) out.monthly = replaceRows_('실적_월별', '월', body.monthly.months || [], norm(body.monthly.rows), source);
+      update_('설정', '키', viaToken ? '마지막인트라넷수집' : '마지막수집', { '값': now_() + (lead ? ' (' + lead.name + ')' : '') });
       return out;
     }));
   } catch (err) {
@@ -110,39 +116,55 @@ function doPost(e) {
 
 function list_(v) { return String(v || '').split(/[,\n]/).map(function (x) { return x.trim(); }).filter(String); }
 
-function salesRules_() {
-  const s = settings_();
-  return { vat: list_(s['VAT포함매체']), exclude: list_(s['제외계정']), half: list_(s['절반반영계정']) };
+/** 매체 이름 맞추기: 띄어쓰기 무시, 11번가전시입찰은 11번가로 (월간보고 규칙) */
+function mediaKey_(name) {
+  const k = String(name || '').replace(/\s+/g, '');
+  return k.indexOf('11번가') === 0 ? '11번가' : k;
 }
 
-/** VAT 포함 매체는 1.1로 나눠 공급가액으로, 제외 계정은 빼고, 수익쉐어 계정은 50%만 */
-function normalizeSales_(rows, rule, lead) {
-  return rows.filter(function (r) { return rule.exclude.indexOf(String(r['광고주ID'])) < 0; }).map(function (r) {
+function salesRules_() {
+  const s = settings_();
+  return {
+    vat: list_(s['VAT포함매체']), exclude: list_(s['제외계정']), half: list_(s['절반반영계정']),
+    supplement: list_(s['인트라넷보충매체']).map(mediaKey_),
+  };
+}
+
+/** 제외 계정은 빼고, (MP AI만) VAT 포함 매체는 1.1로 나누고, 수익쉐어 계정은 50%만. 인트라넷은 보충 매체만 남김 */
+function normalizeSales_(rows, rule, lead, source) {
+  const intra = source === '인트라넷';
+  return rows.filter(function (r) {
+    if (rule.exclude.indexOf(String(r['광고주ID'])) >= 0) return false;
+    return !intra || rule.supplement.indexOf(mediaKey_(r['매체'])) >= 0;
+  }).map(function (r) {
     let amt = num_(r['매출']);
     const media = String(r['매체'] || '');
-    if (rule.vat.some(function (v) { return media.indexOf(v) >= 0; })) amt = amt / 1.1;
+    if (!intra && rule.vat.some(function (v) { return media.indexOf(v) >= 0; })) amt = amt / 1.1;
     if (rule.half.indexOf(String(r['광고주ID'])) >= 0) amt = amt * 0.5;
     const o = {};
     Object.keys(r).forEach(function (k) { o[k] = r[k]; });
     o['매출'] = Math.round(amt);
-    // 담당자가 비어 있으면 보낸 팀장 본인 계정입니다. 이메일로 저장해 팀원 명단과 정확히 연결합니다
-    o['담당자'] = low_(r['담당자']) || lead.email;
+    o['매체'] = intra ? mediaKey_(media) : media;
+    // MP AI는 담당자 이메일(비어 있으면 보낸 팀장 본인), 인트라넷은 담당자 이름으로 저장합니다
+    o['담당자'] = intra ? String(r['담당자'] || '').trim() : (low_(r['담당자']) || lead.email);
+    o['출처'] = source;
     return o;
   });
 }
 
-function replaceRows_(name, keyCol, keys, rows, dropIf) {
+function replaceRows_(name, keyCol, keys, rows, source, dropIf) {
   const sh = sheet_(name);
   const head = SCHEMA[name];
   const vals = sh.getDataRange().getValues();
   const cur = vals[0] && vals[0][0] !== '' ? vals.slice(1) : [];
-  const k = head.indexOf(keyCol);
+  const k = head.indexOf(keyCol), src = head.indexOf('출처');
   const set = {};
   keys.forEach(function (x) { set[String(x)] = true; });
   const kept = cur.filter(function (r) {
     const v = String(cell_(r[k])).slice(0, keyCol === '월' ? 7 : 10);
-    return v && !set[v] && !(dropIf && dropIf(v));
-  }).map(function (r) { return head.map(function (h, i) { return i === k ? String(cell_(r[i])) : r[i]; }); });
+    const rs = String(r[src] || 'MP AI');
+    return v && !(set[v] && rs === source) && !(dropIf && dropIf(v));
+  }).map(function (r) { return head.map(function (h, i) { return i === k ? String(cell_(r[i])) : (r[i] === undefined ? '' : r[i]); }); });
   const add = rows.map(function (o) { return head.map(function (h) { return h === '매출' ? num_(o[h]) : String(o[h] === undefined ? '' : o[h]); }); });
   const all = kept.concat(add);
   if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(head.length, sh.getLastColumn())).clearContent();
@@ -179,8 +201,9 @@ function setup() {
   DEFAULT_SETTINGS.forEach(function (s) {
     if (settings.indexOf(s[0]) < 0) insert_('설정', { '키': s[0], '값': s[1], '설명': s[2] });
   });
+  if (!settings_()['수집토큰']) update_('설정', '키', '수집토큰', { '값': Utilities.getUuid().replace(/-/g, '') });
   const email = (Session.getActiveUser().getEmail() || '').toLowerCase();
-  if (email &&!rows_('팀원').some(function (r) { return low_(r['이메일']) === email; })) {
+  if (email && !rows_('팀원').some(function (r) { return low_(r['이메일']) === email; })) {
     insert_('팀원', { '이메일': email, '이름': email.split('@')[0], '역할': '팀장', '담당자명': '', '사용': 'Y' });
   }
   if (!rows_('가이드').length) seedGuides_();
@@ -817,19 +840,40 @@ function baseName_(name) {
 
 /* ───────────────────────── 실적 · AHI ───────────────────────── */
 
+/**
+ * 담당자 기준으로 실적을 읽습니다. 인트라넷 행은 '인트라넷보충매체'에 있는 매체만 쓰고,
+ * 같은 기간·같은 매체를 MP AI가 이미 주고 있으면 빼서(MP AI 우선) 두 번 세지 않습니다.
+ */
 function salesRows_(managers) {
   const set = {};
-  managers.forEach(function (m) { if (m) set[m] = true; });
-  const pick = function (r) { return set[String(r['담당자'])] || set[low_(r['담당자'])]; };
+  managers.forEach(function (m) { if (m) set[low_(m)] = true; });
+  const pick = function (r) { return set[low_(r['담당자'])]; };
+  const supplement = salesRules_().supplement;
+  const migrated = {};
+  function clean(all, keyCol, len) {
+    const mpai = {};
+    all.forEach(function (r) {
+      if (String(r['출처']) === '인트라넷') return;
+      const mk = mediaKey_(r['매체']);
+      mpai[String(r[keyCol]).slice(0, len) + '|' + mk] = true;
+      if (supplement.indexOf(mk) >= 0 && num_(r['매출']) > 0) migrated[mk] = true;
+    });
+    return all.filter(function (r) {
+      if (String(r['출처']) !== '인트라넷') return true;
+      const mk = mediaKey_(r['매체']);
+      return supplement.indexOf(mk) >= 0 && !mpai[String(r[keyCol]).slice(0, len) + '|' + mk];
+    });
+  }
+  const conv = function (r, keyCol, len, outKey) {
+    const o = { media: String(r['매체']), id: String(r['광고주ID']), name: String(r['광고주명']),
+      mgr: String(r['담당자']), amt: num_(r['매출']), src: String(r['출처'] || 'MP AI') };
+    o[outKey] = String(r[keyCol]).slice(0, len);
+    return o;
+  };
   return {
-    daily: rows_('실적_일별').filter(pick).map(function (r) {
-      return { date: String(r['날짜']).slice(0, 10), media: String(r['매체']), id: String(r['광고주ID']),
-        name: String(r['광고주명']), mgr: String(r['담당자']), amt: num_(r['매출']) };
-    }),
-    monthly: rows_('실적_월별').filter(pick).map(function (r) {
-      return { month: String(r['월']).slice(0, 7), media: String(r['매체']), id: String(r['광고주ID']),
-        name: String(r['광고주명']), mgr: String(r['담당자']), amt: num_(r['매출']) };
-    }),
+    daily: clean(rows_('실적_일별'), '날짜', 10).filter(pick).map(function (r) { return conv(r, '날짜', 10, 'date'); }),
+    monthly: clean(rows_('실적_월별'), '월', 7).filter(pick).map(function (r) { return conv(r, '월', 7, 'month'); }),
+    migrated: Object.keys(migrated),
   };
 }
 
@@ -899,7 +943,7 @@ function perf_(me, p) {
   const names = {};
   data.monthly.concat(data.daily).forEach(function (r) { names[r.media + '|' + r.id] = r.name; });
 
-  const out = { empty: false, managers: managers };
+  const out = { empty: false, managers: managers, migrated: data.migrated, supplement: list_(s['인트라넷보충매체']) };
   if (data.daily.length) {
     const latest = data.daily.reduce(function (m, r) { return r.date > m ? r.date : m; }, '');
     const cm = monthOf_(latest), day = latest.slice(8, 10);
