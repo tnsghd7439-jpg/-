@@ -47,7 +47,9 @@ async function mpaiFetchRangeInPage(from, to) {
     add(all, false);
     return { ok: true, rows: rows, dataFrom: mine.dataFrom || '' };
   } catch (e) {
-    return { ok: false, error: String((e && e.message) || e) };
+    const m = String((e && e.message) || e);
+    // MP AI 구글 보안(IAP) 로그인이 만료되면 조회가 로그인 화면으로 튕겨 'Failed to fetch'가 됩니다
+    return { ok: false, expired: /Failed to fetch|NetworkError/i.test(m), error: /Failed to fetch|NetworkError/i.test(m) ? 'MP AI 로그인이 만료됐어요' : m };
   }
 }
 
@@ -112,23 +114,41 @@ async function postBoard(boardUrl, body) {
   }
 }
 
-async function mpaiTab() {
-  const tabs = await chrome.tabs.query({ url: MPAI_ORIGIN + '/*' });
-  if (tabs.length) return { tab: tabs[0], opened: false };
-  const tab = await chrome.tabs.create({ url: MPAI_ORIGIN + '/', active: false });
+/**
+ * 열려 있던 MP AI 탭은 로그인(IAP)이 만료됐을 수 있어 재사용하지 않습니다.
+ * 매번 새 탭을 뒤에서 열어 로그인을 새로 받은 뒤 조회하고, 끝나면 닫습니다.
+ */
+async function waitLoaded(tabId) {
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 500));
-    const t = await chrome.tabs.get(tab.id);
-    if (t.status === 'complete') return { tab: t, opened: true };
+    const t = await chrome.tabs.get(tabId);
+    if (t.status === 'complete') return t;
   }
-  return { tab: await chrome.tabs.get(tab.id), opened: true };
+  return chrome.tabs.get(tabId);
+}
+
+async function mpaiTab() {
+  const tab = await chrome.tabs.create({ url: MPAI_ORIGIN + '/my-advertisers', active: false });
+  return { tab: await waitLoaded(tab.id), opened: true };
 }
 
 async function mpaiRange(tabId, from, to) {
-  const [res] = await chrome.scripting.executeScript({
-    target: { tabId }, world: 'MAIN', func: mpaiFetchRangeInPage, args: [from, to],
-  });
-  const out = res && res.result;
+  const run = async () => {
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId }, world: 'MAIN', func: mpaiFetchRangeInPage, args: [from, to],
+    });
+    return res && res.result;
+  };
+  let out = await run();
+  if (out && out.expired) {
+    // 로그인이 만료됐으면 탭을 새로고침해서 로그인을 새로 받고 한 번 더
+    await chrome.tabs.reload(tabId);
+    const t = await waitLoaded(tabId);
+    if (!t.url || !t.url.startsWith(MPAI_ORIGIN)) {
+      throw new Error('MP AI 로그인이 필요해요. 크롬에서 MP AI에 다시 로그인한 뒤 지금 가져오기를 누르세요.');
+    }
+    out = await run();
+  }
   if (!out || out.ok === false) throw new Error((out && out.error) || 'MP AI 조회에 실패했어요.');
   await new Promise((r) => setTimeout(r, 300)); // MP AI에 부담 주지 않게 조회 사이 간격
   return out.rows;
