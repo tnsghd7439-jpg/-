@@ -57,7 +57,8 @@ async function mpaiFetchRangeInPage(from, to) {
 async function mpaiNoticesInPage(today) {
   try {
     const r = await fetch('/mp_notice/api/data', { credentials: 'same-origin', headers: { accept: '*/*' } });
-    if (!r.ok || (r.headers.get('content-type') || '').indexOf('json') < 0) return { ok: false, error: 'MP AI 공지 응답 오류(' + r.status + ')' };
+    const ct = r.headers.get('content-type') || '';
+    if (!r.ok || ct.indexOf('json') < 0) return { ok: false, error: 'MP AI 공지 응답 오류(' + r.status + (ct ? ', ' + ct.split(';')[0] : '') + ')' };
     const d = await r.json();
     const from = new Date(new Date(today + 'T00:00:00Z').getTime() - 60 * 864e5).toISOString().slice(0, 10);
     const keep = ['id', 'media', 'title', 'headline', 'summary', 'sales', 'url', 'published', 'impact', 'type', 'product',
@@ -68,6 +69,31 @@ async function mpaiNoticesInPage(today) {
     return { ok: true, list };
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) };
+  }
+}
+
+/**
+ * 매체 공지는 MP AI 안의 별도 앱(/mp_notice/)이라, 그 화면을 먼저 열어야 데이터를 줍니다.
+ * 공지 화면을 뒤에서 잠깐 열어 그 안에서 가져온 뒤 닫습니다.
+ */
+async function mpaiNotices(today) {
+  const tab = await chrome.tabs.create({ url: MPAI_ORIGIN + '/mp_notice/', active: false });
+  try {
+    let t = tab;
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      t = await chrome.tabs.get(tab.id);
+      if (t.status === 'complete') break;
+    }
+    if (!t.url || !t.url.startsWith(MPAI_ORIGIN + '/mp_notice')) {
+      return { ok: false, error: 'MP AI 공지 화면을 열지 못했어요(로그인 확인)' };
+    }
+    const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: 'MAIN', func: mpaiNoticesInPage, args: [today] });
+    return (res && res.result) || { ok: false, error: 'MP AI 공지 조회 결과가 없어요' };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  } finally {
+    chrome.tabs.remove(tab.id).catch(() => {});
   }
 }
 
@@ -128,8 +154,8 @@ async function syncMpai(days, months) {
       (await mpaiRange(tab.id, from, to)).forEach((r) => monthly.push(Object.assign({ 월: from.slice(0, 7) }, r)));
     }
     // 매체 공지는 실패해도 매출 전송은 계속합니다
-    const [nres] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: 'MAIN', func: mpaiNoticesInPage, args: [today] });
-    const notices = nres && nres.result && nres.result.ok ? nres.result.list : null;
+    const nres = await mpaiNotices(today);
+    const notices = nres.ok ? nres.list : null;
     const r = await fetch(boardUrl, {
       method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ code, daily: { dates, rows: daily }, monthly: { months: monthKeys, rows: monthly },
@@ -137,7 +163,7 @@ async function syncMpai(days, months) {
     });
     const res = JSON.parse(await r.text());
     if (!res.ok) throw new Error(res.error || '원보드 기록에 실패했어요.');
-    return { daily: daily.length, monthly: monthly.length, notices: notices ? notices.length : '실패' };
+    return { daily: daily.length, monthly: monthly.length, notices: notices ? notices.length : '실패(' + nres.error + ')' };
   } finally {
     if (opened) chrome.tabs.remove(tab.id).catch(() => {});
   }
