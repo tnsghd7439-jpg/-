@@ -36,6 +36,7 @@ const DEFAULT_SETTINGS = [
   ['마지막인트라넷수집', '', '자동으로 기록됩니다'],
   ['매체공지매체', '네이버,지마켓,카카오,11번가', 'MP AI 매체 공지 중 보드에 보여줄 매체(쉼표로 구분). 비우면 전부'],
   ['매체공지확인일', '7', "'조치필요' 매체 공지를 확인 대상으로 삼는 기간(게시 후 며칠). 신청 마감이 남아 있으면 기간이 지나도 대상"],
+  ['매체공지팝업매체', '네이버', '이 매체의 공지는 중요도·유형과 관계없이 확인 팝업(1시간 재알림)으로 띄웁니다(최근 게시 또는 신청 마감이 남은 것). 쉼표로 구분'],
   ['매체공지확인제외유형', '프로모션·이벤트', "'조치필요'여도 확인 팝업 없이 목록·캘린더로만 보여줄 유형(쉼표로 구분). 비우면 조치필요 전부 확인 대상"],
   ['수집시각', '11', '팀장 알리미가 MP AI 매출을 가져오는 시각(0~23시). MP AI 전일 집계 이후로'],
   ['마지막수집', '', '자동으로 기록됩니다'],
@@ -196,6 +197,13 @@ function mediaNotices_() {
 
 /** '조치필요'이면서 최근 게시됐거나 신청 마감이 남은 공지만 확인 대상 */
 function needsAck_(n, s) {
+  const days0 = num_(s['매체공지확인일'] || 7);
+  const popup = s['매체공지팝업매체'] === undefined ? ['네이버'] : list_(s['매체공지팝업매체']);
+  if (popup.indexOf(String(n['매체'])) >= 0) {
+    // 팝업 매체(기본: 네이버)는 유형과 관계없이 최근 게시분, 또는 신청 마감이 남은 조치필요·영업기회
+    return n['게시일'] >= addDays_(today_(), -days0) ||
+      (n['마감일'] >= today_() && (n['중요도'] === '조치필요' || n['중요도'] === '영업기회'));
+  }
   if (n['중요도'] !== '조치필요') return false;
   if (list_(s['매체공지확인제외유형']).indexOf(String(n['유형'])) >= 0) return false;
   const days = num_(s['매체공지확인일'] || 14);
@@ -242,7 +250,8 @@ function normalizeSales_(rows, rule, lead, source) {
     let amt = num_(r['매출']);
     const media = String(r['매체'] || '');
     if (!intra && rule.vat.some(function (v) { return media.indexOf(v) >= 0; })) amt = amt / 1.1;
-    if (rule.half.indexOf(String(r['광고주ID'])) >= 0) amt = amt * 0.5;
+    // 알리미가 MP AI 공유 비율을 이미 적용한 행은 절반 규칙을 다시 적용하지 않습니다(이중 반영 방지)
+    if (!r['공유비율'] && rule.half.indexOf(String(r['광고주ID'])) >= 0) amt = amt * 0.5;
     const o = {};
     Object.keys(r).forEach(function (k) { o[k] = r[k]; });
     o['매출'] = Math.round(amt);
@@ -250,6 +259,7 @@ function normalizeSales_(rows, rule, lead, source) {
     // MP AI는 담당자 이메일(비어 있으면 보낸 팀장 본인), 인트라넷은 담당자 이름으로 저장합니다
     o['담당자'] = intra ? String(r['담당자'] || '').trim() : (low_(r['담당자']) || lead.email);
     o['출처'] = source;
+    delete o['공유비율'];
     return o;
   });
 }

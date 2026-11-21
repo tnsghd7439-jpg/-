@@ -153,6 +153,19 @@
   .close{position:absolute;top:12px;right:12px;width:34px;height:34px;border-radius:9px;border:1.5px solid var(--line);background:#fff;font-size:18px;line-height:1}
   .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex-wrap:wrap}
   .pop{border-left:5px solid var(--warn);background:var(--warnbg);padding:10px 14px;border-radius:8px;margin-bottom:10px}
+  .pop.naver{border-left-color:#03c75a;background:#eefbf3}
+  .card.naver{border-color:#03c75a;box-shadow:inset 4px 0 0 #03c75a}
+  .card.naver.hot{background:#f3fcf6}
+  .tag.nv{background:#03c75a;color:#fff}
+  .mtabs{display:flex;gap:8px;flex-wrap:wrap}
+  .mtab{border:2px solid var(--line);background:#fff;border-radius:11px;padding:8px 16px;font-weight:800;font-size:15px;color:var(--ink2)}
+  .mtab span{font-weight:600;color:var(--ink3);font-size:13px}
+  .mtab b{margin-left:4px;background:var(--warn);color:#fff;border-radius:99px;padding:0 7px;font-size:12px}
+  .mtab.on{border-color:var(--g900);background:var(--g900);color:#fff}
+  .mtab.on span{color:#cfe5d8}
+  .mtab.naver{border-color:#03c75a;color:#03a14a}
+  .mtab.naver.on{background:#03c75a;border-color:#03c75a;color:#fff}
+  .mtab.naver.on span{color:#e6fbef}
   .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--g900);color:#fff;padding:10px 18px;border-radius:10px;font-weight:700;z-index:60;max-width:90vw;display:none}
   .toast.err{background:var(--bad)}
   .loading{color:var(--ink3);padding:30px 0}
@@ -291,7 +304,7 @@ function noticePopup() {
           + '<span class="t">' + esc(n.title) + '</span></div><div class="body">' + linkify(n.body) + '</div><div class="meta">' + esc(n.author) + ' · ' + esc(n.at) + '</div></div>';
       }).join('')
       + mun.map(function (n) {
-        return '<div class="pop"><div class="ct"><span class="tag bad">조치필요</span><span class="tag blue">' + esc(n.media) + '</span><span class="t">' + esc(n.title) + '</span></div>'
+        return '<div class="pop' + (n.media === '네이버' ? ' naver' : '') + '"><div class="ct"><span class="tag ' + ({ '조치필요': 'bad', '영업기회': 'warn' }[n.impact] || 'gray') + '">' + esc(n.impact || '참고') + '</span><span class="tag ' + (n.media === '네이버' ? 'nv' : 'blue') + '">' + esc(n.media) + '</span><span class="t">' + esc(n.title) + '</span></div>'
           + '<div class="body small">' + esc(n.summary) + '</div><div class="meta">' + esc(n.published) + (n.deadline ? ' · 마감 ' + esc(n.deadline) : '') + (n.url ? ' · <a href="' + esc(n.url) + '" target="_blank" rel="noopener">원문</a>' : '') + '</div></div>';
       }).join('')
       + '<div class="actions"><button class="btn pri" onclick="ackAll([' + un.concat(mun).map(function (n) { return '\'' + n.id + '\''; }).join(',') + '])">모두 확인했어요</button></div>');
@@ -316,6 +329,7 @@ function viewNotice() {
     if (f === '매체 공지') { $('view').innerHTML = h + mediaView(media); return; }
     var shown = list.filter(function (n) { return f === '전체' || (f === '미확인' ? !n.read : n.type === f); });
     if ((f === '전체' || f === '미확인') && munread.length) {
+      munread.sort(function (a, b) { return (b.media === '네이버') - (a.media === '네이버'); });
       h += '<h3 style="margin-top:4px">확인할 매체 공지 ' + munread.length + '건</h3>' + munread.map(mediaCard).join('') + '<div style="height:18px"></div>';
     }
     h += shown.length ? shown.map(noticeCard).join('') : (munread.length && f !== '전체' ? '' : '<div class="empty"><b>공지가 없어요</b>' + (isLead() ? '공지 쓰기로 첫 공지를 올려보세요.' : '새 공지가 올라오면 여기와 알림으로 알려드려요.') + '</div>');
@@ -324,14 +338,24 @@ function viewNotice() {
 }
 function mediaView(media) {
   if (!media.length) return '<div class="empty"><b>매체 공지가 아직 없어요</b>팀장 알리미가 매일 MP AI 매체 공지를 가져오면 여기에 표시됩니다.</div>';
-  var imp = ST.mediaImpact || '조치필요', md = ST.mediaName || '';
   var names = []; media.forEach(function (n) { if (names.indexOf(n.media) < 0) names.push(n.media); });
-  var shown = media.filter(function (n) { return (imp === '전체' || n.impact === imp) && (!md || n.media === md); });
-  return '<div class="row" style="margin-bottom:12px;justify-content:space-between"><div class="chips">' + ['조치필요', '영업기회', '참고', '전체'].map(function (c) {
-      var cnt = media.filter(function (n) { return (c === '전체' || n.impact === c) && (!md || n.media === md); }).length;
+  names.sort(function (a, b) { return (a === '네이버' ? -1 : b === '네이버' ? 1 : 0); });
+  var md = ST.mediaName && names.indexOf(ST.mediaName) >= 0 ? ST.mediaName : names[0];
+  var imp = ST.mediaImpact || '전체';
+  var inMedia = media.filter(function (n) { return n.media === md; });
+  var shown = inMedia.filter(function (n) { return imp === '전체' || n.impact === imp; });
+  var tabs = '<div class="mtabs">' + names.map(function (nm) {
+    var list = media.filter(function (n) { return n.media === nm; });
+    var un = list.filter(function (n) { return n.needAck && !n.read; }).length;
+    return '<button class="mtab' + (nm === '네이버' ? ' naver' : '') + (nm === md ? ' on' : '') + '" onclick="ST.mediaName=\'' + esc(nm) + '\';viewNotice()">'
+      + esc(nm) + ' <span>' + list.length + '</span>' + (un ? '<b>' + un + '</b>' : '') + '</button>';
+  }).join('') + '</div>';
+  return tabs
+    + '<div class="chips" style="margin:12px 0">' + ['전체', '조치필요', '영업기회', '참고'].map(function (c) {
+      var cnt = inMedia.filter(function (n) { return c === '전체' || n.impact === c; }).length;
       return '<button class="chip' + (c === imp ? ' on' : '') + '" onclick="ST.mediaImpact=\'' + c + '\';viewNotice()">' + c + ' ' + cnt + '</button>';
-    }).join('') + '</div><select style="width:auto" onchange="ST.mediaName=this.value;viewNotice()">' + opts([{ v: '', l: '매체 전체' }].concat(names), md) + '</select></div>'
-    + '<p class="muted small" style="margin:-4px 0 12px">MP AI가 모은 매체 공지(최근 60일 + 신청 마감이 남은 것)입니다. 조치필요만 확인을 받고, 신청 마감일은 캘린더에 표시됩니다.</p>'
+    }).join('') + '</div>'
+    + '<p class="muted small" style="margin:-4px 0 12px">MP AI가 모은 매체 공지(최근 60일 + 신청 마감이 남은 것)입니다. ' + (md === '네이버' ? '<b>네이버 공지는 확인 팝업으로 알려드립니다.</b> ' : '') + '신청 마감일은 캘린더에 표시됩니다.</p>'
     + (shown.length ? shown.map(mediaCard).join('') : '<p class="muted small">해당하는 공지가 없어요.</p>');
 }
 function mediaCard(n) {
@@ -341,7 +365,7 @@ function mediaCard(n) {
     var no = n.readers.filter(function (x) { return !x.read; });
     readers = '<details><summary>확인 ' + (n.readers.length - no.length) + '/' + n.readers.length + '명' + (no.length ? ' · 미확인 ' + no.map(function (x) { return esc(x.name); }).join(', ') : '') + '</summary></details>';
   }
-  return '<div class="card' + (n.needAck && !n.read ? ' hot' : '') + '"><div class="ct"><span class="tag ' + tagc + '">' + esc(n.impact || '참고') + '</span><span class="tag blue">' + esc(n.media) + '</span>'
+  return '<div class="card' + (n.media === '네이버' ? ' naver' : '') + (n.needAck && !n.read ? ' hot' : '') + '"><div class="ct"><span class="tag ' + tagc + '">' + esc(n.impact || '참고') + '</span><span class="tag blue">' + esc(n.media) + '</span>'
     + (n.type ? '<span class="tag gray">' + esc(n.type) + '</span>' : '') + '<span class="t">' + esc(n.title) + '</span></div>'
     + '<div class="meta">게시 ' + esc(n.published) + (n.deadline ? ' · <b class="down">신청 마감 ' + esc(n.deadline) + '</b>' : '') + (n.period ? ' · ' + esc(n.period) : '') + '</div>'
     + (n.summary ? '<div class="body small">' + esc(n.summary) + '</div>' : '')

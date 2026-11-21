@@ -41,7 +41,10 @@ async function mpaiFetchRangeInPage(from, to) {
         if (a.via === 'share' && teamEmails.indexOf(owner) >= 0) return;
         owner = '';
       }
-      rows.push({ 매체: m.label || m.key, 광고주ID: String(a.id), 광고주명: a.name || '', 담당자: owner, 매출: Math.round(amt) });
+      // 매출공유 계정은 MP AI의 공유 비율만큼만 반영 (월간보고 기준: 라이프밀 50% 등)
+      const ratio = a.via === 'share' && Number(a.shareRatio) > 0 && Number(a.shareRatio) < 100 ? Number(a.shareRatio) : 0;
+      const val = ratio ? amt * ratio / 100 : amt;
+      rows.push({ 매체: m.label || m.key, 광고주ID: String(a.id), 광고주명: a.name || '', 담당자: owner, 매출: Math.round(val), 공유비율: ratio || '' });
     }));
     add(mine, true);
     add(all, false);
