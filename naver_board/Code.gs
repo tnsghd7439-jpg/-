@@ -69,6 +69,7 @@ const TABS = [
 /* ───────────────────────── 웹 앱 진입점 ───────────────────────── */
 
 function doGet(e) {
+  MEMO_ = {};
   const p = (e && e.parameter) || {};
   if (p.api === 'alerts') return json_(alerts_(p.code || ''));
   return HtmlService.createHtmlOutputFromFile('Index')
@@ -78,6 +79,7 @@ function doGet(e) {
 
 /** 화면에서 google.script.run.api(action, payload) 로 부르는 단일 창구 */
 function api(action, payload) {
+  MEMO_ = {};
   try {
     const fn = ACTIONS[action];
     if (!fn) throw new Error('알 수 없는 요청입니다: ' + action);
@@ -95,6 +97,7 @@ function api(action, payload) {
  * 같은 출처·같은 날짜(월) 데이터는 지우고 다시 씁니다. 일별은 최근 120일만 남깁니다(월별에 이력이 남음).
  */
 function doPost(e) {
+  MEMO_ = {};
   try {
     const body = JSON.parse(e.postData.contents);
     const s = settings_();
@@ -155,6 +158,7 @@ function replaceIntraEvents_(sc) {
  * 수백 건을 한 줄씩 쓰면 느려서(알리미 연결이 끊김) 시트 전체를 한 번에 다시 씁니다.
  */
 function upsertMediaNotices_(list) {
+  forget_('매체공지');
   const sh = sheet_('매체공지');
   const head = SCHEMA['매체공지'];
   const vals = sh.getDataRange().getValues();
@@ -265,6 +269,7 @@ function normalizeSales_(rows, rule, lead, source) {
 }
 
 function replaceRows_(name, keyCol, keys, rows, source, dropIf) {
+  forget_(name);
   const sh = sheet_(name);
   const head = SCHEMA[name];
   const vals = sh.getDataRange().getValues();
@@ -338,7 +343,19 @@ function cell_(v) {
   return v === null || v === undefined ? '' : v;
 }
 
+/**
+ * 한 번의 요청 안에서 같은 시트를 여러 번 읽지 않도록 기억해 둡니다(요청이 끝나면 사라짐).
+ * 쓰기(insert_/update_/remove_/전체 다시 쓰기)를 하면 그 시트의 기억을 지웁니다.
+ */
+var MEMO_ = {};
+function forget_(name) { delete MEMO_[name]; }
+
 function rows_(name) {
+  if (!MEMO_[name]) MEMO_[name] = readRows_(name);
+  return MEMO_[name].map(function (o) { const c = {}; for (const k in o) c[k] = o[k]; return c; });
+}
+
+function readRows_(name) {
   const vals = sheet_(name).getDataRange().getValues();
   const head = vals.shift() || [];
   return vals.filter(function (r) { return r.some(function (c) { return c !== ''; }); }).map(function (r) {
@@ -355,12 +372,14 @@ function safe_(v) {
 }
 
 function insert_(name, obj) {
+  forget_(name);
   const sh = sheet_(name);
   const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
   sh.appendRow(head.map(function (h) { return safe_(obj[h]); }));
 }
 
 function update_(name, key, id, patch) {
+  forget_(name);
   const sh = sheet_(name);
   const vals = sh.getDataRange().getValues();
   const head = vals[0];
@@ -378,6 +397,7 @@ function update_(name, key, id, patch) {
 }
 
 function remove_(name, pred) {
+  forget_(name);
   const sh = sheet_(name);
   const vals = sh.getDataRange().getValues();
   const head = vals[0];

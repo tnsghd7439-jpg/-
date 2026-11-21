@@ -285,7 +285,7 @@ function refreshBadges() { return call('badges').then(function (b) { B.badges = 
 
 /** 보드를 열어둔 동안: 미확인 공지는 1시간마다, 오늘 할 일은 하루 한 번 팝업 */
 function nudge(first) {
-  refreshBadges().then(function (b) {
+  (first ? Promise.resolve(B.badges) : refreshBadges()).then(function (b) {
     if (b.unread) return noticePopup();
     if (first && b.todo && store('ob-todo') !== B.today) { store('ob-todo', B.today); todoPopup(); }
   }).catch(function () {});
