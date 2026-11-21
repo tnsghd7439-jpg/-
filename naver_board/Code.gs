@@ -26,9 +26,9 @@ const DEFAULT_SETTINGS = [
   ['솔루션폴더ID', '', '솔루션 파일을 올리는 구글 드라이브 폴더 주소에서 folders/ 뒤의 값'],
   ['보드주소', '', '배포한 원보드 웹 앱 주소(/exec 로 끝남). 알리미가 알림을 누르면 이 주소를 엽니다'],
   ['알림주소', '', '알리미 전용 배포 주소(/exec). 비워두면 보드주소를 씁니다'],
-  ['VAT포함매체', '네이버,네이버GFA,지마켓', 'MP AI에서 VAT 포함으로 나오는 매체(이름 일부만 맞아도 적용). 1.1로 나눠 공급가액으로 저장'],
+  ['VAT포함매체', '', 'MP AI가 공급가액을 주므로 보통 비워둡니다. 넣은 매체(이름 일부만 맞아도 적용)는 1.1로 나눠 저장'],
   ['제외계정', '', '실적에서 뺄 광고주ID (쉼표로 구분). 월간보고 제외 계정과 같게'],
-  ['절반반영계정', '', '수익쉐어라 50%만 반영할 광고주ID (쉼표로 구분)'],
+  ['절반반영계정', '', 'MP AI 공유 비율과 별개로 50%만 반영할 광고주ID (쉼표로 구분). 보통 비워둡니다'],
   ['수집시각', '11', '팀장 알리미가 MP AI 매출을 가져오는 시각(0~23시). MP AI 전일 집계 이후로'],
   ['마지막수집', '', '자동으로 기록됩니다'],
   ['아침알림시각', '9','알리미가 오늘 할 일 알림을 띄우는 시각(0~23시)'],
@@ -94,11 +94,11 @@ function doPost(e) {
       const out = { ok: true };
       if (body.daily) {
         const keep = addDays_(today_(), -120);
-        out.daily = replaceRows_('실적_일별', '날짜', body.daily.dates || [], normalizeSales_(body.daily.rows || [], rule),
+        out.daily = replaceRows_('실적_일별', '날짜', body.daily.dates || [], normalizeSales_(body.daily.rows || [], rule, lead),
           function (v) { return v < keep; });
       }
       if (body.monthly) {
-        out.monthly = replaceRows_('실적_월별', '월', body.monthly.months || [], normalizeSales_(body.monthly.rows || [], rule));
+        out.monthly = replaceRows_('실적_월별', '월', body.monthly.months || [], normalizeSales_(body.monthly.rows || [], rule, lead));
       }
       update_('설정', '키', '마지막수집', { '값': now_() + ' (' + lead.name + ')' });
       return out;
@@ -116,7 +116,7 @@ function salesRules_() {
 }
 
 /** VAT 포함 매체는 1.1로 나눠 공급가액으로, 제외 계정은 빼고, 수익쉐어 계정은 50%만 */
-function normalizeSales_(rows, rule) {
+function normalizeSales_(rows, rule, lead) {
   return rows.filter(function (r) { return rule.exclude.indexOf(String(r['광고주ID'])) < 0; }).map(function (r) {
     let amt = num_(r['매출']);
     const media = String(r['매체'] || '');
@@ -125,6 +125,8 @@ function normalizeSales_(rows, rule) {
     const o = {};
     Object.keys(r).forEach(function (k) { o[k] = r[k]; });
     o['매출'] = Math.round(amt);
+    // 담당자가 비어 있으면 보낸 팀장 본인 계정입니다. 이메일로 저장해 팀원 명단과 정확히 연결합니다
+    o['담당자'] = low_(r['담당자']) || lead.email;
     return o;
   });
 }
@@ -716,7 +718,7 @@ const ACTIONS = {
       return low_(c['이메일']) === email && c['날짜'] >= from && c['날짜'] <= to;
     }).map(function (c) { return checkView_(c, goals.find(function (g) { return g.id === c['목표id']; }) || {}); })
       .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
-    const sales = monthSales_(member.manager, month);
+    const sales = monthSales_(ids_(member), month);
     return {
       member: { name: member.name, email: member.email, manager: member.manager },
       month: month, generatedAt: now_(), goals: goalRows, checks: monthChecks, sales: sales,
@@ -818,7 +820,7 @@ function baseName_(name) {
 function salesRows_(managers) {
   const set = {};
   managers.forEach(function (m) { if (m) set[m] = true; });
-  const pick = function (r) { return set[String(r['담당자'])]; };
+  const pick = function (r) { return set[String(r['담당자'])] || set[low_(r['담당자'])]; };
   return {
     daily: rows_('실적_일별').filter(pick).map(function (r) {
       return { date: String(r['날짜']).slice(0, 10), media: String(r['매체']), id: String(r['광고주ID']),
@@ -831,13 +833,15 @@ function salesRows_(managers) {
   };
 }
 
+/** 실적의 '담당자'는 MP AI 담당자 이메일(또는 예전 방식의 이름)이라 둘 다로 찾습니다 */
+function ids_(m) { return [m.email, m.manager].filter(String); }
 function managersFor_(me, p) {
-  if (!isLead_(me)) return [me.manager];
+  if (!isLead_(me)) return ids_(me);
   if (p.email) {
     const m = members_().find(function (x) { return x.email === low_(p.email); });
-    return m ? [m.manager] : [];
+    return m ? ids_(m) : [];
   }
-  return members_().map(function (m) { return m.manager; });
+  return [].concat.apply([], members_().map(ids_));
 }
 
 /** 광고주(매체+ID) × 월 매출. 월별 시트를 우선 쓰고, 없는 달은 일별 시트로 채웁니다 */
@@ -858,8 +862,8 @@ function monthMatrix_(data) {
   return byMonth;
 }
 
-function monthSales_(manager, month) {
-  const data = salesRows_([manager]);
+function monthSales_(ids, month) {
+  const data = salesRows_(ids);
   const mat = monthMatrix_(data);
   const cur = mat[month] || {};
   const prev = mat[addMonths_(month, -1)] || {};
