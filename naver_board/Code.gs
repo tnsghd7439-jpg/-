@@ -149,27 +149,43 @@ function replaceIntraEvents_(sc) {
   return { removed: removed, added: rows.length };
 }
 
-/** MP AI 매체 공지를 id 기준으로 덮어쓰고, 게시 180일이 지난 것(마감 남은 것 제외)은 지웁니다 */
+/**
+ * MP AI 매체 공지를 id 기준으로 덮어쓰고, 게시 180일이 지난 것(마감 남은 것 제외)은 지웁니다.
+ * 수백 건을 한 줄씩 쓰면 느려서(알리미 연결이 끊김) 시트 전체를 한 번에 다시 씁니다.
+ */
 function upsertMediaNotices_(list) {
+  const sh = sheet_('매체공지');
+  const head = SCHEMA['매체공지'];
+  const vals = sh.getDataRange().getValues();
+  const cur = vals.length > 1 ? vals.slice(1) : [];
+  const col = function (name) { return head.indexOf(name); };
   const ids = {};
   list.forEach(function (n) { if (n && n.id) ids[String(n.id)] = true; });
   const old = addDays_(today_(), -180), day = today_();
-  const removed = remove_('매체공지', function (r) {
-    return ids[String(r.id)] || (r['게시일'] < old && !(r['마감일'] >= day));
-  });
-  list.forEach(function (n) {
-    if (!n || !n.id) return;
-    const d = function (v) { return isDate_(String(v || '').slice(0, 10)) ? String(v).slice(0, 10) : ''; };
-    insert_('매체공지', {
+  const kept = cur.filter(function (r) {
+    const id = String(r[col('id')] || '');
+    const pub = String(cell_(r[col('게시일')])), dl = String(cell_(r[col('마감일')]));
+    return id && !ids[id] && !(pub < old && !(dl >= day));
+  }).map(function (r) { return head.map(function (h, i) { return String(cell_(r[i])); }); });
+  const d = function (v) { return isDate_(String(v || '').slice(0, 10)) ? String(v).slice(0, 10) : ''; };
+  const add = list.filter(function (n) { return n && n.id; }).map(function (n) {
+    const o = {
       id: String(n.id), '매체': text_(n.media, 30), '제목': text_(n.title, 300),
       '요약': text_([n.headline || ''].concat(n.summary || []).filter(String).join('\n'), 2000),
       '영업포인트': text_(n.sales, 1000), '링크': text_(n.url, 500), '게시일': d(n.published),
       '중요도': text_(n.impact, 20), '유형': text_(n.type, 30), '상품': text_(n.product, 30),
       '신청시작': d(n.apply_start), '마감일': d(n.deadline), '행사시작': d(n.event_start), '행사종료': d(n.event_end),
-      '기간': text_(n.period || n.digest, 200), '수집일': today_(),
-    });
+      '기간': text_(n.period || n.digest, 200), '수집일': day,
+    };
+    return head.map(function (h) { return safe_(o[h]); });
   });
-  return { saved: Object.keys(ids).length, removed: removed };
+  const all = kept.concat(add);
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(head.length, sh.getLastColumn())).clearContent();
+  if (all.length) {
+    sh.getRange(2, 1, all.length, head.length).setNumberFormat('@');
+    sh.getRange(2, 1, all.length, head.length).setValues(all);
+  }
+  return { saved: add.length, total: all.length };
 }
 
 /** 보드에 보여줄 매체 공지 (설정의 매체만) */

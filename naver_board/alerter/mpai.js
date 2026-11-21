@@ -97,6 +97,21 @@ async function mpaiNotices(today) {
   }
 }
 
+async function postBoard(boardUrl, body) {
+  let r;
+  try {
+    r = await fetch(boardUrl, {
+      method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body),
+    });
+  } catch (e) {
+    throw new Error('원보드에 보내는 중 연결이 끊겼어요(' + String((e && e.message) || e) + ')');
+  }
+  const text = await r.text();
+  try { return JSON.parse(text); } catch (e) {
+    throw new Error('원보드 응답을 읽지 못했어요(' + r.status + '). 외부연결용 배포가 최신 버전인지 확인하세요.');
+  }
+}
+
 async function mpaiTab() {
   const tabs = await chrome.tabs.query({ url: MPAI_ORIGIN + '/*' });
   if (tabs.length) return { tab: tabs[0], opened: false };
@@ -153,17 +168,21 @@ async function syncMpai(days, months) {
       monthKeys.push(from.slice(0, 7));
       (await mpaiRange(tab.id, from, to)).forEach((r) => monthly.push(Object.assign({ 월: from.slice(0, 7) }, r)));
     }
-    // 매체 공지는 실패해도 매출 전송은 계속합니다
-    const nres = await mpaiNotices(today);
-    const notices = nres.ok ? nres.list : null;
-    const r = await fetch(boardUrl, {
-      method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ code, daily: { dates, rows: daily }, monthly: { months: monthKeys, rows: monthly },
-        mediaNotices: notices || undefined }),
-    });
-    const res = JSON.parse(await r.text());
+    // 1) 매출 먼저 저장
+    const res = await postBoard(boardUrl, { code, daily: { dates, rows: daily }, monthly: { months: monthKeys, rows: monthly } });
     if (!res.ok) throw new Error(res.error || '원보드 기록에 실패했어요.');
-    return { daily: daily.length, monthly: monthly.length, notices: notices ? notices.length : '실패(' + nres.error + ')' };
+    // 2) 매체 공지는 따로 보냅니다. 실패해도 매출은 이미 저장돼 있습니다
+    let noticeMsg;
+    try {
+      const nres = await mpaiNotices(today);
+      if (!nres.ok) throw new Error(nres.error);
+      const nr = await postBoard(boardUrl, { code, mediaNotices: nres.list });
+      if (!nr.ok) throw new Error(nr.error || '원보드 공지 기록 실패');
+      noticeMsg = nres.list.length;
+    } catch (e) {
+      noticeMsg = '실패(' + String((e && e.message) || e) + ')';
+    }
+    return { daily: daily.length, monthly: monthly.length, notices: noticeMsg };
   } finally {
     if (opened) chrome.tabs.remove(tab.id).catch(() => {});
   }

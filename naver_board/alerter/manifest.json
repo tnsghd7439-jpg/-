@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "원보드 알리미",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "네이버 전담팀 원보드의 미확인 공지와 오늘 할 일을 보드 창을 닫아도 알려줍니다.",
   "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },
   "action": { "default_popup": "popup.html", "default_title": "원보드 알리미" },
