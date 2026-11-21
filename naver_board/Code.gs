@@ -36,6 +36,7 @@ const DEFAULT_SETTINGS = [
   ['마지막인트라넷수집', '', '자동으로 기록됩니다'],
   ['매체공지매체', '네이버,지마켓,카카오,11번가', 'MP AI 매체 공지 중 보드에 보여줄 매체(쉼표로 구분). 비우면 전부'],
   ['매체공지확인일', '7', "'조치필요' 매체 공지를 확인 대상으로 삼는 기간(게시 후 며칠). 신청 마감이 남아 있으면 기간이 지나도 대상"],
+  ['매체공지팝업매체', '네이버', '이 매체의 공지는 중요도·유형과 관계없이 확인 팝업(1시간 재알림)으로 띄웁니다(최근 게시 또는 신청 마감이 남은 것). 쉼표로 구분'],
   ['매체공지확인제외유형', '프로모션·이벤트', "'조치필요'여도 확인 팝업 없이 목록·캘린더로만 보여줄 유형(쉼표로 구분). 비우면 조치필요 전부 확인 대상"],
   ['수집시각', '11', '팀장 알리미가 MP AI 매출을 가져오는 시각(0~23시). MP AI 전일 집계 이후로'],
   ['마지막수집', '', '자동으로 기록됩니다'],
@@ -68,6 +69,7 @@ const TABS = [
 /* ───────────────────────── 웹 앱 진입점 ───────────────────────── */
 
 function doGet(e) {
+  MEMO_ = {};
   const p = (e && e.parameter) || {};
   if (p.api === 'alerts') return json_(alerts_(p.code || ''));
   return HtmlService.createHtmlOutputFromFile('Index')
@@ -77,6 +79,7 @@ function doGet(e) {
 
 /** 화면에서 google.script.run.api(action, payload) 로 부르는 단일 창구 */
 function api(action, payload) {
+  MEMO_ = {};
   try {
     const fn = ACTIONS[action];
     if (!fn) throw new Error('알 수 없는 요청입니다: ' + action);
@@ -94,6 +97,7 @@ function api(action, payload) {
  * 같은 출처·같은 날짜(월) 데이터는 지우고 다시 씁니다. 일별은 최근 120일만 남깁니다(월별에 이력이 남음).
  */
 function doPost(e) {
+  MEMO_ = {};
   try {
     const body = JSON.parse(e.postData.contents);
     const s = settings_();
@@ -149,27 +153,44 @@ function replaceIntraEvents_(sc) {
   return { removed: removed, added: rows.length };
 }
 
-/** MP AI 매체 공지를 id 기준으로 덮어쓰고, 게시 180일이 지난 것(마감 남은 것 제외)은 지웁니다 */
+/**
+ * MP AI 매체 공지를 id 기준으로 덮어쓰고, 게시 180일이 지난 것(마감 남은 것 제외)은 지웁니다.
+ * 수백 건을 한 줄씩 쓰면 느려서(알리미 연결이 끊김) 시트 전체를 한 번에 다시 씁니다.
+ */
 function upsertMediaNotices_(list) {
+  forget_('매체공지');
+  const sh = sheet_('매체공지');
+  const head = SCHEMA['매체공지'];
+  const vals = sh.getDataRange().getValues();
+  const cur = vals.length > 1 ? vals.slice(1) : [];
+  const col = function (name) { return head.indexOf(name); };
   const ids = {};
   list.forEach(function (n) { if (n && n.id) ids[String(n.id)] = true; });
   const old = addDays_(today_(), -180), day = today_();
-  const removed = remove_('매체공지', function (r) {
-    return ids[String(r.id)] || (r['게시일'] < old && !(r['마감일'] >= day));
-  });
-  list.forEach(function (n) {
-    if (!n || !n.id) return;
-    const d = function (v) { return isDate_(String(v || '').slice(0, 10)) ? String(v).slice(0, 10) : ''; };
-    insert_('매체공지', {
+  const kept = cur.filter(function (r) {
+    const id = String(r[col('id')] || '');
+    const pub = String(cell_(r[col('게시일')])), dl = String(cell_(r[col('마감일')]));
+    return id && !ids[id] && !(pub < old && !(dl >= day));
+  }).map(function (r) { return head.map(function (h, i) { return String(cell_(r[i])); }); });
+  const d = function (v) { return isDate_(String(v || '').slice(0, 10)) ? String(v).slice(0, 10) : ''; };
+  const add = list.filter(function (n) { return n && n.id; }).map(function (n) {
+    const o = {
       id: String(n.id), '매체': text_(n.media, 30), '제목': text_(n.title, 300),
       '요약': text_([n.headline || ''].concat(n.summary || []).filter(String).join('\n'), 2000),
       '영업포인트': text_(n.sales, 1000), '링크': text_(n.url, 500), '게시일': d(n.published),
       '중요도': text_(n.impact, 20), '유형': text_(n.type, 30), '상품': text_(n.product, 30),
       '신청시작': d(n.apply_start), '마감일': d(n.deadline), '행사시작': d(n.event_start), '행사종료': d(n.event_end),
-      '기간': text_(n.period || n.digest, 200), '수집일': today_(),
-    });
+      '기간': text_(n.period || n.digest, 200), '수집일': day,
+    };
+    return head.map(function (h) { return safe_(o[h]); });
   });
-  return { saved: Object.keys(ids).length, removed: removed };
+  const all = kept.concat(add);
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(head.length, sh.getLastColumn())).clearContent();
+  if (all.length) {
+    sh.getRange(2, 1, all.length, head.length).setNumberFormat('@');
+    sh.getRange(2, 1, all.length, head.length).setValues(all);
+  }
+  return { saved: add.length, total: all.length };
 }
 
 /** 보드에 보여줄 매체 공지 (설정의 매체만) */
@@ -180,6 +201,13 @@ function mediaNotices_() {
 
 /** '조치필요'이면서 최근 게시됐거나 신청 마감이 남은 공지만 확인 대상 */
 function needsAck_(n, s) {
+  const days0 = num_(s['매체공지확인일'] || 7);
+  const popup = s['매체공지팝업매체'] === undefined ? ['네이버'] : list_(s['매체공지팝업매체']);
+  if (popup.indexOf(String(n['매체'])) >= 0) {
+    // 팝업 매체(기본: 네이버)는 유형과 관계없이 최근 게시분, 또는 신청 마감이 남은 조치필요·영업기회
+    return n['게시일'] >= addDays_(today_(), -days0) ||
+      (n['마감일'] >= today_() && (n['중요도'] === '조치필요' || n['중요도'] === '영업기회'));
+  }
   if (n['중요도'] !== '조치필요') return false;
   if (list_(s['매체공지확인제외유형']).indexOf(String(n['유형'])) >= 0) return false;
   const days = num_(s['매체공지확인일'] || 14);
@@ -226,7 +254,8 @@ function normalizeSales_(rows, rule, lead, source) {
     let amt = num_(r['매출']);
     const media = String(r['매체'] || '');
     if (!intra && rule.vat.some(function (v) { return media.indexOf(v) >= 0; })) amt = amt / 1.1;
-    if (rule.half.indexOf(String(r['광고주ID'])) >= 0) amt = amt * 0.5;
+    // 알리미가 MP AI 공유 비율을 이미 적용한 행은 절반 규칙을 다시 적용하지 않습니다(이중 반영 방지)
+    if (!r['공유비율'] && rule.half.indexOf(String(r['광고주ID'])) >= 0) amt = amt * 0.5;
     const o = {};
     Object.keys(r).forEach(function (k) { o[k] = r[k]; });
     o['매출'] = Math.round(amt);
@@ -234,11 +263,13 @@ function normalizeSales_(rows, rule, lead, source) {
     // MP AI는 담당자 이메일(비어 있으면 보낸 팀장 본인), 인트라넷은 담당자 이름으로 저장합니다
     o['담당자'] = intra ? String(r['담당자'] || '').trim() : (low_(r['담당자']) || lead.email);
     o['출처'] = source;
+    delete o['공유비율'];
     return o;
   });
 }
 
 function replaceRows_(name, keyCol, keys, rows, source, dropIf) {
+  forget_(name);
   const sh = sheet_(name);
   const head = SCHEMA[name];
   const vals = sh.getDataRange().getValues();
@@ -312,7 +343,19 @@ function cell_(v) {
   return v === null || v === undefined ? '' : v;
 }
 
+/**
+ * 한 번의 요청 안에서 같은 시트를 여러 번 읽지 않도록 기억해 둡니다(요청이 끝나면 사라짐).
+ * 쓰기(insert_/update_/remove_/전체 다시 쓰기)를 하면 그 시트의 기억을 지웁니다.
+ */
+var MEMO_ = {};
+function forget_(name) { delete MEMO_[name]; }
+
 function rows_(name) {
+  if (!MEMO_[name]) MEMO_[name] = readRows_(name);
+  return MEMO_[name].map(function (o) { const c = {}; for (const k in o) c[k] = o[k]; return c; });
+}
+
+function readRows_(name) {
   const vals = sheet_(name).getDataRange().getValues();
   const head = vals.shift() || [];
   return vals.filter(function (r) { return r.some(function (c) { return c !== ''; }); }).map(function (r) {
@@ -329,12 +372,14 @@ function safe_(v) {
 }
 
 function insert_(name, obj) {
+  forget_(name);
   const sh = sheet_(name);
   const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
   sh.appendRow(head.map(function (h) { return safe_(obj[h]); }));
 }
 
 function update_(name, key, id, patch) {
+  forget_(name);
   const sh = sheet_(name);
   const vals = sh.getDataRange().getValues();
   const head = vals[0];
@@ -352,6 +397,7 @@ function update_(name, key, id, patch) {
 }
 
 function remove_(name, pred) {
+  forget_(name);
   const sh = sheet_(name);
   const vals = sh.getDataRange().getValues();
   const head = vals[0];
