@@ -82,7 +82,7 @@ async function runSync(backfill) {
   let out;
   try {
     const n = backfill ? await syncMpai(62, 7) : await syncMpai(3, 2);
-    out = { ok: true, at: Date.now(), daily: n.daily, monthly: n.monthly, backfill: !!backfill };
+    out = { ok: true, at: Date.now(), daily: n.daily, monthly: n.monthly, notices: n.notices, backfill: !!backfill };
   } catch (e) {
     out = { ok: false, at: Date.now(), error: String(e && e.message || e) };
   }

@@ -16,7 +16,7 @@ function render(d, at) {
     $('syncBox').style.display = 'block';
     chrome.storage.local.get('syncStatus', ({ syncStatus: x }) => {
       $('syncMsg').textContent = !x ? `매일 ${d.syncHour || 11}시 이후 자동으로 가져와요.`
-        : x.ok ? `마지막 성공 ${new Date(x.at).toLocaleString('ko-KR')} · 일별 ${x.daily}행, 월별 ${x.monthly}행`
+        : x.ok ? `마지막 성공 ${new Date(x.at).toLocaleString('ko-KR')} · 일별 ${x.daily}행, 월별 ${x.monthly}행, 매체 공지 ${x.notices ?? '-'}건`
           : `실패: ${x.error}`;
     });
   }
@@ -41,7 +41,7 @@ $('save').onclick = () => {
 function sync(backfill) {
   $('syncMsg').textContent = backfill ? '최근 62일·7개월을 가져오는 중이에요. 몇 분 걸릴 수 있어요…' : '가져오는 중…';
   chrome.runtime.sendMessage({ type: 'sync', backfill }, (x) => {
-    $('syncMsg').textContent = x && x.ok ? `완료 · 일별 ${x.daily}행, 월별 ${x.monthly}행` : `실패: ${x ? x.error : '알 수 없는 오류'}`;
+    $('syncMsg').textContent = x && x.ok ? `완료 · 일별 ${x.daily}행, 월별 ${x.monthly}행, 매체 공지 ${x.notices ?? '-'}건` : `실패: ${x ? x.error : '알 수 없는 오류'}`;
   });
 }
 $('sync').onclick = () => sync(false);

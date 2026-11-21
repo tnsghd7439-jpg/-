@@ -51,6 +51,26 @@ async function mpaiFetchRangeInPage(from, to) {
   }
 }
 
+/**
+ * MP AI 매체 공지(/mp_notice/api/data). 최근 60일 게시분과 신청 마감이 남은 것만 보냅니다.
+ */
+async function mpaiNoticesInPage(today) {
+  try {
+    const r = await fetch('/mp_notice/api/data', { credentials: 'same-origin', headers: { accept: '*/*' } });
+    if (!r.ok || (r.headers.get('content-type') || '').indexOf('json') < 0) return { ok: false, error: 'MP AI 공지 응답 오류(' + r.status + ')' };
+    const d = await r.json();
+    const from = new Date(new Date(today + 'T00:00:00Z').getTime() - 60 * 864e5).toISOString().slice(0, 10);
+    const keep = ['id', 'media', 'title', 'headline', 'summary', 'sales', 'url', 'published', 'impact', 'type', 'product',
+      'apply_start', 'deadline', 'event_start', 'event_end', 'period', 'digest'];
+    const list = (d.notices || []).filter((n) => (n.published || '') >= from || (n.deadline || '') >= today).map((n) => {
+      const o = {}; keep.forEach((k) => { o[k] = n[k]; }); return o;
+    });
+    return { ok: true, list };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+}
+
 async function mpaiTab() {
   const tabs = await chrome.tabs.query({ url: MPAI_ORIGIN + '/*' });
   if (tabs.length) return { tab: tabs[0], opened: false };
@@ -107,13 +127,17 @@ async function syncMpai(days, months) {
       monthKeys.push(from.slice(0, 7));
       (await mpaiRange(tab.id, from, to)).forEach((r) => monthly.push(Object.assign({ 월: from.slice(0, 7) }, r)));
     }
+    // 매체 공지는 실패해도 매출 전송은 계속합니다
+    const [nres] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: 'MAIN', func: mpaiNoticesInPage, args: [today] });
+    const notices = nres && nres.result && nres.result.ok ? nres.result.list : null;
     const r = await fetch(boardUrl, {
       method: 'POST', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ code, daily: { dates, rows: daily }, monthly: { months: monthKeys, rows: monthly } }),
+      body: JSON.stringify({ code, daily: { dates, rows: daily }, monthly: { months: monthKeys, rows: monthly },
+        mediaNotices: notices || undefined }),
     });
     const res = JSON.parse(await r.text());
     if (!res.ok) throw new Error(res.error || '원보드 기록에 실패했어요.');
-    return { daily: daily.length, monthly: monthly.length };
+    return { daily: daily.length, monthly: monthly.length, notices: notices ? notices.length : '실패' };
   } finally {
     if (opened) chrome.tabs.remove(tab.id).catch(() => {});
   }
