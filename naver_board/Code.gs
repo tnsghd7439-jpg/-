@@ -106,12 +106,41 @@ function doPost(e) {
           function (v) { return v < keep; });
       }
       if (body.monthly) out.monthly = replaceRows_('실적_월별', '월', body.monthly.months || [], norm(body.monthly.rows), source);
+      if (body.schedules && viaToken) out.schedules = replaceIntraEvents_(body.schedules);
       update_('설정', '키', viaToken ? '마지막인트라넷수집' : '마지막수집', { '값': now_() + (lead ? ' (' + lead.name + ')' : '') });
       return out;
     }));
   } catch (err) {
     return json_({ ok: false, error: String(err && err.message || err) });
   }
+}
+
+/**
+ * 인트라넷 근태·외근을 캘린더 '일정' 시트에 넣습니다. 작성자 '인트라넷' 행만 기간 안에서 지우고 다시 씁니다.
+ * 대상(직원 이름)은 팀원 명단의 담당자명·이름으로 이메일을 찾아 저장합니다.
+ */
+function replaceIntraEvents_(sc) {
+  const from = String(sc.from || ''), to = String(sc.to || '');
+  if (!isDate_(from) || !isDate_(to)) throw new Error('일정 기간이 올바르지 않습니다.');
+  const removed = remove_('일정', function (e) {
+    return e['작성자'] === '인트라넷' && e['시작일'] <= to && (e['종료일'] || e['시작일']) >= from;
+  });
+  const mem = members_();
+  const find = function (name) {
+    const n = String(name || '').trim();
+    const m = mem.find(function (x) { return x.manager === n || x.name === n; });
+    return m ? m.email : '';
+  };
+  const rows = (sc.rows || []).filter(function (r) { return isDate_(r['시작일']); });
+  rows.forEach(function (r) {
+    const type = ['외근', '근태', '개인'].indexOf(r['유형']) >= 0 ? r['유형'] : '근태';
+    insert_('일정', {
+      id: 'in' + uid_(), '유형': type, '제목': text_(r['제목'], 200), '시작일': r['시작일'],
+      '종료일': isDate_(r['종료일']) ? r['종료일'] : r['시작일'], '시간': text_(r['시간'], 40),
+      '대상': find(r['대상']), '작성자': '인트라넷', '메모': text_(r['메모'], 500),
+    });
+  });
+  return { removed: removed, added: rows.length };
 }
 
 function list_(v) { return String(v || '').split(/[,\n]/).map(function (x) { return x.trim(); }).filter(String); }
@@ -590,7 +619,7 @@ const ACTIONS = {
       return {
         id: e.id, type: e['유형'], title: e['제목'], start: e['시작일'], end: e['종료일'] || e['시작일'],
         time: e['시간'], who: e['대상'] ? nameOf_(e['대상']) : '', author: e['작성자'], memo: e['메모'],
-        mine: e['작성자'] === me.name || low_(e['대상']) === me.email,
+        mine: e['작성자'] === me.name || low_(e['대상']) === me.email, intra: e['작성자'] === '인트라넷',
       };
     });
     const goals = rows_('목표');
@@ -627,7 +656,7 @@ const ACTIONS = {
 
   eventDelete: function (me, p) {
     return locked_(function () {
-      remove_('일정', function (e) { return e.id === p.id && (isLead_(me) || e['작성자'] === me.name); });
+      remove_('일정', function (e) { return e.id === p.id && e['작성자'] !== '인트라넷' && (isLead_(me) || e['작성자'] === me.name); });
       return true;
     });
   },

@@ -132,6 +132,7 @@
   .ev.팀{background:var(--g100);color:var(--g800)} .ev.개인{background:#e2f4f1;color:var(--teal)}
   .ev.미팅{background:var(--bluebg);color:var(--blue)} .ev.프로모션{background:var(--warnbg);color:var(--warn)}
   .ev.마감{background:#eef1ef;color:var(--ink)}
+  .ev.외근{background:#efe9fb;color:#5b3fa8} .ev.근태{background:#fdf0f4;color:#a8325b}
   .ck{font-size:11.5px;font-weight:800;margin-top:auto}
   .ck .o{color:var(--g600)} .ck .x{color:var(--bad)}
   .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);margin:10px 0}
@@ -526,7 +527,7 @@ function viewCalendar() {
     var a = first.split('-').map(Number), w = new Date(Date.UTC(a[0], a[1] - 1, 1)).getUTCDay();
     var startDay = addDays(first, -w);
     var ok = d.checks.filter(function (c) { return c.result === '달성'; }).length, fl = d.checks.length - ok;
-    var h = '<div class="head"><div><h2>캘린더</h2><p>팀·개인·미팅·프로모션 일정과 목표 마감, 일일 달성/실패가 함께 표시됩니다.</p></div>'
+    var h = '<div class="head"><div><h2>캘린더</h2><p>팀·개인·미팅·프로모션 일정, 인트라넷 근태·외근, 목표 마감, 일일 달성/실패가 함께 표시됩니다.</p></div>'
       + '<button class="btn pri" onclick="eventForm()">일정 추가</button></div>'
       + '<div class="row" style="justify-content:space-between;margin-bottom:10px"><div class="row"><button class="btn ghost sm" aria-label="이전 달" onclick="ST.calMonth=addMonths(ST.calMonth,-1);viewCalendar()">◀</button>'
       + '<b style="font-size:19px">' + Number(d.month.slice(0, 4)) + '년 ' + Number(d.month.slice(5)) + '월</b>'
@@ -539,7 +540,7 @@ function viewCalendar() {
       d.checks.forEach(function (c) { by[c.who] = by[c.who] || { o: 0, x: 0 }; c.result === '달성' ? by[c.who].o++ : by[c.who].x++; });
       h += '<div class="chips" style="margin-bottom:6px">' + Object.keys(by).map(function (k) { return '<span class="tag gray">' + esc(k) + ' <span class="up">✓' + by[k].o + '</span> <span class="down">✗' + by[k].x + '</span></span>'; }).join('') + '</div>';
     }
-    h += '<div class="legend"><span class="ev 팀">팀</span><span class="ev 개인">개인</span><span class="ev 미팅">미팅</span><span class="ev 프로모션">프로모션</span><span class="ev 마감">목표 마감</span><span><span class="up">✓달성</span> <span class="down">✗실패</span></span></div>';
+    h += '<div class="legend"><span class="ev 팀">팀</span><span class="ev 개인">개인</span><span class="ev 미팅">미팅</span><span class="ev 프로모션">프로모션</span><span class="ev 외근">외근</span><span class="ev 근태">근태</span><span class="ev 마감">목표 마감</span><span><span class="up">✓달성</span> <span class="down">✗실패</span></span></div>';
     h += '<div class="cal">' + ['일', '월', '화', '수', '목', '금', '토'].map(function (x) { return '<div class="dow">' + x + '</div>'; }).join('');
     for (var i = 0; i < 42; i++) {
       var day = addDays(startDay, i);
@@ -570,7 +571,8 @@ function dayDetail(day) {
   h += evs.map(function (e) {
     return '<div class="card"><div class="ct"><span class="ev ' + esc(e.type) + '">' + esc(e.type) + '</span><span class="t">' + esc(e.title) + '</span>' + (e.time ? '<span class="muted small">' + esc(e.time) + '</span>' : '') + '</div>'
       + '<div class="meta">' + (e.start !== e.end ? md(e.start) + ' ~ ' + md(e.end) + ' · ' : '') + (e.who ? esc(e.who) + ' · ' : '') + '등록 ' + esc(e.author) + '</div>' + (e.memo ? '<div class="body">' + esc(e.memo) + '</div>' : '')
-      + ((e.mine || isLead()) ? '<div class="row" style="margin-top:8px"><button class="btn ghost sm" onclick="eventForm(\'' + e.id + '\')">수정</button><button class="btn ghost sm" onclick="eventDel(\'' + e.id + '\')">삭제</button></div>' : '') + '</div>';
+      + (e.intra ? '<div class="meta">인트라넷에서 자동으로 가져온 일정입니다. 바꾸려면 인트라넷에서 고치세요.</div>'
+        : (e.mine || isLead()) ? '<div class="row" style="margin-top:8px"><button class="btn ghost sm" onclick="eventForm(\'' + e.id + '\')">수정</button><button class="btn ghost sm" onclick="eventDel(\'' + e.id + '\')">삭제</button></div>' : '') + '</div>';
   }).join('');
   h += dl.map(function (x) { return '<div class="card"><span class="ev 마감">목표 마감</span> <b>' + esc(x.title) + '</b> <span class="muted small">' + esc(x.who) + ' · ' + esc(x.period) + ' 목표</span></div>'; }).join('');
   if (cks.length) h += '<div class="scroll" style="margin-top:10px"><table class="tbl"><tr><th>팀원</th><th>목표</th><th>결과</th><th>사유·메모</th><th>소통</th></tr>' + cks.map(function (c) {
