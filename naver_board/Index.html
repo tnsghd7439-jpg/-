@@ -90,7 +90,7 @@
   details[open] summary{margin-bottom:4px}
   .cols{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
   .empty{border:2px dashed var(--line);border-radius:14px;padding:30px;text-align:center;color:var(--ink2)}
-  .empty b{display:block;color:var(--ink);font-size:16px;margin-bottom:4px}
+  .empty>b{display:block;color:var(--ink);font-size:16px;margin-bottom:4px}
 
   /* 숫자 띠 */
   .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));border:2px solid var(--g900);border-radius:14px;overflow:hidden}
@@ -132,6 +132,7 @@
   .ev.팀{background:var(--g100);color:var(--g800)} .ev.개인{background:#e2f4f1;color:var(--teal)}
   .ev.미팅{background:var(--bluebg);color:var(--blue)} .ev.프로모션{background:var(--warnbg);color:var(--warn)}
   .ev.마감{background:#eef1ef;color:var(--ink)}
+  .ev.외근{background:#efe9fb;color:#5b3fa8} .ev.근태{background:#fdf0f4;color:#a8325b} .ev.매체{background:#fff1dc;color:#9a5b00}
   .ck{font-size:11.5px;font-weight:800;margin-top:auto}
   .ck .o{color:var(--g600)} .ck .x{color:var(--bad)}
   .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);margin:10px 0}
@@ -279,15 +280,21 @@ function nudge(first) {
 
 /* ───────── 공지사항 ───────── */
 function noticePopup() {
-  call('noticeList').then(function (list) {
-    var un = list.filter(function (n) { return !n.read; });
-    if (!un.length || !$('modal').hidden) return;
-    openModal('<h3>확인하지 않은 공지가 ' + un.length + '건 있어요</h3><p class="muted small" style="margin:4px 0 12px">확인을 누르기 전까지 1시간마다 다시 알려드려요.</p>'
+  Promise.all([call('noticeList'), call('mediaNoticeList')]).then(function (r) {
+    var un = r[0].filter(function (n) { return !n.read; });
+    var mun = r[1].filter(function (n) { return n.needAck && !n.read; });
+    var total = un.length + mun.length;
+    if (!total || !$('modal').hidden) return;
+    openModal('<h3>확인하지 않은 공지가 ' + total + '건 있어요</h3><p class="muted small" style="margin:4px 0 12px">확인을 누르기 전까지 1시간마다 다시 알려드려요.</p>'
       + un.map(function (n) {
         return '<div class="pop"><div class="ct"><span class="tag' + (n.type === '회사 공지' ? ' blue' : '') + '">' + esc(n.type) + '</span>' + (n.important ? '<span class="tag bad">중요</span>' : '')
           + '<span class="t">' + esc(n.title) + '</span></div><div class="body">' + linkify(n.body) + '</div><div class="meta">' + esc(n.author) + ' · ' + esc(n.at) + '</div></div>';
       }).join('')
-      + '<div class="actions"><button class="btn pri" onclick="ackAll([' + un.map(function (n) { return '\'' + n.id + '\''; }).join(',') + '])">모두 확인했어요</button></div>');
+      + mun.map(function (n) {
+        return '<div class="pop"><div class="ct"><span class="tag bad">조치필요</span><span class="tag blue">' + esc(n.media) + '</span><span class="t">' + esc(n.title) + '</span></div>'
+          + '<div class="body small">' + esc(n.summary) + '</div><div class="meta">' + esc(n.published) + (n.deadline ? ' · 마감 ' + esc(n.deadline) : '') + (n.url ? ' · <a href="' + esc(n.url) + '" target="_blank" rel="noopener">원문</a>' : '') + '</div></div>';
+      }).join('')
+      + '<div class="actions"><button class="btn pri" onclick="ackAll([' + un.concat(mun).map(function (n) { return '\'' + n.id + '\''; }).join(',') + '])">모두 확인했어요</button></div>');
   });
 }
 function ackAll(ids) {
@@ -295,17 +302,53 @@ function ackAll(ids) {
 }
 
 function viewNotice() {
-  call('noticeList').then(function (list) {
+  Promise.all([call('noticeList'), call('mediaNoticeList')]).then(function (r) {
+    var list = r[0], media = r[1];
+    window._notices = list; window._media = media;
     var f = ST.noticeFilter;
-    var shown = list.filter(function (n) { return f === '전체' || (f === '미확인' ? !n.read : n.type === f); });
-    $('view').innerHTML = '<div class="head"><div><h2>공지사항</h2><p>팀장 공지와 회사 공지를 모아 봅니다. 읽고 나면 꼭 확인을 눌러주세요.</p></div>'
+    var munread = media.filter(function (n) { return n.needAck && !n.read; });
+    var h = '<div class="head"><div><h2>공지사항</h2><p>팀장 공지, 회사 공지, MP AI 매체 공지를 모아 봅니다. 확인이 필요한 공지는 읽고 꼭 확인을 눌러주세요.</p></div>'
       + (isLead() ? '<button class="btn pri" onclick="noticeForm()">공지 쓰기</button>' : '') + '</div>'
-      + '<div class="chips" style="margin-bottom:14px">' + ['전체', '미확인', '팀장 공지', '회사 공지'].map(function (c) {
-        return '<button class="chip' + (c === f ? ' on' : '') + '" onclick="ST.noticeFilter=\'' + c + '\';viewNotice()">' + c + '</button>';
-      }).join('') + '</div>'
-      + (shown.length ? shown.map(noticeCard).join('') : '<div class="empty"><b>공지가 없어요</b>' + (isLead() ? '공지 쓰기로 첫 공지를 올려보세요.' : '새 공지가 올라오면 여기와 알림으로 알려드려요.') + '</div>');
-    window._notices = list;
+      + '<div class="chips" style="margin-bottom:14px">' + ['전체', '미확인', '팀장 공지', '회사 공지', '매체 공지'].map(function (c) {
+        var n = c === '매체 공지' && munread.length ? ' <b>' + munread.length + '</b>' : '';
+        return '<button class="chip' + (c === f ? ' on' : '') + '" onclick="ST.noticeFilter=\'' + c + '\';viewNotice()">' + c + n + '</button>';
+      }).join('') + '</div>';
+    if (f === '매체 공지') { $('view').innerHTML = h + mediaView(media); return; }
+    var shown = list.filter(function (n) { return f === '전체' || (f === '미확인' ? !n.read : n.type === f); });
+    if ((f === '전체' || f === '미확인') && munread.length) {
+      h += '<h3 style="margin-top:4px">확인할 매체 공지 ' + munread.length + '건</h3>' + munread.map(mediaCard).join('') + '<div style="height:18px"></div>';
+    }
+    h += shown.length ? shown.map(noticeCard).join('') : (munread.length && f !== '전체' ? '' : '<div class="empty"><b>공지가 없어요</b>' + (isLead() ? '공지 쓰기로 첫 공지를 올려보세요.' : '새 공지가 올라오면 여기와 알림으로 알려드려요.') + '</div>');
+    $('view').innerHTML = h;
   }).catch(fail);
+}
+function mediaView(media) {
+  if (!media.length) return '<div class="empty"><b>매체 공지가 아직 없어요</b>팀장 알리미가 매일 MP AI 매체 공지를 가져오면 여기에 표시됩니다.</div>';
+  var imp = ST.mediaImpact || '조치필요', md = ST.mediaName || '';
+  var names = []; media.forEach(function (n) { if (names.indexOf(n.media) < 0) names.push(n.media); });
+  var shown = media.filter(function (n) { return (imp === '전체' || n.impact === imp) && (!md || n.media === md); });
+  return '<div class="row" style="margin-bottom:12px;justify-content:space-between"><div class="chips">' + ['조치필요', '영업기회', '참고', '전체'].map(function (c) {
+      var cnt = media.filter(function (n) { return (c === '전체' || n.impact === c) && (!md || n.media === md); }).length;
+      return '<button class="chip' + (c === imp ? ' on' : '') + '" onclick="ST.mediaImpact=\'' + c + '\';viewNotice()">' + c + ' ' + cnt + '</button>';
+    }).join('') + '</div><select style="width:auto" onchange="ST.mediaName=this.value;viewNotice()">' + opts([{ v: '', l: '매체 전체' }].concat(names), md) + '</select></div>'
+    + '<p class="muted small" style="margin:-4px 0 12px">MP AI가 모은 매체 공지(최근 60일 + 신청 마감이 남은 것)입니다. 조치필요만 확인을 받고, 신청 마감일은 캘린더에 표시됩니다.</p>'
+    + (shown.length ? shown.map(mediaCard).join('') : '<p class="muted small">해당하는 공지가 없어요.</p>');
+}
+function mediaCard(n) {
+  var tagc = { '조치필요': 'bad', '영업기회': 'warn', '참고': 'gray' }[n.impact] || 'gray';
+  var readers = '';
+  if (n.readers) {
+    var no = n.readers.filter(function (x) { return !x.read; });
+    readers = '<details><summary>확인 ' + (n.readers.length - no.length) + '/' + n.readers.length + '명' + (no.length ? ' · 미확인 ' + no.map(function (x) { return esc(x.name); }).join(', ') : '') + '</summary></details>';
+  }
+  return '<div class="card' + (n.needAck && !n.read ? ' hot' : '') + '"><div class="ct"><span class="tag ' + tagc + '">' + esc(n.impact || '참고') + '</span><span class="tag blue">' + esc(n.media) + '</span>'
+    + (n.type ? '<span class="tag gray">' + esc(n.type) + '</span>' : '') + '<span class="t">' + esc(n.title) + '</span></div>'
+    + '<div class="meta">게시 ' + esc(n.published) + (n.deadline ? ' · <b class="down">신청 마감 ' + esc(n.deadline) + '</b>' : '') + (n.period ? ' · ' + esc(n.period) : '') + '</div>'
+    + (n.summary ? '<div class="body small">' + esc(n.summary) + '</div>' : '')
+    + (n.sales ? '<div class="pop small" style="margin-top:8px"><b>영업 포인트</b> ' + esc(n.sales) + '</div>' : '')
+    + '<div class="row" style="margin-top:8px">' + (n.url ? '<a class="btn ghost sm" href="' + esc(n.url) + '" target="_blank" rel="noopener">원문 보기</a>' : '')
+    + (n.needAck ? (n.read ? '<span class="tag gray">확인함 ' + esc(n.readAt) + '</span>' : '<button class="btn ok sm" onclick="ackAll([\'' + esc(n.id) + '\'])">확인했어요</button>') : '') + '</div>'
+    + readers + '</div>';
 }
 function noticeCard(n) {
   var readers = '';
@@ -526,7 +569,7 @@ function viewCalendar() {
     var a = first.split('-').map(Number), w = new Date(Date.UTC(a[0], a[1] - 1, 1)).getUTCDay();
     var startDay = addDays(first, -w);
     var ok = d.checks.filter(function (c) { return c.result === '달성'; }).length, fl = d.checks.length - ok;
-    var h = '<div class="head"><div><h2>캘린더</h2><p>팀·개인·미팅·프로모션 일정과 목표 마감, 일일 달성/실패가 함께 표시됩니다.</p></div>'
+    var h = '<div class="head"><div><h2>캘린더</h2><p>팀·개인·미팅·프로모션 일정, 인트라넷 근태·외근, 목표 마감, 일일 달성/실패가 함께 표시됩니다.</p></div>'
       + '<button class="btn pri" onclick="eventForm()">일정 추가</button></div>'
       + '<div class="row" style="justify-content:space-between;margin-bottom:10px"><div class="row"><button class="btn ghost sm" aria-label="이전 달" onclick="ST.calMonth=addMonths(ST.calMonth,-1);viewCalendar()">◀</button>'
       + '<b style="font-size:19px">' + Number(d.month.slice(0, 4)) + '년 ' + Number(d.month.slice(5)) + '월</b>'
@@ -539,17 +582,20 @@ function viewCalendar() {
       d.checks.forEach(function (c) { by[c.who] = by[c.who] || { o: 0, x: 0 }; c.result === '달성' ? by[c.who].o++ : by[c.who].x++; });
       h += '<div class="chips" style="margin-bottom:6px">' + Object.keys(by).map(function (k) { return '<span class="tag gray">' + esc(k) + ' <span class="up">✓' + by[k].o + '</span> <span class="down">✗' + by[k].x + '</span></span>'; }).join('') + '</div>';
     }
-    h += '<div class="legend"><span class="ev 팀">팀</span><span class="ev 개인">개인</span><span class="ev 미팅">미팅</span><span class="ev 프로모션">프로모션</span><span class="ev 마감">목표 마감</span><span><span class="up">✓달성</span> <span class="down">✗실패</span></span></div>';
+    h += '<div class="legend"><span class="ev 팀">팀</span><span class="ev 개인">개인</span><span class="ev 미팅">미팅</span><span class="ev 프로모션">프로모션</span><span class="ev 외근">외근</span><span class="ev 근태">근태</span><span class="ev 매체">매체 신청마감</span><span class="ev 마감">목표 마감</span><span><span class="up">✓달성</span> <span class="down">✗실패</span></span></div>';
     h += '<div class="cal">' + ['일', '월', '화', '수', '목', '금', '토'].map(function (x) { return '<div class="dow">' + x + '</div>'; }).join('');
     for (var i = 0; i < 42; i++) {
       var day = addDays(startDay, i);
       if (i >= 35 && day.slice(0, 7) !== d.month) break;
       var evs = d.events.filter(function (e) { return e.start <= day && e.end >= day; });
       var dl = d.deadlines.filter(function (x) { return x.date === day; });
+      var mdl = (d.mediaDeadlines || []).filter(function (x) { return x.date === day; });
       var cks = d.checks.filter(function (c) { return c.date === day; });
       var o = cks.filter(function (c) { return c.result === '달성'; }).length, x = cks.length - o;
       var items = evs.map(function (e) { return '<span class="ev ' + esc(e.type) + '">' + esc(e.title) + '</span>'; })
-        .concat(dl.map(function (e) { return '<span class="ev 마감">마감 ' + esc(e.title) + '</span>'; }));
+        .concat(dl.map(function (e) { return '<span class="ev 마감">마감 ' + esc(e.title) + '</span>'; }))
+        .concat(mdl.length > 1 ? ['<span class="ev 매체">매체 신청마감 ' + mdl.length + '건</span>']
+          : mdl.map(function (e) { return '<span class="ev 매체" title="' + esc(e.title) + '">' + esc(e.media) + ' · ' + esc(e.title) + '</span>'; }));
       h += '<button class="day' + (day.slice(0, 7) !== d.month ? ' out' : '') + (day === B.today ? ' today' : '') + (day === ST.calDay ? ' sel' : '') + '" onclick="ST.calDay=\'' + day + '\';viewCalendar()">'
         + '<span class="dn' + (i % 7 === 0 ? ' sun' : '') + '">' + Number(day.slice(8)) + '</span>' + items.slice(0, 3).join('') + (items.length > 3 ? '<span class="small muted">+' + (items.length - 3) + '</span>' : '')
         + (items.length ? '<span class="dot"></span>' : '')
@@ -564,14 +610,17 @@ function dayDetail(day) {
   var d = window._cal;
   var evs = d.events.filter(function (e) { return e.start <= day && e.end >= day; });
   var dl = d.deadlines.filter(function (x) { return x.date === day; });
+  var mdl = (d.mediaDeadlines || []).filter(function (x) { return x.date === day; });
   var cks = d.checks.filter(function (c) { return c.date === day; });
   var h = '<div class="row" style="justify-content:space-between"><h3>' + md(day) + ' 상세</h3><button class="btn sm" onclick="eventForm(null,\'' + day + '\')">이 날 일정 추가</button></div>';
-  if (!evs.length && !dl.length && !cks.length) h += '<p class="muted small">기록이 없어요.</p>';
+  if (!evs.length && !dl.length && !mdl.length && !cks.length) h += '<p class="muted small">기록이 없어요.</p>';
   h += evs.map(function (e) {
     return '<div class="card"><div class="ct"><span class="ev ' + esc(e.type) + '">' + esc(e.type) + '</span><span class="t">' + esc(e.title) + '</span>' + (e.time ? '<span class="muted small">' + esc(e.time) + '</span>' : '') + '</div>'
       + '<div class="meta">' + (e.start !== e.end ? md(e.start) + ' ~ ' + md(e.end) + ' · ' : '') + (e.who ? esc(e.who) + ' · ' : '') + '등록 ' + esc(e.author) + '</div>' + (e.memo ? '<div class="body">' + esc(e.memo) + '</div>' : '')
-      + ((e.mine || isLead()) ? '<div class="row" style="margin-top:8px"><button class="btn ghost sm" onclick="eventForm(\'' + e.id + '\')">수정</button><button class="btn ghost sm" onclick="eventDel(\'' + e.id + '\')">삭제</button></div>' : '') + '</div>';
+      + (e.intra ? '<div class="meta">인트라넷에서 자동으로 가져온 일정입니다. 바꾸려면 인트라넷에서 고치세요.</div>'
+        : (e.mine || isLead()) ? '<div class="row" style="margin-top:8px"><button class="btn ghost sm" onclick="eventForm(\'' + e.id + '\')">수정</button><button class="btn ghost sm" onclick="eventDel(\'' + e.id + '\')">삭제</button></div>' : '') + '</div>';
   }).join('');
+  h += mdl.map(function (x) { return '<div class="card"><span class="ev 매체">' + esc(x.media) + ' 신청마감</span> <b>' + esc(x.title) + '</b> <span class="tag ' + (x.impact === '조치필요' ? 'bad' : 'warn') + '">' + esc(x.impact) + '</span>' + (x.url ? ' <a class="small" href="' + esc(x.url) + '" target="_blank" rel="noopener">원문</a>' : '') + '</div>'; }).join('');
   h += dl.map(function (x) { return '<div class="card"><span class="ev 마감">목표 마감</span> <b>' + esc(x.title) + '</b> <span class="muted small">' + esc(x.who) + ' · ' + esc(x.period) + ' 목표</span></div>'; }).join('');
   if (cks.length) h += '<div class="scroll" style="margin-top:10px"><table class="tbl"><tr><th>팀원</th><th>목표</th><th>결과</th><th>사유·메모</th><th>소통</th></tr>' + cks.map(function (c) {
     return '<tr><td>' + esc(c.who) + '</td><td>' + esc(c.goalTitle) + '</td><td>' + (c.result === '달성' ? '<span class="up">✓ 달성</span>' : '<span class="down">✗ 실패</span>') + ' ' + amt(c.amount, c.unit) + '</td>'

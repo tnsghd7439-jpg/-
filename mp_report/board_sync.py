@@ -1,4 +1,4 @@
-"""원보드 인트라넷 보충 — MP AI에 아직 없는 매체(11번가·카카오·에이블리)를 인트라넷에서 가져와 원보드로 보낸다.
+"""원보드 인트라넷 보충 — MP AI에 아직 없는 매체(11번가·카카오·에이블리) 매출과, 근태·외근 일정을 인트라넷에서 가져와 원보드로 보낸다.
 
 실적의 기본 출처는 MP AI(팀장 알리미가 수집)다. 이 스크립트는 6팀 인트라넷 매출 전체를 보내지만,
 원보드가 시트 '설정' 탭의 '인트라넷보충매체'에 적힌 매체만 저장한다. MP AI로 옮길 때는 그 설정에서 매체를 지우면 되고,
@@ -23,6 +23,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 import urllib.request
 from datetime import date, datetime, timedelta
@@ -31,7 +32,7 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from collect import CHROMIUM, KST, Intra, add_months, login, month_start, sales_range, ymd  # noqa: E402
+from collect import CHROMIUM, DEPT, KST, Intra, add_months, login, month_start, sales_range, ymd  # noqa: E402
 
 PAGE_LIMIT = 2000
 
@@ -55,6 +56,49 @@ def rows_of(raw, key_name, key_value):
     return out
 
 
+PRIVATE_KINDS = {"지각", "조퇴", "결근"}  # 팀 전체가 아니라 본인·팀장에게만 보이게
+
+
+def ymd8(s):
+    s = re.sub(r"\D", "", s or "")
+    return f"{s[:4]}-{s[4:6]}-{s[6:8]}" if len(s) >= 8 else ""
+
+
+def hm(s):
+    s = re.sub(r"\D", "", s or "")
+    return f"{s[:2]}:{s[2:4]}" if len(s) >= 4 else ""
+
+
+async def collect_calendar(api, fr: date, to: date):
+    """인트라넷 외근(C)·근태(B) 일정을 원보드 캘린더 형식으로. 반려 건은 뺀다."""
+    out = []
+    for gbn in ("C", "B"):
+        rows = await api.post("/mng/job/schedule1_action.php", {
+            "submitType": "select", "schd_gbn": gbn, "sh_date_fr": ymd(fr), "sh_date_to": ymd(to),
+            "sh_dept_code": DEPT, "num_per_page": "500", "currPage": "1"})
+        for r in rows:
+            if r.get("schd_confirm") == "0":
+                continue
+            who = r.get("username") or ""
+            if gbn == "C":
+                start = ymd8(r.get("meet_date") or r.get("schd_date"))
+                end = ymd8(r.get("meet_date2")) or start
+                t1, t2 = hm(r.get("meet_time")), hm(r.get("meet_time2"))
+                kind = (r.get("schd_trns_gbn_nm") or "외근").replace("외근-", "")
+                out.append({"유형": "외근", "제목": f"{who} 외근 · {r.get('cust_nm') or ''}".strip(" ·"),
+                            "시작일": start, "종료일": end, "시간": f"{t1}~{t2}" if t1 else "",
+                            "대상": who, "메모": " / ".join(x for x in (kind, r.get("loc_name") or "") if x)})
+            else:
+                kind = r.get("schd_code_nm") or "근태"
+                start, end = ymd8(r.get("schd_date")), ymd8(r.get("schd_date2"))
+                t1, t2 = hm(r.get("schd_time")), hm(r.get("schd_time2"))
+                full = (t1 in ("", "00:00") and t2 in ("", "23:59")) or (end and end != start)
+                out.append({"유형": "개인" if kind in PRIVATE_KINDS else "근태", "제목": f"{who} {kind}",
+                            "시작일": start, "종료일": end or start, "시간": "" if full else f"{t1}~{t2}",
+                            "대상": who, "메모": ""})
+    return [x for x in out if x["시작일"]]
+
+
 async def collect(days: int, months: int):
     today = datetime.now(KST).date()
     day_list = [today - timedelta(days=i) for i in range(1, days + 1)]
@@ -66,6 +110,8 @@ async def collect(days: int, months: int):
         daily = []
         for d in day_list:
             daily += rows_of(await sales_range(api, d, d), "날짜", ymd(d))
+        cal_from, cal_to = today - timedelta(days=31), today + timedelta(days=62)
+        calendar = await collect_calendar(api, cal_from, cal_to)
         monthly = []
         for m in month_list:
             end = min(add_months(m, 1) - timedelta(days=1), today - timedelta(days=1))
@@ -76,6 +122,7 @@ async def collect(days: int, months: int):
     return {
         "daily": {"dates": [ymd(d) for d in day_list], "rows": daily},
         "monthly": {"months": [m.strftime("%Y-%m") for m in month_list], "rows": monthly},
+        "schedules": {"from": ymd(cal_from), "to": ymd(cal_to), "rows": calendar},
     }
 
 
@@ -99,7 +146,8 @@ def main():
     a = ap.parse_args()
     days, months = (62, 7) if a.backfill else (3, 2)
     payload = asyncio.run(collect(days, months))
-    print(f"수집: 일별 {len(payload['daily']['rows'])}행({days}일), 월별 {len(payload['monthly']['rows'])}행({months}개월)")
+    print(f"수집: 일별 {len(payload['daily']['rows'])}행({days}일), 월별 {len(payload['monthly']['rows'])}행({months}개월), "
+          f"근태·외근 {len(payload['schedules']['rows'])}건")
     if not a.dry_run:
         send(payload)
 

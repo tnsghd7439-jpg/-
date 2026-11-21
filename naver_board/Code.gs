@@ -18,6 +18,8 @@ const SCHEMA = {
               '소통시각', '기록시각'],
   '일정': ['id', '유형', '제목', '시작일', '종료일', '시간', '대상', '작성자', '메모'],
   '가이드': ['id', '매체', '구분', '제목', '내용', '링크', '순서', '수정일'],
+  '매체공지': ['id', '매체', '제목', '요약', '영업포인트', '링크', '게시일', '중요도', '유형', '상품', '신청시작', '마감일',
+              '행사시작', '행사종료', '기간', '수집일'],
   '실적_일별': ['날짜', '담당자', '매체', '광고주ID', '광고주명', '매출', '출처'],
   '실적_월별': ['월', '담당자', '매체', '광고주ID', '광고주명', '매출', '출처'],
 };
@@ -32,6 +34,9 @@ const DEFAULT_SETTINGS = [
   ['인트라넷보충매체', '11번가,카카오,에이블리', 'MP AI에 아직 없는 매체만 인트라넷에서 보충. MP AI에 들어오기 시작하면 여기서 지우세요(겹치는 기간은 자동으로 MP AI 우선)'],
   ['수집토큰', '', '인트라넷 보충 수집기(GitHub Actions)가 보낼 때 쓰는 비밀 문자열. BOARD_TOKEN 과 같은 값'],
   ['마지막인트라넷수집', '', '자동으로 기록됩니다'],
+  ['매체공지매체', '네이버,지마켓,카카오,11번가', 'MP AI 매체 공지 중 보드에 보여줄 매체(쉼표로 구분). 비우면 전부'],
+  ['매체공지확인일', '7', "'조치필요' 매체 공지를 확인 대상으로 삼는 기간(게시 후 며칠). 신청 마감이 남아 있으면 기간이 지나도 대상"],
+  ['매체공지확인제외유형', '프로모션·이벤트', "'조치필요'여도 확인 팝업 없이 목록·캘린더로만 보여줄 유형(쉼표로 구분). 비우면 조치필요 전부 확인 대상"],
   ['수집시각', '11', '팀장 알리미가 MP AI 매출을 가져오는 시각(0~23시). MP AI 전일 집계 이후로'],
   ['마지막수집', '', '자동으로 기록됩니다'],
   ['아침알림시각', '9','알리미가 오늘 할 일 알림을 띄우는 시각(0~23시)'],
@@ -106,12 +111,93 @@ function doPost(e) {
           function (v) { return v < keep; });
       }
       if (body.monthly) out.monthly = replaceRows_('실적_월별', '월', body.monthly.months || [], norm(body.monthly.rows), source);
+      if (body.schedules && viaToken) out.schedules = replaceIntraEvents_(body.schedules);
+      if (body.mediaNotices && lead) out.mediaNotices = upsertMediaNotices_(body.mediaNotices);
       update_('설정', '키', viaToken ? '마지막인트라넷수집' : '마지막수집', { '값': now_() + (lead ? ' (' + lead.name + ')' : '') });
       return out;
     }));
   } catch (err) {
     return json_({ ok: false, error: String(err && err.message || err) });
   }
+}
+
+/**
+ * 인트라넷 근태·외근을 캘린더 '일정' 시트에 넣습니다. 작성자 '인트라넷' 행만 기간 안에서 지우고 다시 씁니다.
+ * 대상(직원 이름)은 팀원 명단의 담당자명·이름으로 이메일을 찾아 저장합니다.
+ */
+function replaceIntraEvents_(sc) {
+  const from = String(sc.from || ''), to = String(sc.to || '');
+  if (!isDate_(from) || !isDate_(to)) throw new Error('일정 기간이 올바르지 않습니다.');
+  const removed = remove_('일정', function (e) {
+    return e['작성자'] === '인트라넷' && e['시작일'] <= to && (e['종료일'] || e['시작일']) >= from;
+  });
+  const mem = members_();
+  const find = function (name) {
+    const n = String(name || '').trim();
+    const m = mem.find(function (x) { return x.manager === n || x.name === n; });
+    return m ? m.email : '';
+  };
+  const rows = (sc.rows || []).filter(function (r) { return isDate_(r['시작일']); });
+  rows.forEach(function (r) {
+    const type = ['외근', '근태', '개인'].indexOf(r['유형']) >= 0 ? r['유형'] : '근태';
+    insert_('일정', {
+      id: 'in' + uid_(), '유형': type, '제목': text_(r['제목'], 200), '시작일': r['시작일'],
+      '종료일': isDate_(r['종료일']) ? r['종료일'] : r['시작일'], '시간': text_(r['시간'], 40),
+      '대상': find(r['대상']), '작성자': '인트라넷', '메모': text_(r['메모'], 500),
+    });
+  });
+  return { removed: removed, added: rows.length };
+}
+
+/** MP AI 매체 공지를 id 기준으로 덮어쓰고, 게시 180일이 지난 것(마감 남은 것 제외)은 지웁니다 */
+function upsertMediaNotices_(list) {
+  const ids = {};
+  list.forEach(function (n) { if (n && n.id) ids[String(n.id)] = true; });
+  const old = addDays_(today_(), -180), day = today_();
+  const removed = remove_('매체공지', function (r) {
+    return ids[String(r.id)] || (r['게시일'] < old && !(r['마감일'] >= day));
+  });
+  list.forEach(function (n) {
+    if (!n || !n.id) return;
+    const d = function (v) { return isDate_(String(v || '').slice(0, 10)) ? String(v).slice(0, 10) : ''; };
+    insert_('매체공지', {
+      id: String(n.id), '매체': text_(n.media, 30), '제목': text_(n.title, 300),
+      '요약': text_([n.headline || ''].concat(n.summary || []).filter(String).join('\n'), 2000),
+      '영업포인트': text_(n.sales, 1000), '링크': text_(n.url, 500), '게시일': d(n.published),
+      '중요도': text_(n.impact, 20), '유형': text_(n.type, 30), '상품': text_(n.product, 30),
+      '신청시작': d(n.apply_start), '마감일': d(n.deadline), '행사시작': d(n.event_start), '행사종료': d(n.event_end),
+      '기간': text_(n.period || n.digest, 200), '수집일': today_(),
+    });
+  });
+  return { saved: Object.keys(ids).length, removed: removed };
+}
+
+/** 보드에 보여줄 매체 공지 (설정의 매체만) */
+function mediaNotices_() {
+  const media = list_(settings_()['매체공지매체']);
+  return rows_('매체공지').filter(function (n) { return !media.length || media.indexOf(String(n['매체'])) >= 0; });
+}
+
+/** '조치필요'이면서 최근 게시됐거나 신청 마감이 남은 공지만 확인 대상 */
+function needsAck_(n, s) {
+  if (n['중요도'] !== '조치필요') return false;
+  if (list_(s['매체공지확인제외유형']).indexOf(String(n['유형'])) >= 0) return false;
+  const days = num_(s['매체공지확인일'] || 14);
+  return n['게시일'] >= addDays_(today_(), -days) || n['마감일'] >= today_();
+}
+
+/** 이 사람이 아직 확인하지 않은 공지(팀장·회사 공지 + 확인 대상 매체 공지) */
+function unreadAll_(email) {
+  const acks = rows_('공지확인');
+  const read = function (id) { return acks.some(function (a) { return a['공지id'] === id && low_(a['이메일']) === email; }); };
+  const s = settings_();
+  const internal = rows_('공지').filter(function (n) { return !read(n.id); }).map(function (n) {
+    return { id: n.id, type: n['구분'], title: n['제목'], important: n['중요'] === 'Y', at: n['작성일'] };
+  });
+  const media = mediaNotices_().filter(function (n) { return needsAck_(n, s) && !read('m:' + n.id); }).map(function (n) {
+    return { id: 'm:' + n.id, type: '매체 공지', title: '[' + n['매체'] + '] ' + n['제목'], important: true, at: n['게시일'] };
+  });
+  return internal.concat(media);
 }
 
 function list_(v) { return String(v || '').split(/[,\n]/).map(function (x) { return x.trim(); }).filter(String); }
@@ -434,6 +520,29 @@ const ACTIONS = {
     });
   },
 
+  /** MP AI 매체 공지: 최근 60일 게시분 + 신청 마감이 남은 것 */
+  mediaNoticeList: function (me) {
+    const s = settings_(), acks = rows_('공지확인'), mem = members_();
+    const from = addDays_(today_(), -60), day = today_();
+    return mediaNotices_().filter(function (n) { return n['게시일'] >= from || n['마감일'] >= day; })
+      .sort(function (a, b) { return a['게시일'] < b['게시일'] ? 1 : -1; }).map(function (n) {
+        const id = 'm:' + n.id, need = needsAck_(n, s);
+        const mine = acks.find(function (a) { return a['공지id'] === id && low_(a['이메일']) === me.email; });
+        const o = {
+          id: id, media: n['매체'], title: n['제목'], summary: n['요약'], sales: n['영업포인트'], url: n['링크'],
+          published: n['게시일'], impact: n['중요도'], type: n['유형'], product: n['상품'], deadline: n['마감일'],
+          period: n['기간'], needAck: need, read: !!mine, readAt: mine ? mine['확인시각'] : '',
+        };
+        if (need && isLead_(me)) {
+          o.readers = mem.map(function (m) {
+            const a = acks.find(function (x) { return x['공지id'] === id && low_(x['이메일']) === m.email; });
+            return { name: m.name, read: !!a, at: a ? a['확인시각'] : '' };
+          });
+        }
+        return o;
+      });
+  },
+
   noticeAck: function (me, p) {
     return locked_(function () {
       const ids = [].concat(p.ids || p.id || []);
@@ -590,7 +699,7 @@ const ACTIONS = {
       return {
         id: e.id, type: e['유형'], title: e['제목'], start: e['시작일'], end: e['종료일'] || e['시작일'],
         time: e['시간'], who: e['대상'] ? nameOf_(e['대상']) : '', author: e['작성자'], memo: e['메모'],
-        mine: e['작성자'] === me.name || low_(e['대상']) === me.email,
+        mine: e['작성자'] === me.name || low_(e['대상']) === me.email, intra: e['작성자'] === '인트라넷',
       };
     });
     const goals = rows_('목표');
@@ -600,7 +709,11 @@ const ACTIONS = {
     const deadlines = goals.filter(function (g) {
       return g['상태'] === '승인' && g['종료일'] >= from && g['종료일'] <= to && emails.indexOf(low_(g['이메일'])) >= 0;
     }).map(function (g) { return { date: g['종료일'], title: g['제목'], period: g['기간'], who: nameOf_(g['이메일']) }; });
-    return { month: month, events: events, checks: checks, deadlines: deadlines };
+    // 이미 지난 신청 마감은 보여주지 않습니다(오늘 이후만)
+    const mediaDeadlines = mediaNotices_().filter(function (n) {
+      return n['마감일'] >= from && n['마감일'] <= to && n['마감일'] >= today_() && (n['중요도'] === '조치필요' || n['중요도'] === '영업기회');
+    }).map(function (n) { return { date: n['마감일'], media: n['매체'], title: n['제목'], impact: n['중요도'], url: n['링크'] }; });
+    return { month: month, events: events, checks: checks, deadlines: deadlines, mediaDeadlines: mediaDeadlines };
   },
 
   eventSave: function (me, p) {
@@ -627,7 +740,7 @@ const ACTIONS = {
 
   eventDelete: function (me, p) {
     return locked_(function () {
-      remove_('일정', function (e) { return e.id === p.id && (isLead_(me) || e['작성자'] === me.name); });
+      remove_('일정', function (e) { return e.id === p.id && e['작성자'] !== '인트라넷' && (isLead_(me) || e['작성자'] === me.name); });
       return true;
     });
   },
@@ -698,8 +811,6 @@ const ACTIONS = {
     const month = /^\d{4}-\d{2}$/.test(p.month || '') ? p.month : monthOf_(today_());
     const goals = rows_('목표');
     const checks = rows_('일일체크');
-    const notices = rows_('공지');
-    const acks = rows_('공지확인');
     return {
       month: month,
       members: members_().map(function (m) {
@@ -707,9 +818,7 @@ const ACTIONS = {
         const ok = mc.filter(function (c) { return c['결과'] === '달성'; }).length;
         const fail = mc.length - ok;
         const mg = goals.filter(function (g) { return low_(g['이메일']) === m.email; });
-        const unread = notices.filter(function (n) {
-          return !acks.some(function (a) { return a['공지id'] === n.id && low_(a['이메일']) === m.email; });
-        }).length;
+        const unread = unreadAll_(m.email).length;
         return {
           email: m.email, name: m.name, role: m.role, ok: ok, fail: fail,
           rate: mc.length ? Math.round(ok / mc.length * 1000) / 10 : null,
@@ -766,12 +875,7 @@ const ACTIONS = {
 /* ───────────────────────── 계산 도우미 ───────────────────────── */
 
 function badges_(me) {
-  const notices = rows_('공지');
-  const acks = rows_('공지확인');
-  const unread = notices.filter(function (n) {
-    return !acks.some(function (a) { return a['공지id'] === n.id && low_(a['이메일']) === me.email; });
-  });
-  const out = { unread: unread.length, todo: todo_(me).filter(function (t) { return !t.checked; }).length };
+  const out = { unread: unreadAll_(me.email).length, todo: todo_(me).filter(function (t) { return !t.checked; }).length };
   if (isLead_(me)) {
     out.pending = rows_('목표').filter(function (g) { return g['상태'] === '대기'; }).length;
     out.talk = rows_('일일체크').filter(function (c) { return c['결과'] === '실패' && c['소통완료'] !== 'Y'; }).length;
@@ -1099,10 +1203,7 @@ function alerts_(code) {
   if (!code || code.length < 16) return { ok: false, error: '연결 코드가 없습니다.' };
   const m = members_().find(function (x) { return x.code && x.code === code; });
   if (!m) return { ok: false, error: '연결 코드가 맞지 않습니다. 보드에서 새 코드를 받아 다시 연결하세요.' };
-  const acks = rows_('공지확인');
-  const unread = rows_('공지').filter(function (n) {
-    return !acks.some(function (a) { return a['공지id'] === n.id && low_(a['이메일']) === m.email; });
-  }).map(function (n) { return { id: n.id, type: n['구분'], title: n['제목'], important: n['중요'] === 'Y', at: n['작성일'] }; });
+  const unread = unreadAll_(m.email);
   const s = settings_();
   const out = {
     ok: true, name: m.name, role: m.role, today: today_(), hour: hour_(),
