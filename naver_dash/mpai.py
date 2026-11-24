@@ -74,6 +74,37 @@ def login() -> None:
     print("로그인 정보가 전용 프로필에 저장됐습니다.")
 
 
+POPUP_MIN = 10  # 로그인 창을 띄우고 기다리는 시간(분). 자리에 없으면 이만큼 뒤 네이버 SA 만으로 공지가 나간다
+
+
+def popup_login() -> bool:
+    """예약 실행 중 로그인이 풀렸으면 화면에 로그인 크롬 창 + 안내 창을 띄운다.
+    사람이 로그인하고 「확인」을 누르면 True (곧바로 다시 수집), 시간 안에 안 누르면 False.
+    윈도우 화면이 있을 때만 (작업 스케줄러 「사용자가 로그온할 때만 실행」). 끄려면 NAVER_MPAI_NO_POPUP=1."""
+    if os.name != "nt" or os.environ.get("NAVER_MPAI_NO_POPUP"):
+        return False
+    import ctypes
+    user32 = getattr(ctypes, "windll", None) and ctypes.windll.user32
+    box = getattr(user32, "MessageBoxTimeoutW", None) if user32 else None
+    exe = chrome_exe()
+    if not (box and exe):
+        return False  # 시간 제한 안내 창이 없으면 무한정 기다릴 수 있어 띄우지 않음
+    close_profile_chrome()
+    proc = subprocess.Popen([exe, f"--user-data-dir={PROFILE}", "--no-first-run", "--new-window", URL])
+    text = ("MP AI 구글 로그인이 풀렸습니다.\n\n"
+            "방금 열린 크롬 창에서 회사 구글 계정으로 로그인하고\n"
+            "「내 광고주」 화면이 보이면 [확인]을 누르세요.\n"
+            "(크롬 창은 자동으로 닫히고 수집·공지가 이어서 진행됩니다)\n\n"
+            f"{POPUP_MIN}분 안에 누르지 않으면 이번 공지는 네이버 SA 만으로 나갑니다.")
+    # MB_OKCANCEL | MB_ICONINFORMATION | MB_SETFOREGROUND | MB_TOPMOST, 시간 초과 시 32000
+    ret = box(None, text, "6팀 점검판 — MP AI 로그인", 0x1 | 0x40 | 0x10000 | 0x40000, 0, POPUP_MIN * 60 * 1000)
+    time.sleep(2)  # 로그인 정보가 저장되도록
+    if proc.poll() is None:
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"], capture_output=True)
+    close_profile_chrome()
+    return ret == 1
+
+
 # ---------------------------------------------------------------- 화면 읽기
 
 TABLES_JS = r"""() => [...document.querySelectorAll('table')].filter(t => t.offsetParent !== null).map(t => {
@@ -314,7 +345,8 @@ def notify_login() -> None:
         return
     import urllib.request
     body = json.dumps({"text": "⚠ MP AI 로그인이 풀려 매체 통합(GFA·지마켓·쿠팡·메타) 수집을 못 했습니다.\n"
-                               "회사 PC 에서 naver_dash\\mpai_login.bat 을 실행해 다시 로그인해 주세요."}).encode()
+                               "다음 공지(09:50·15:30) 때 회사 PC 화면에 로그인 창이 뜨면 로그인 후 [확인]을 누르거나,\n"
+                               "지금 naver_dash\\mpai_login.bat 을 실행해 다시 로그인해 주세요."}).encode()
     req = urllib.request.Request(url, body, {"Content-Type": "application/json; charset=UTF-8"})
     try:
         urllib.request.urlopen(req, timeout=20).read()
@@ -363,10 +395,17 @@ def main():
         print("MP AI 데이터 최신 (어제 집계 완료) — 다시 읽지 않음")
         return
     try:
-        m = tidy(scrape(headless=not args.show, debug=args.debug))
+        try:
+            m = tidy(scrape(headless=not args.show, debug=args.debug))
+        except LoginRequired:
+            print(f"MP AI 로그인 풀림 → 화면에 로그인 창을 띄우고 최대 {POPUP_MIN}분 기다립니다")
+            if not popup_login():
+                raise
+            print("로그인 확인됨 → 다시 수집합니다")
+            m = tidy(scrape(headless=not args.show, debug=args.debug))
     except LoginRequired as e:
         print(f"MP AI 수집 실패: {e} → mpai_login.bat 실행 필요")
-        status(False, "로그인 풀림 (mpai_login.bat 실행 필요)")
+        status(False, "로그인 풀림 (다음 공지 때 로그인 창이 뜨면 로그인, 또는 mpai_login.bat 실행)")
         notify_login()
         sys.exit(2)
     except Exception as e:  # noqa: BLE001 — 화면 변경 등. 실패 화면은 mpai_raw/error.png
