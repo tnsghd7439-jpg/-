@@ -20,6 +20,11 @@ const SCHEMA = {
   '가이드': ['id', '매체', '구분', '제목', '내용', '링크', '순서', '수정일'],
   '매체공지': ['id', '매체', '제목', '요약', '영업포인트', '링크', '게시일', '중요도', '유형', '상품', '신청시작', '마감일',
               '행사시작', '행사종료', '기간', '수집일'],
+  '가망건': ['id', '이메일', '업체명', '스토어주소', '매체', '담당자', '연락처', '상태', '메모', '다음연락', '등록일', '수정일', '계약일'],
+  '통화기록': ['id', '가망건id', '이메일', '시각', '결과', '메모', '다음연락', '기록자'],
+  '할일': ['id', '이메일', '분류', '제목', '메모', '반복', '반복값', '기한', '시간', '시작일', '상태', '작성일'],
+  '할일완료': ['id', '할일id', '이메일', '날짜', '완료시각'],
+  '이용기록': ['날짜', '이메일', '기록'],
   '실적_일별': ['날짜', '담당자', '매체', '광고주ID', '광고주명', '매출', '출처'],
   '실적_월별': ['월', '담당자', '매체', '광고주ID', '광고주명', '매출', '출처'],
 };
@@ -59,6 +64,7 @@ const GUIDE_SECTIONS = ['맵핑 방법', '세팅 방법', '문의 경로'];
 const TABS = [
   { id: 'perf', name: '계정별 실적' },
   { id: 'plan', name: '개인별 액션플랜' },
+  { id: 'sales', name: '영업노트' },
   { id: 'notice', name: '공지사항' },
   { id: 'solution', name: '솔루션' },
   { id: 'guide', name: '매체별 가이드' },
@@ -84,7 +90,9 @@ function api(action, payload) {
     const fn = ACTIONS[action];
     if (!fn) throw new Error('알 수 없는 요청입니다: ' + action);
     const me = me_();
-    return JSON.stringify({ ok: true, data: fn(me, payload || {}) });
+    const data = fn(me, payload || {});
+    if (USAGE_TAB_[action]) useMark_(me.email, USAGE_TAB_[action]);
+    return JSON.stringify({ ok: true, data: data });
   } catch (err) {
     return JSON.stringify({ ok: false, error: String(err && err.message || err) });
   }
@@ -330,7 +338,15 @@ function setup() {
 /* ───────────────────────── 시트 도우미 ───────────────────────── */
 
 function sheet_(name) {
-  const sh = SpreadsheetApp.getActive().getSheetByName(name);
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(name);
+  if (!sh && SCHEMA[name]) {
+    // 새 기능의 시트는 처음 쓸 때 자동으로 만듭니다(setup 을 다시 돌리지 않아도 되게)
+    sh = ss.insertSheet(name);
+    sh.getRange(1, 1, 1, SCHEMA[name].length).setValues([SCHEMA[name]]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    if (name.indexOf('실적') < 0) sh.getRange('A:Z').setNumberFormat('@');
+  }
   if (!sh) throw new Error("'" + name + "' 시트가 없습니다. 앱스 스크립트에서 setup 을 먼저 실행하세요.");
   return sh;
 }
@@ -509,6 +525,7 @@ const ACTIONS = {
       options: {
         noticeTypes: NOTICE_TYPES, goalPeriods: GOAL_PERIODS, goalCategories: GOAL_CATEGORIES,
         eventTypes: EVENT_TYPES, guideSections: GUIDE_SECTIONS,
+        leadStates: LEAD_STATES, callResults: CALL_RESULTS, taskKinds: TASK_KINDS, taskRepeats: TASK_REPEATS, weekdays: WEEKDAYS,
       },
       badges: badges_(me),
     };
@@ -759,7 +776,11 @@ const ACTIONS = {
     const mediaDeadlines = mediaNotices_().filter(function (n) {
       return n['마감일'] >= from && n['마감일'] <= to && n['마감일'] >= today_() && (n['중요도'] === '조치필요' || n['중요도'] === '영업기회');
     }).map(function (n) { return { date: n['마감일'], media: n['매체'], title: n['제목'], impact: n['중요도'], url: n['링크'] }; });
-    return { month: month, events: events, checks: checks, deadlines: deadlines, mediaDeadlines: mediaDeadlines };
+    const calls = rows_('가망건').filter(function (r) {
+      const d = String(r['다음연락'] || '').slice(0, 10);
+      return d >= from && d <= to && LEAD_OPEN.indexOf(r['상태']) >= 0 && emails.indexOf(low_(r['이메일'])) >= 0;
+    }).map(function (r) { return { id: r.id, date: String(r['다음연락']).slice(0, 10), time: String(r['다음연락']).slice(11, 16), company: r['업체명'], who: nameOf_(r['이메일']) }; });
+    return { month: month, events: events, checks: checks, deadlines: deadlines, mediaDeadlines: mediaDeadlines, calls: calls };
   },
 
   eventSave: function (me, p) {
@@ -897,9 +918,20 @@ const ACTIONS = {
     }).map(function (c) { return checkView_(c, goals.find(function (g) { return g.id === c['목표id']; }) || {}); })
       .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
     const sales = monthSales_(ids_(member), month);
+    const leads = rows_('가망건').filter(function (r) { return low_(r['이메일']) === email; });
+    const calls = rows_('통화기록').filter(function (c) {
+      const d = String(c['시각']).slice(0, 10); return low_(c['이메일']) === email && d >= from && d <= to;
+    }).map(function (c) {
+      const l = leads.find(function (r) { return r.id === c['가망건id']; }) || {};
+      return { at: c['시각'], company: l['업체명'] || '', result: c['결과'], memo: c['메모'], next: c['다음연락'] };
+    }).sort(function (a, b) { return a.at < b.at ? -1 : 1; });
     return {
       member: { name: member.name, email: member.email, manager: member.manager },
       month: month, generatedAt: now_(), goals: goalRows, checks: monthChecks, sales: sales,
+      salesNote: salesSummary_(email, from, asOf), calls: calls,
+      tasks: taskRate_(rows_('할일'), rows_('할일완료'), email, from, asOf),
+      usage: usageSummary_(usageRows_(from, asOf)[email]), noticeDelay: noticeDelay_(email, member.name, month),
+      workdays: workdays_(from, asOf),
     };
   },
 
@@ -921,7 +953,12 @@ const ACTIONS = {
 /* ───────────────────────── 계산 도우미 ───────────────────────── */
 
 function badges_(me) {
-  const out = { unread: unreadAll_(me.email).length, todo: todo_(me).filter(function (t) { return !t.checked; }).length };
+  const b = todayBundle_(me);
+  const out = {
+    unread: unreadAll_(me.email).length,
+    todo: b.goals.filter(function (t) { return !t.checked; }).length + b.tasks.length,
+    calls: b.calls.length,
+  };
   if (isLead_(me)) {
     out.pending = rows_('목표').filter(function (g) { return g['상태'] === '대기'; }).length;
     out.talk = rows_('일일체크').filter(function (c) { return c['결과'] === '실패' && c['소통완료'] !== 'Y'; }).length;
@@ -1256,6 +1293,12 @@ function alerts_(code) {
     morningHour: num_(s['아침알림시각'] || 9), board: s['보드주소'] || ScriptApp.getService().getUrl(),
     unread: unread, todo: todo_(m),
   };
+  // 영업노트 연락 알림: 오늘 연락할 가망건(시각 포함)과 오늘 할일
+  const b = todayBundle_(m);
+  out.calls = b.calls;
+  out.tasks = b.tasks.map(function (t) { return { id: t.id, kind: t.kind, title: t.title, time: t.time }; });
+  out.now = now_();
+  useMark_(m.email, '알리미');
   if (m.role === 'lead') {
     out.pending = rows_('목표').filter(function (g) { return g['상태'] === '대기'; }).length;
     out.talk = rows_('일일체크').filter(function (c) { return c['결과'] === '실패' && c['소통완료'] !== 'Y'; }).length;
@@ -1264,6 +1307,372 @@ function alerts_(code) {
   }
   return out;
 }
+
+/* ───────────────────────── 영업노트 · 할일 · 오늘 · 이용 기록 ───────────────────────── */
+
+const LEAD_STATES = ['첫 통화', '점검권한 대기', '제안', '계약', '보류', '실패'];
+const LEAD_OPEN = ['첫 통화', '점검권한 대기', '제안'];
+const CALL_RESULTS = ['통화함', '부재', '콜백 요청', '제안 발송', '점검권한 받음', '계약', '보류', '실패'];
+/** 통화 결과를 고르면 상태를 이렇게 바꿉니다(직접 고르면 그게 우선) */
+const RESULT_STATE = { '점검권한 받음': '점검권한 대기', '제안 발송': '제안', '계약': '계약', '보류': '보류', '실패': '실패' };
+const TASK_KINDS = ['관리', '영업'];
+const TASK_REPEATS = ['없음', '매일', '평일', '매주', '매월'];
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+/** 'yyyy-MM-dd HH:mm' 로 맞춤. 날짜만 오면 오전 10시, 알 수 없으면 '' */
+function dtText_(v) {
+  const s = String(v || '').trim().replace('T', ' ').slice(0, 16);
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return s;
+  if (isDate_(s.slice(0, 10)) && s.length === 10) return s + ' 10:00';
+  return '';
+}
+function short_(s, n) { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n) + '…' : s; }
+
+/** 가망건 한 건: 담당 마케터 본인 또는 팀장만 */
+function leadOwned_(me, id) {
+  const r = rows_('가망건').find(function (x) { return x.id === id; });
+  if (!r) throw new Error('가망건을 찾을 수 없습니다.');
+  if (!isLead_(me) && low_(r['이메일']) !== me.email) throw new Error('본인 가망건만 볼 수 있습니다.');
+  return r;
+}
+
+function leadView_(r, day, nowS) {
+  const next = String(r['다음연락'] || '');
+  const open = LEAD_OPEN.indexOf(r['상태']) >= 0;
+  return {
+    id: r.id, email: low_(r['이메일']), who: nameOf_(r['이메일']), company: r['업체명'], store: r['스토어주소'],
+    media: r['매체'], person: r['담당자'], phone: r['연락처'], status: r['상태'], memo: r['메모'], next: next,
+    created: r['등록일'], updated: r['수정일'], contractAt: r['계약일'], open: open,
+    due: open && !!next && next.slice(0, 10) <= day, overdue: open && !!next && next < nowS,
+  };
+}
+
+/** 할일이 그 날짜에 해야 하는 날인지 */
+function occurs_(t, day) {
+  if (t['상태'] === '보관') return false;
+  const start = String(t['시작일'] || '').slice(0, 10);
+  if (start && day < start) return false;
+  const rep = t['반복'] || '없음', w = dt_(day).getUTCDay();
+  if (rep === '매일') return true;
+  if (rep === '평일') return w > 0 && w < 6;
+  if (rep === '매주') return String(t['반복값'] || '').split(',').indexOf(WEEKDAYS[w]) >= 0;
+  if (rep === '매월') {
+    const want = Number(t['반복값']) || 1, last = Number(monthEnd_(monthOf_(day)).slice(8));
+    return Number(day.slice(8)) === Math.min(want, last);
+  }
+  return String(t['기한']) === day;
+}
+
+function taskView_(t, done, day) {
+  const rep = t['반복'] || '없음';
+  const mine = done.filter(function (d) { return d['할일id'] === t.id; });
+  const doneEver = mine.length > 0;
+  const doneToday = mine.some(function (d) { return d['날짜'] === day; });
+  const once = rep === '없음';
+  const today = once ? (!doneEver && String(t['기한'] || '') <= day && !!t['기한']) || (doneEver && mine.some(function (d) { return d['날짜'] === day; }))
+    : occurs_(t, day);
+  return {
+    id: t.id, email: low_(t['이메일']), who: nameOf_(t['이메일']), kind: t['분류'], title: t['제목'], memo: t['메모'],
+    repeat: rep, repeatValue: t['반복값'], due: t['기한'], time: t['시간'], archived: t['상태'] === '보관',
+    today: today, done: once ? doneEver : doneToday, overdue: once && !doneEver && !!t['기한'] && t['기한'] < day,
+    lastDone: mine.map(function (d) { return d['날짜']; }).sort().pop() || '',
+  };
+}
+
+/** 기간 안에 해야 했던 할일 횟수와 완료 횟수 */
+function taskRate_(tasks, done, email, from, to) {
+  let need = 0, ok = 0;
+  tasks.filter(function (t) { return low_(t['이메일']) === email; }).forEach(function (t) {
+    const mine = done.filter(function (d) { return d['할일id'] === t.id; });
+    if ((t['반복'] || '없음') === '없음') {
+      if (t['기한'] && t['기한'] >= from && t['기한'] <= to) { need++; if (mine.length) ok++; }
+      return;
+    }
+    for (let d = from; d <= to; d = addDays_(d, 1)) {
+      if (!occurs_(t, d)) continue;
+      need++;
+      if (mine.some(function (x) { return x['날짜'] === d; })) ok++;
+    }
+  });
+  return { need: need, ok: ok, rate: need ? Math.round(ok / need * 1000) / 10 : null };
+}
+
+/** 오늘 묶음: 오늘(또는 밀린) 연락할 가망건 + 오늘 할일 + 오늘 목표 */
+function todayBundle_(m) {
+  const day = today_(), nowS = now_();
+  const calls = rows_('가망건').filter(function (r) {
+    return low_(r['이메일']) === m.email && LEAD_OPEN.indexOf(r['상태']) >= 0 && r['다음연락'] && String(r['다음연락']).slice(0, 10) <= day;
+  }).map(function (r) {
+    return { id: r.id, company: r['업체명'], at: String(r['다음연락']), memo: short_(r['메모'], 60), phone: r['연락처'],
+      overdue: String(r['다음연락']) < nowS };
+  }).sort(function (a, b) { return a.at < b.at ? -1 : 1; });
+  const done = rows_('할일완료');
+  const tasks = rows_('할일').filter(function (t) { return low_(t['이메일']) === m.email; })
+    .map(function (t) { return taskView_(t, done, day); })
+    .filter(function (t) { return t.today && !t.done && !t.archived; });
+  return { calls: calls, tasks: tasks, goals: todo_(m) };
+}
+
+/* ── 이용 기록: 스크립트 저장소에 하루치를 모았다가, 다음 날 첫 요청 때 '이용기록' 시트에 한 번에 씀 ── */
+const USAGE_TAB_ = {
+  bootstrap: '접속', perf: '실적', goalList: '액션플랜', leadList: '영업노트', noticeList: '공지', solutions: '솔루션',
+  guideList: '가이드', calendar: '캘린더', teamStats: '팀현황',
+};
+
+function useMark_(email, key) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const day = today_(), k = 'U|' + day + '|' + email, t = now_().slice(11);
+    const o = JSON.parse(props.getProperty(k) || '{}');
+    if (key === '알리미') o.al = t;
+    else { if (!o.f) o.f = t; o.l = t; }
+    o[key] = (o[key] || 0) + 1;
+    props.setProperty(k, JSON.stringify(o));
+    flushUsage_(props, day);
+  } catch (e) { /* 기록 실패는 화면 동작에 영향 주지 않음 */ }
+}
+
+function flushUsage_(props, day) {
+  if (props.getProperty('U|flushed') === day) return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(0)) return;
+  try {
+    if (props.getProperty('U|flushed') === day) return;
+    const all = props.getProperties(), rows = [];
+    Object.keys(all).forEach(function (k) {
+      const p = k.split('|');
+      if (p[0] === 'U' && p.length === 3 && p[1] < day) { rows.push([p[1], p[2], all[k]]); props.deleteProperty(k); }
+    });
+    if (rows.length) appendRows_('이용기록', rows);
+    props.setProperty('U|flushed', day);
+  } finally { lock.releaseLock(); }
+}
+
+/** 여러 줄을 한 번에 추가 */
+function appendRows_(name, rows) {
+  forget_(name);
+  const sh = sheet_(name);
+  const start = sh.getLastRow() + 1;
+  sh.getRange(start, 1, rows.length, rows[0].length).setNumberFormat('@').setValues(rows);
+}
+
+/** 이용 기록 읽기: 시트(지난 날) + 저장소(오늘) → {email: {날짜: 기록}} */
+function usageRows_(from, to) {
+  const out = {};
+  const put = function (day, email, o) { (out[low_(email)] = out[low_(email)] || {})[day] = o; };
+  rows_('이용기록').forEach(function (r) {
+    const d = String(r['날짜']).slice(0, 10);
+    if (d >= from && d <= to) { try { put(d, r['이메일'], JSON.parse(r['기록'])); } catch (e) { /* 깨진 줄 무시 */ } }
+  });
+  const all = PropertiesService.getScriptProperties().getProperties();
+  Object.keys(all).forEach(function (k) {
+    const p = k.split('|');
+    if (p[0] === 'U' && p.length === 3 && p[1] >= from && p[1] <= to) { try { put(p[1], p[2], JSON.parse(all[k])); } catch (e) { /* 무시 */ } }
+  });
+  return out;
+}
+
+function usageSummary_(byDay) {
+  const days = Object.keys(byDay || {}).sort();
+  const sum = { days: 0, opens: 0, tabs: {}, popups: 0, downloads: 0, last: '', alerter: '' };
+  days.forEach(function (d) {
+    const o = byDay[d];
+    if (o['접속'] || o.f) sum.days++;
+    sum.opens += o['접속'] || 0;
+    Object.keys(USAGE_TAB_).forEach(function (a) { const k = USAGE_TAB_[a]; if (k !== '접속' && o[k]) sum.tabs[k] = (sum.tabs[k] || 0) + o[k]; });
+    sum.popups += o['공지팝업'] || 0;
+    sum.downloads += o['다운로드'] || 0;
+    if (o.l) sum.last = d + ' ' + o.l;
+    if (o.al) sum.alerter = d + ' ' + o.al;
+  });
+  return sum;
+}
+
+/** 공지 확인까지 걸린 평균 시간(분): 그 달에 올라온 남의 공지 기준 */
+function noticeDelay_(email, name, month) {
+  const notices = rows_('공지').filter(function (n) { return monthOf_(n['작성일']) === month; });
+  const acks = rows_('공지확인');
+  const mins = [];
+  notices.forEach(function (n) {
+    const a = acks.find(function (x) { return x['공지id'] === n.id && low_(x['이메일']) === email; });
+    if (!a || n['작성자'] === name) return; // 본인이 쓴 공지는 제외
+    const diff = (new Date(String(a['확인시각']).replace(' ', 'T') + ':00+09:00') - new Date(String(n['작성일']).replace(' ', 'T') + ':00+09:00')) / 60000;
+    if (diff >= 0 && diff < 60 * 24 * 31) mins.push(diff);
+  });
+  return mins.length ? Math.round(mins.reduce(function (s, x) { return s + x; }, 0) / mins.length) : null;
+}
+
+/** 영업노트 한 달 요약 */
+function salesSummary_(email, from, to) {
+  const leads = rows_('가망건').filter(function (r) { return low_(r['이메일']) === email; });
+  const calls = rows_('통화기록').filter(function (c) { return low_(c['이메일']) === email && String(c['시각']).slice(0, 10) >= from && String(c['시각']).slice(0, 10) <= to; });
+  const nowS = now_();
+  return {
+    open: leads.filter(function (r) { return LEAD_OPEN.indexOf(r['상태']) >= 0; }).length,
+    added: leads.filter(function (r) { const d = String(r['등록일']).slice(0, 10); return d >= from && d <= to; }).length,
+    contracts: leads.filter(function (r) { const d = String(r['계약일']).slice(0, 10); return r['상태'] === '계약' && d >= from && d <= to; }).length,
+    calls: calls.length,
+    overdue: leads.filter(function (r) { return LEAD_OPEN.indexOf(r['상태']) >= 0 && r['다음연락'] && String(r['다음연락']) < nowS; }).length,
+  };
+}
+
+const SALES_ACTIONS = {
+  leadList: function (me, p) {
+    const emails = scopeEmails_(me, p.email);
+    const day = today_(), nowS = now_();
+    return rows_('가망건').filter(function (r) { return emails.indexOf(low_(r['이메일'])) >= 0; })
+      .map(function (r) { return leadView_(r, day, nowS); })
+      .sort(function (a, b) {
+        if (a.open !== b.open) return a.open ? -1 : 1;
+        if (a.open && (a.next || 'z') !== (b.next || 'z')) return (a.next || 'z') < (b.next || 'z') ? -1 : 1;
+        return a.updated < b.updated ? 1 : -1;
+      });
+  },
+
+  leadSave: function (me, p) {
+    const rec = {
+      '업체명': text_(p.company, 100), '스토어주소': text_(p.store, 500), '매체': text_(p.media, 40),
+      '담당자': text_(p.person, 40), '연락처': text_(p.phone, 40), '메모': text_(p.memo, 3000),
+      '상태': LEAD_STATES.indexOf(p.status) >= 0 ? p.status : '첫 통화', '다음연락': dtText_(p.next), '수정일': now_(),
+    };
+    if (!rec['업체명']) throw new Error('업체명을 입력하세요.');
+    return locked_(function () {
+      if (p.id) {
+        const r = leadOwned_(me, p.id);
+        if (rec['상태'] === '계약' && r['상태'] !== '계약') rec['계약일'] = now_();
+        update_('가망건', 'id', p.id, rec);
+        return p.id;
+      }
+      rec.id = uid_(); rec['이메일'] = isLead_(me) && p.email ? low_(p.email) : me.email; rec['등록일'] = now_();
+      if (rec['상태'] === '계약') rec['계약일'] = now_();
+      insert_('가망건', rec);
+      return rec.id;
+    });
+  },
+
+  /** 통화 결과 기록 → 상태·다음 연락 갱신 (알리미가 다음 알림을 다시 잡음) */
+  leadLog: function (me, p) {
+    const result = CALL_RESULTS.indexOf(p.result) >= 0 ? p.result : '통화함';
+    return locked_(function () {
+      const r = leadOwned_(me, p.id);
+      const status = LEAD_STATES.indexOf(p.status) >= 0 ? p.status : (RESULT_STATE[result] || r['상태']);
+      const next = LEAD_OPEN.indexOf(status) >= 0 ? dtText_(p.next) : '';
+      insert_('통화기록', {
+        id: uid_(), '가망건id': r.id, '이메일': low_(r['이메일']), '시각': now_(), '결과': result,
+        '메모': text_(p.memo, 3000), '다음연락': next, '기록자': me.name,
+      });
+      const patch = { '상태': status, '다음연락': next, '수정일': now_() };
+      if (text_(p.memo)) patch['메모'] = text_(p.memo, 3000);
+      if (status === '계약' && r['상태'] !== '계약') patch['계약일'] = now_();
+      update_('가망건', 'id', r.id, patch);
+      return { status: status, next: next };
+    });
+  },
+
+  leadHistory: function (me, p) {
+    const r = leadOwned_(me, p.id);
+    return rows_('통화기록').filter(function (c) { return c['가망건id'] === r.id; })
+      .map(function (c) { return { at: c['시각'], result: c['결과'], memo: c['메모'], next: c['다음연락'], by: c['기록자'] }; })
+      .sort(function (a, b) { return a.at < b.at ? 1 : -1; });
+  },
+
+  leadDelete: function (me, p) {
+    return locked_(function () {
+      const r = leadOwned_(me, p.id);
+      remove_('가망건', function (x) { return x.id === r.id; });
+      remove_('통화기록', function (x) { return x['가망건id'] === r.id; });
+      return true;
+    });
+  },
+
+  taskList: function (me, p) {
+    const emails = scopeEmails_(me, p.email);
+    const day = today_();
+    const done = rows_('할일완료');
+    return rows_('할일').filter(function (t) { return emails.indexOf(low_(t['이메일'])) >= 0 && t['상태'] !== '보관'; })
+      .map(function (t) { return taskView_(t, done, day); })
+      .sort(function (a, b) { return (b.today - a.today) || (a.done - b.done) || ((a.time || '99') < (b.time || '99') ? -1 : 1); });
+  },
+
+  taskSave: function (me, p) {
+    const rep = TASK_REPEATS.indexOf(p.repeat) >= 0 ? p.repeat : '없음';
+    const rec = {
+      '분류': TASK_KINDS.indexOf(p.kind) >= 0 ? p.kind : '관리', '제목': text_(p.title, 200), '메모': text_(p.memo, 2000),
+      '반복': rep, '반복값': rep === '매주' ? text_(p.repeatValue, 20) : rep === '매월' ? String(Math.min(31, Math.max(1, num_(p.repeatValue) || 1))) : '',
+      '기한': rep === '없음' ? (isDate_(p.due) ? p.due : today_()) : '', '시간': /^\d{2}:\d{2}$/.test(p.time || '') ? p.time : '',
+    };
+    if (!rec['제목']) throw new Error('할일을 입력하세요.');
+    if (rep === '매주' && !rec['반복값']) throw new Error('반복할 요일을 고르세요.');
+    return locked_(function () {
+      if (p.id) {
+        const t = rows_('할일').find(function (x) { return x.id === p.id; });
+        if (!t) throw new Error('할일을 찾을 수 없습니다.');
+        if (!isLead_(me) && low_(t['이메일']) !== me.email) throw new Error('본인 할일만 고칠 수 있습니다.');
+        update_('할일', 'id', p.id, rec);
+        return p.id;
+      }
+      rec.id = uid_(); rec['이메일'] = isLead_(me) && p.email ? low_(p.email) : me.email;
+      rec['시작일'] = today_(); rec['상태'] = '사용'; rec['작성일'] = now_();
+      insert_('할일', rec);
+      return rec.id;
+    });
+  },
+
+  /** 삭제 대신 보관: 지난 완료 기록(완료율)은 남깁니다 */
+  taskDelete: function (me, p) {
+    return locked_(function () {
+      const t = rows_('할일').find(function (x) { return x.id === p.id; });
+      if (!t) return true;
+      if (!isLead_(me) && low_(t['이메일']) !== me.email) throw new Error('본인 할일만 지울 수 있습니다.');
+      update_('할일', 'id', p.id, { '상태': '보관' });
+      return true;
+    });
+  },
+
+  taskDone: function (me, p) {
+    const day = isDate_(p.date) ? p.date : today_();
+    return locked_(function () {
+      const t = rows_('할일').find(function (x) { return x.id === p.id; });
+      if (!t) throw new Error('할일을 찾을 수 없습니다.');
+      if (low_(t['이메일']) !== me.email) throw new Error('본인 할일만 체크할 수 있습니다.');
+      remove_('할일완료', function (d) { return d['할일id'] === t.id && d['날짜'] === day; });
+      if (p.done !== false) insert_('할일완료', { id: uid_(), '할일id': t.id, '이메일': me.email, '날짜': day, '완료시각': now_() });
+      return true;
+    });
+  },
+
+  today: function (me) { return todayBundle_(me); },
+
+  /** 화면에서만 알 수 있는 이용 기록(공지 팝업, 솔루션 다운로드) */
+  track: function (me, p) {
+    const k = { popup: '공지팝업', download: '다운로드' }[p.kind];
+    if (k) useMark_(me.email, k);
+    return true;
+  },
+
+  /** 팀장: 팀원별 이용 현황 */
+  usageStats: function (me, p) {
+    needLead_(me);
+    const month = /^\d{4}-\d{2}$/.test(p.month || '') ? p.month : monthOf_(today_());
+    const from = month + '-01', to = monthEnd_(month) < today_() ? monthEnd_(month) : today_();
+    const use = usageRows_(from, to);
+    const tasks = rows_('할일'), done = rows_('할일완료');
+    const workdays = workdays_(from, to);
+    return {
+      month: month, workdays: workdays,
+      members: members_().map(function (m) {
+        const u = usageSummary_(use[m.email]);
+        return {
+          email: m.email, name: m.name, role: m.role, usage: u,
+          noticeDelay: noticeDelay_(m.email, m.name, month), tasks: taskRate_(tasks, done, m.email, from, to),
+          sales: salesSummary_(m.email, from, to),
+        };
+      }),
+    };
+  },
+};
+Object.keys(SALES_ACTIONS).forEach(function (k) { ACTIONS[k] = SALES_ACTIONS[k]; });
+
 
 /* ───────────────────────── 가이드 초안 ───────────────────────── */
 

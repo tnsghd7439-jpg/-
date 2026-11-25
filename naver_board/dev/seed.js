@@ -87,6 +87,28 @@
   const cal=JSON.parse(api('calendar',{month:monthOf_(today_())})).data.mediaDeadlines.length;
   const cal12=JSON.parse(api('calendar',{month:addMonths_(monthOf_(today_()),1)})).data.mediaDeadlines.length;
   console.log('member media', JSON.stringify({saved:mn.mediaNotices, again:mn2.mediaNotices, rows:rows_('매체공지').length, shown:ml.length, media:[...new Set(ml.map(n=>n.media))].join('/'), needAck:need.length, unreadBefore:b0, unreadAfter:b1, calThis:cal, calNext:cal12, alerts:alerts_(JSON.parse(api('alertCode',{})).data.code).unread.length}));
+
+  // 영업노트·할일·이용 기록 테스트 데이터
+  (function(){
+    const A='a@mymp.co.kr', T=today_(), N=now_();
+    const R=(u,a,p)=>{ window.__USER=u; const r=JSON.parse(api(a,p)); if(!r.ok) throw new Error(a+': '+r.error); return r.data; };
+    const hhmm=(m)=>{ const d=new Date(Date.now()+9*3600e3+m*60000); return d.toISOString().slice(11,16); };
+    const l1=R(A,'leadSave',{company:'바른김치',media:'네이버',person:'김대표',phone:'010-1111-2222',status:'첫 통화',next:T+' '+hhmm(-30),memo:'SA 직접 운영, 비용 부담 얘기함'});
+    const l2=R(A,'leadSave',{company:'달빛캔들',media:'지마켓',status:'점검권한 대기',next:T+' '+hhmm(120)});
+    R(A,'leadSave',{company:'숲속농원',media:'네이버',status:'제안',next:addDays_(T,2)+' 10:00'});
+    const l4=R(A,'leadSave',{company:'푸른수산',media:'쿠팡',status:'첫 통화',next:T+' 09:00'});
+    R(A,'leadLog',{id:l4,result:'계약',memo:'월 300만 시작'});
+    window.__L1=l1;
+    R(A,'taskSave',{kind:'관리',title:'비즈머니 잔액 확인',repeat:'매일',time:'09:30'});
+    R(A,'taskSave',{kind:'영업',title:'신규 DB 20곳 통화',repeat:'평일'});
+    R(A,'taskSave',{kind:'관리',title:'제외키워드 점검',repeat:'매주',repeatValue:['일','월','화','수','목','금','토'][dt_(T).getUTCDay()]});
+    R(A,'taskSave',{kind:'영업',title:'지난주 제안서 회신 확인',repeat:'없음',due:addDays_(T,-1)});
+    const t5=R(A,'taskSave',{kind:'관리',title:'월말 정산 요청',repeat:'매월',repeatValue:Number(T.slice(8))});
+    R(A,'taskDone',{id:t5});
+    // 어제 이용 기록(저장소) → 오늘 첫 요청 때 시트로 옮겨지는지
+    window.__PROPS['U|'+addDays_(T,-1)+'|'+A]=JSON.stringify({f:'09:01',l:'18:20','접속':4,'실적':2,'영업노트':5});
+    delete window.__PROPS['U|flushed']; // 실제로는 어제 기록이 오늘 첫 요청보다 먼저 있음
+  })();
   window.__USER='a@mymp.co.kr'; const acode=JSON.parse(api('alertCode',{})).data.code;
   console.log('membercode', doPost({postData:{contents:JSON.stringify({code:acode,daily:{dates:[],rows:[]}})}}).text);
   const d=rows_('실적_일별'); const raw=drows.filter(r=>r['날짜']===dates[0]);

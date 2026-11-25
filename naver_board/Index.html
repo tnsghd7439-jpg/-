@@ -132,6 +132,18 @@
   .ev.팀{background:var(--g100);color:var(--g800)} .ev.개인{background:#e2f4f1;color:var(--teal)}
   .ev.미팅{background:var(--bluebg);color:var(--blue)} .ev.프로모션{background:var(--warnbg);color:var(--warn)}
   .ev.마감{background:#eef1ef;color:var(--ink)}
+  .ev.연락{background:#e2f0ff;color:#1d5fa8}
+  .todo-row{border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:6px;font-size:14px;gap:8px}
+  .todo-row.late{border-color:var(--bad);background:var(--badbg)}
+  .task{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line)}
+  .task:first-of-type{border-top:none}
+  .task input{margin-top:4px;width:18px;height:18px;accent-color:var(--g600)}
+  .task .tb{flex:1;min-width:0}
+  .task.done .tb>div:first-child{text-decoration:line-through;color:var(--ink3)}
+  .task.late .tb>div:first-child{color:var(--bad)}
+  .dotk{width:8px;height:8px;border-radius:99px;background:var(--g200);margin-top:7px}
+  .tasks{gap:12px}
+  .tasks>.card{margin-top:0}
   .ev.외근{background:#efe9fb;color:#5b3fa8} .ev.근태{background:#fdf0f4;color:#a8325b} .ev.매체{background:#fff1dc;color:#9a5b00}
   .ck{font-size:11.5px;font-weight:800;margin-top:auto}
   .ck .o{color:var(--g600)} .ck .x{color:var(--bad)}
@@ -255,6 +267,7 @@ function start() {
     drawTabs();
     google.script.url.getLocation(function (loc) {
       var want = loc.parameter && loc.parameter.tab;
+      if (loc.parameter && loc.parameter.lead) { ST.openLead = loc.parameter.lead; want = 'sales'; }
       var first = (want && B.tabs.some(function (t) { return t.id === want; })) ? want : (store('ob-tab') || B.tabs[0].id);
       if (!B.tabs.some(function (t) { return t.id === first; })) first = B.tabs[0].id;
       go(first);
@@ -268,7 +281,7 @@ function start() {
 
 function drawTabs() {
   var b = B.badges || {};
-  var cnt = { notice: b.unread, plan: isLead() ? (b.pending || 0) + (b.talk || 0) : b.todo };
+  var cnt = { notice: b.unread, plan: (isLead() ? (b.pending || 0) + (b.talk || 0) : 0) + (b.todo || 0), sales: b.calls };
   $('tabs').innerHTML = B.tabs.map(function (t) {
     var n = cnt[t.id];
     return '<button class="tab' + (t.id === CUR ? ' on' : '') + (t.lead ? ' lead' : '') + '" onclick="go(\'' + t.id + '\')"' + (t.lead ? ' title="팀장만 보이는 탭"' : '') + '>'
@@ -279,7 +292,7 @@ function drawTabs() {
 function go(id) {
   CUR = id; store('ob-tab', id); drawTabs();
   $('view').innerHTML = '<div class="loading">불러오는 중…</div>';
-  ({ perf: viewPerf, plan: viewPlan, notice: viewNotice, solution: viewSolution, guide: viewGuide, calendar: viewCalendar, admin: viewAdmin }[id] || viewPlan)();
+  ({ perf: viewPerf, plan: viewPlan, sales: viewSales, notice: viewNotice, solution: viewSolution, guide: viewGuide, calendar: viewCalendar, admin: viewAdmin }[id] || viewPlan)();
 }
 function refreshBadges() { return call('badges').then(function (b) { B.badges = b; drawTabs(); return b; }); }
 
@@ -287,8 +300,208 @@ function refreshBadges() { return call('badges').then(function (b) { B.badges = 
 function nudge(first) {
   (first ? Promise.resolve(B.badges) : refreshBadges()).then(function (b) {
     if (b.unread) return noticePopup();
-    if (first && b.todo && store('ob-todo') !== B.today) { store('ob-todo', B.today); todoPopup(); }
+    if (first && (b.todo || b.calls) && store('ob-todo') !== B.today) { store('ob-todo', B.today); todayPopup(); }
   }).catch(function () {});
+}
+
+/* ───────── 오늘 묶음 (오늘 전화할 곳 + 오늘 할일 + 오늘 목표) ───────── */
+function todayPopup() {
+  call('today').then(function (t) {
+    var goals = t.goals.filter(function (g) { return !g.checked; });
+    if ((!t.calls.length && !t.tasks.length && !goals.length) || !$('modal').hidden) return;
+    openModal('<h3>오늘은 이것부터 해요</h3><p class="muted small" style="margin:4px 0 12px">' + esc(B.today) + ' · 끝낸 것은 체크해 주세요.</p>'
+      + todayBody(t, goals) + '<div class="actions"><button class="btn ghost" onclick="closeModal();go(\'sales\')">영업노트</button><button class="btn pri" onclick="closeModal();go(\'plan\')">액션플랜 열기</button></div>');
+  }).catch(function () {});
+}
+function todayBody(t, goals) {
+  var h = '';
+  if (t.calls.length) h += '<h3 class="small" style="margin:6px 0">📞 오늘 연락할 곳 ' + t.calls.length + '곳</h3>' + t.calls.map(function (c) {
+    return '<div class="todo-row' + (c.overdue ? ' late' : '') + '"><b>' + esc(c.at.slice(11, 16)) + '</b> ' + esc(c.company)
+      + (c.overdue ? ' <span class="tag bad">지남</span>' : '') + (c.memo ? '<div class="muted small">' + esc(c.memo) + '</div>' : '')
+      + '<div class="row" style="margin-top:4px"><button class="btn ok sm" onclick="closeModal();openLead(\'' + c.id + '\')">통화 결과 적기</button>'
+      + (c.phone ? '<a class="btn ghost sm" href="tel:' + esc(c.phone) + '">' + esc(c.phone) + '</a>' : '') + '</div></div>';
+  }).join('');
+  if (t.tasks.length) h += '<h3 class="small" style="margin:12px 0 6px">✅ 오늘 할일 ' + t.tasks.length + '개</h3>' + t.tasks.map(function (x) {
+    return '<label class="todo-row row"><input type="checkbox" onchange="taskDone(\'' + x.id + '\',this.checked,true)"> <span class="tag ' + (x.kind === '영업' ? 'blue' : 'gray') + '">' + esc(x.kind) + '</span> '
+      + (x.time ? '<b>' + esc(x.time) + '</b> ' : '') + esc(x.title) + (x.overdue ? ' <span class="tag bad">밀림</span>' : '') + '</label>';
+  }).join('');
+  if (goals.length) h += '<h3 class="small" style="margin:12px 0 6px">🎯 오늘 목표 기준량</h3>' + goals.map(function (g) {
+    return '<div class="todo-row"><span class="tag">' + esc(g.period) + '</span> ' + esc(g.title) + ' · 오늘 <b>' + esc(g.daily) + esc(g.unit || '') + '</b></div>';
+  }).join('');
+  return h;
+}
+
+/* ───────── 할일 (관리 / 영업) ───────── */
+function taskSection(tasks, who) {
+  var mine = !isLead() || !who || who === B.me.email;
+  var col = function (kind) {
+    var list = tasks.filter(function (t) { return t.kind === kind; });
+    return '<div class="card"><div class="ct" style="justify-content:space-between"><span class="t">' + kind + '</span>'
+      + (mine ? '<button class="btn sm" onclick="taskForm(null,\'' + kind + '\')">+ 추가</button>' : '') + '</div>'
+      + (list.length ? list.map(function (t) {
+        return '<div class="task' + (t.done ? ' done' : '') + (t.overdue ? ' late' : '') + '">'
+          + (mine && t.email === B.me.email && (t.today || t.repeat === '없음') ? '<input type="checkbox"' + (t.done ? ' checked' : '') + ' onchange="taskDone(\'' + t.id + '\',this.checked)" aria-label="완료">' : '<span class="dotk"></span>')
+          + '<div class="tb"><div>' + (t.time ? '<b>' + esc(t.time) + '</b> ' : '') + esc(t.title) + (isLead() && !who ? ' <span class="muted small">' + esc(t.who) + '</span>' : '') + '</div>'
+          + '<div class="muted small">' + repeatText(t) + (t.overdue ? ' · <span class="down">밀림</span>' : '') + (t.memo ? ' · ' + esc(t.memo) : '') + '</div></div>'
+          + (mine || isLead() ? '<button class="linkbtn small" onclick="taskForm(\'' + t.id + '\')">수정</button>' : '') + '</div>';
+      }).join('') : '<p class="muted small">아직 없어요.' + (mine ? ' 매일·매주 반복할 일도 넣을 수 있어요.' : '') + '</p>') + '</div>';
+  };
+  return '<div class="sec"><h3>할일 <span class="muted small">직접 쓰는 업무 목록 · 승인 없이 바로 사용</span></h3><div class="grid2 tasks">' + col('관리') + col('영업') + '</div></div>';
+}
+function repeatText(t) {
+  if (t.repeat === '없음') return (t.due ? md(t.due) + '까지' : '한 번');
+  if (t.repeat === '매주') return '매주 ' + esc(t.repeatValue);
+  if (t.repeat === '매월') return '매월 ' + esc(t.repeatValue) + '일';
+  return esc(t.repeat);
+}
+function taskForm(id, kind) {
+  var t = id ? (window._tasks || []).find(function (x) { return x.id === id; }) : { kind: kind || '관리', title: '', memo: '', repeat: '없음', repeatValue: '', due: B.today, time: '' };
+  var days = (t.repeatValue || '').split(',');
+  openModal('<h3>' + (id ? '할일 수정' : '할일 추가') + '</h3>'
+    + '<div class="grid2" style="margin-top:12px"><label class="f"><span>분류</span><select id="k_kind">' + opts(B.options.taskKinds, t.kind) + '</select></label>'
+    + '<label class="f"><span>시간 (선택)</span><input type="text" id="k_time" placeholder="10:00" value="' + esc(t.time) + '"></label></div>'
+    + '<label class="f"><span>할일</span><input type="text" id="k_title" value="' + esc(t.title) + '" placeholder="예: 담당 계정 비즈머니 잔액 확인"></label>'
+    + '<label class="f"><span>반복</span><select id="k_rep" onchange="repUI()">' + opts(B.options.taskRepeats, t.repeat) + '</select></label>'
+    + '<div id="k_due" class="f"><span class="small muted">기한</span><input type="date" id="k_date" value="' + esc(t.due || B.today) + '"></div>'
+    + '<div id="k_week" class="f chips">' + B.options.weekdays.map(function (d) { return '<label class="chip"><input type="checkbox" class="k_wd" value="' + d + '"' + (days.indexOf(d) >= 0 ? ' checked' : '') + '> ' + d + '</label>'; }).join('') + '</div>'
+    + '<label class="f" id="k_month"><span>매월 며칠</span><input type="number" id="k_md" min="1" max="31" value="' + esc(t.repeat === '매월' ? t.repeatValue : 1) + '"></label>'
+    + '<label class="f"><span>메모 (선택)</span><input type="text" id="k_memo" value="' + esc(t.memo) + '"></label>'
+    + '<div class="actions">' + (id ? '<button class="btn no" onclick="taskDel(\'' + id + '\')">삭제</button>' : '') + '<button class="btn ghost" onclick="closeModal()">취소</button><button class="btn pri" onclick="taskSave(\'' + (id || '') + '\')">저장</button></div>');
+  repUI();
+}
+function repUI() {
+  var r = val('k_rep');
+  $('k_due').style.display = r === '없음' ? 'block' : 'none';
+  $('k_week').style.display = r === '매주' ? 'flex' : 'none';
+  $('k_month').style.display = r === '매월' ? 'block' : 'none';
+}
+function taskSave(id) {
+  var r = val('k_rep');
+  var rv = r === '매주' ? [].slice.call(document.querySelectorAll('.k_wd:checked')).map(function (x) { return x.value; }).join(',') : r === '매월' ? val('k_md') : '';
+  call('taskSave', { id: id, email: ST.planWho || '', kind: val('k_kind'), title: val('k_title'), memo: val('k_memo'), repeat: r, repeatValue: rv, due: val('k_date'), time: val('k_time') })
+    .then(function () { closeModal(); toast('저장했어요'); viewPlan(); refreshBadges(); }).catch(fail);
+}
+function taskDel(id) { if (!confirm('이 할일을 지울까요? 지난 완료 기록은 남습니다.')) return; call('taskDelete', { id: id }).then(function () { closeModal(); toast('지웠어요'); viewPlan(); refreshBadges(); }).catch(fail); }
+function taskDone(id, done, inPopup) {
+  call('taskDone', { id: id, done: done }).then(function () { toast(done ? '완료!' : '취소했어요'); refreshBadges(); if (!inPopup && CUR === 'plan') viewPlan(); }).catch(fail);
+}
+
+/* ───────── 영업노트 ───────── */
+function openLead(id) { ST.openLead = id; if (CUR === 'sales') logForm(id); else go('sales'); }
+function viewSales() {
+  var who = isLead() ? ST.salesWho : '';
+  call('leadList', { email: who }).then(function (list) {
+    window._leads = list;
+    var f = ST.salesFilter || '진행 중', q = (ST.salesQ || '').trim();
+    var due = list.filter(function (l) { return l.due; }), late = list.filter(function (l) { return l.overdue; });
+    var month = B.today.slice(0, 7);
+    var won = list.filter(function (l) { return l.status === '계약' && String(l.contractAt).slice(0, 7) === month; }).length;
+    var shown = list.filter(function (l) {
+      var okF = f === '전체' || (f === '진행 중' ? l.open : f === '오늘 연락' ? l.due : f === '보류·실패' ? (l.status === '보류' || l.status === '실패') : l.status === f);
+      var okQ = !q || (l.company + ' ' + (l.person || '') + ' ' + (l.phone || '') + ' ' + (l.memo || '')).indexOf(q) >= 0;
+      return okF && okQ;
+    });
+    var stages = ['첫 통화', '점검권한 대기', '제안', '계약'];
+    var h = '<div class="head"><div><h2>영업노트</h2><p>영업하면서 만난 가망건을 저장하고, 다음 연락 시각이 되면 알리미가 알려줍니다.</p></div>'
+      + '<button class="btn pri" onclick="leadForm()">가망건 추가</button></div>'
+      + (isLead() ? '<div class="row" style="margin-bottom:10px"><span class="small muted">팀원 선택</span><select style="width:auto" onchange="ST.salesWho=this.value;viewSales()">' + memberOpts(who, true) + '</select></div>' : '')
+      + '<div class="stats" style="margin-bottom:14px"><div class="stat"><div class="l">오늘 연락할 곳</div><div class="v" style="color:' + (due.length ? 'var(--warn)' : 'var(--g900)') + '">' + due.length + '곳</div><div class="d ' + (late.length ? 'down' : 'muted') + '">' + (late.length ? '시간 지난 곳 ' + late.length + '곳' : '밀린 연락 없음') + '</div></div>'
+      + '<div class="stat"><div class="l">진행 중</div><div class="v">' + list.filter(function (l) { return l.open; }).length + '곳</div><div class="d muted">' + stages.slice(0, 3).map(function (s) { return s + ' ' + list.filter(function (l) { return l.status === s; }).length; }).join(' · ') + '</div></div>'
+      + '<div class="stat"><div class="l">이번 달 계약</div><div class="v">' + won + '건</div><div class="d muted">전체 계약 ' + list.filter(function (l) { return l.status === '계약'; }).length + '건</div></div></div>'
+      + '<div class="row" style="justify-content:space-between;margin-bottom:12px"><div class="chips">' + ['진행 중', '오늘 연락', '계약', '보류·실패', '전체'].map(function (c) {
+        return '<button class="chip' + (c === f ? ' on' : '') + '" onclick="ST.salesFilter=\'' + c + '\';viewSales()">' + c + '</button>';
+      }).join('') + '</div><input type="text" style="width:220px" placeholder="업체명·연락처·메모 찾기" value="' + esc(q) + '" oninput="ST.salesQ=this.value;clearTimeout(window._sq);window._sq=setTimeout(viewSales,350)"></div>'
+      + (shown.length ? '<div class="cols">' + shown.map(leadCard).join('') + '</div>'
+        : '<div class="empty"><b>' + (list.length ? '해당하는 가망건이 없어요' : '아직 가망건이 없어요') + '</b>' + (list.length ? '' : '통화한 업체를 가망건 추가로 저장하고, 다음 연락 시각을 정해두세요.') + '</div>');
+    $('view').innerHTML = h;
+    if (ST.openLead) { var id = ST.openLead; ST.openLead = ''; if (list.some(function (l) { return l.id === id; })) logForm(id); }
+  }).catch(fail);
+}
+function leadCard(l) {
+  var tag = { '첫 통화': 'gray', '점검권한 대기': 'blue', '제안': 'warn', '계약': '', '보류': 'gray', '실패': 'bad' }[l.status];
+  var nextTxt = !l.open ? '' : !l.next ? '<span class="down">다음 연락일 없음</span>'
+    : (l.overdue ? '<b class="down">' : l.due ? '<b style="color:var(--warn)">' : '<b>') + md(l.next) + ' ' + l.next.slice(11, 16) + '</b>' + (l.overdue ? ' 지남' : l.due ? ' 오늘' : '');
+  return '<div class="card' + (l.overdue ? ' hot' : '') + '"><div class="ct"><span class="tag ' + tag + '">' + esc(l.status) + '</span>' + (l.media ? '<span class="tag gray">' + esc(l.media) + '</span>' : '')
+    + '<span class="t">' + esc(l.company) + '</span>' + (isLead() ? '<span class="muted small">' + esc(l.who) + '</span>' : '') + '</div>'
+    + (l.open ? '<div class="meta">다음 연락 ' + nextTxt + '</div>' : '<div class="meta">' + (l.contractAt ? '계약 ' + md(l.contractAt) : '수정 ' + md(l.updated)) + '</div>')
+    + ((l.person || l.phone) ? '<div class="small" style="margin-top:4px">' + esc(l.person || '') + (l.phone ? ' · <a href="tel:' + esc(l.phone) + '">' + esc(l.phone) + '</a>' : '') + '</div>' : '')
+    + (l.memo ? '<div class="body small">' + esc(l.memo) + '</div>' : '')
+    + '<div class="row" style="margin-top:10px"><button class="btn ok sm" onclick="logForm(\'' + l.id + '\')">통화 결과 적기</button>'
+    + '<button class="btn ghost sm" onclick="leadForm(\'' + l.id + '\')">수정</button><button class="btn ghost sm" onclick="leadHistory(\'' + l.id + '\')">기록</button>'
+    + (l.store ? '<a class="btn ghost sm" href="' + esc(/^https?:/.test(l.store) ? l.store : 'https://' + l.store) + '" target="_blank" rel="noopener">스토어</a>' : '') + '</div></div>';
+}
+function leadById(id) { return (window._leads || []).find(function (l) { return l.id === id; }); }
+function nextOpts() {
+  var d = function (n) { return addDays(B.today, n); };
+  return [['내일 10:00', d(1) + ' 10:00'], ['내일 15:00', d(1) + ' 15:00'], ['3일 뒤', d(3) + ' 10:00'], ['1주 뒤', d(7) + ' 10:00'], ['2주 뒤', d(14) + ' 10:00']]
+    .map(function (o) { return '<button type="button" class="chip" onclick="setNext(\'' + o[1] + '\')">' + o[0] + '</button>'; }).join('');
+}
+function setNext(v) { $('l_nd').value = v.slice(0, 10); $('l_nt').value = v.slice(11, 16); }
+function nextVal() { return val('l_nd') ? val('l_nd') + ' ' + (val('l_nt') || '10:00') : ''; }
+function leadForm(id) {
+  var l = id ? leadById(id) : { company: '', store: '', media: '네이버', person: '', phone: '', status: '첫 통화', memo: '', next: addDays(B.today, 1) + ' 10:00' };
+  openModal('<h3>' + (id ? '가망건 수정' : '가망건 추가') + '</h3>'
+    + (isLead() && !id ? '<label class="f" style="margin-top:12px"><span>담당 마케터</span><select id="l_who">' + memberOpts(ST.salesWho || B.me.email, false) + '</select></label>' : '<div style="height:12px"></div>')
+    + '<div class="grid2"><label class="f"><span>업체명</span><input type="text" id="l_co" value="' + esc(l.company) + '"></label>'
+    + '<label class="f"><span>매체</span><input type="text" id="l_md" value="' + esc(l.media) + '" placeholder="네이버, 지마켓, 쿠팡…"></label></div>'
+    + '<label class="f"><span>스토어 주소 (선택)</span><input type="text" id="l_st" value="' + esc(l.store) + '" placeholder="smartstore.naver.com/…"></label>'
+    + '<div class="grid2"><label class="f"><span>담당자</span><input type="text" id="l_ps" value="' + esc(l.person) + '"></label>'
+    + '<label class="f"><span>연락처</span><input type="text" id="l_ph" value="' + esc(l.phone) + '"></label></div>'
+    + '<label class="f"><span>상태</span><select id="l_ss">' + opts(B.options.leadStates, l.status) + '</select></label>'
+    + '<div class="f"><span class="small muted">다음 연락</span><div class="grid2"><input type="date" id="l_nd" value="' + esc((l.next || '').slice(0, 10)) + '"><input type="time" id="l_nt" value="' + esc((l.next || '').slice(11, 16) || '10:00') + '"></div><div class="chips" style="margin-top:6px">' + nextOpts() + '</div></div>'
+    + '<label class="f"><span>메모</span><textarea id="l_mm" placeholder="통화 내용, 광고 현황, 관심사">' + esc(l.memo) + '</textarea></label>'
+    + '<div class="actions">' + (id ? '<button class="btn no" onclick="leadDel(\'' + id + '\')">삭제</button>' : '') + '<button class="btn ghost" onclick="closeModal()">취소</button><button class="btn pri" onclick="leadSave(\'' + (id || '') + '\')">저장</button></div>');
+}
+function leadSave(id) {
+  call('leadSave', { id: id, email: val('l_who'), company: val('l_co'), store: val('l_st'), media: val('l_md'), person: val('l_ps'), phone: val('l_ph'), status: val('l_ss'), next: nextVal(), memo: val('l_mm') })
+    .then(function () { closeModal(); toast('저장했어요. 다음 연락 시각에 알려드릴게요'); viewSales(); refreshBadges(); }).catch(fail);
+}
+function leadDel(id) { if (!confirm('이 가망건과 통화 기록을 모두 지울까요?')) return; call('leadDelete', { id: id }).then(function () { closeModal(); toast('지웠어요'); viewSales(); refreshBadges(); }).catch(fail); }
+function logForm(id) {
+  var l = leadById(id); if (!l) return;
+  openModal('<h3>' + esc(l.company) + ' · 통화 결과</h3>'
+    + '<p class="muted small" style="margin:4px 0 10px">' + esc(l.status) + (l.phone ? ' · <a href="tel:' + esc(l.phone) + '">' + esc(l.phone) + '</a>' : '') + (l.memo ? '<br>지난 메모: ' + esc(l.memo) : '') + '</p>'
+    + '<label class="f"><span>결과</span><select id="g_res" onchange="logUI()">' + opts(B.options.callResults, '통화함') + '</select></label>'
+    + '<label class="f"><span>상태</span><select id="g_st" onchange="logUI()">' + opts(B.options.leadStates, l.status) + '</select></label>'
+    + '<label class="f"><span>통화 메모</span><textarea id="g_mm" placeholder="무슨 이야기를 했는지, 다음에 할 말"></textarea></label>'
+    + '<div class="f" id="g_next"><span class="small muted">다음 연락</span><div class="grid2"><input type="date" id="l_nd" value="' + addDays(B.today, 1) + '"><input type="time" id="l_nt" value="10:00"></div><div class="chips" style="margin-top:6px">' + nextOpts() + '</div></div>'
+    + '<div class="actions"><button class="btn ghost" onclick="closeModal()">취소</button><button class="btn ok" onclick="logSave(\'' + id + '\')">기록하고 다음 알림 예약</button></div>');
+  logUI(true);
+}
+var RESULT_STATE_UI = { '점검권한 받음': '점검권한 대기', '제안 발송': '제안', '계약': '계약', '보류': '보류', '실패': '실패' };
+function logUI(first) {
+  if (!first && document.activeElement === $('g_res') && RESULT_STATE_UI[val('g_res')]) $('g_st').value = RESULT_STATE_UI[val('g_res')];
+  var open = ['첫 통화', '점검권한 대기', '제안'].indexOf(val('g_st')) >= 0;
+  $('g_next').style.display = open ? 'block' : 'none';
+}
+function logSave(id) {
+  call('leadLog', { id: id, result: val('g_res'), status: val('g_st'), memo: val('g_mm'), next: nextVal() })
+    .then(function (r) { closeModal(); toast(r.next ? '기록했어요. ' + md(r.next) + ' ' + r.next.slice(11) + '에 다시 알려드릴게요' : '기록했어요 (' + r.status + ')'); if (CUR === 'sales') viewSales(); refreshBadges(); }).catch(fail);
+}
+function leadHistory(id) {
+  var l = leadById(id);
+  call('leadHistory', { id: id }).then(function (list) {
+    openModal('<h3>' + esc(l ? l.company : '') + ' · 통화 기록</h3>' + (list.length ? '<div class="scroll" style="margin-top:10px"><table class="tbl"><tr><th>시각</th><th>결과</th><th>메모</th><th>다음 연락</th></tr>' + list.map(function (c) {
+      return '<tr><td>' + esc(md(c.at)) + ' ' + esc(String(c.at).slice(11)) + '</td><td>' + esc(c.result) + '</td><td>' + esc(c.memo) + '</td><td>' + (c.next ? esc(md(c.next)) + ' ' + esc(c.next.slice(11)) : '-') + '</td></tr>';
+    }).join('') + '</table></div>' : '<p class="muted small" style="margin-top:10px">아직 기록이 없어요.</p>') + '<div class="actions"><button class="btn pri" onclick="closeModal()">닫기</button></div>');
+  }).catch(fail);
+}
+
+/* ───────── 이용 현황 (팀장) ───────── */
+function usageBlock(u) {
+  var tabs = ['실적', '액션플랜', '영업노트', '공지', '캘린더', '솔루션', '가이드'];
+  return '<div class="sec"><h3>이용 현황 <span class="muted small">' + esc(u.month) + ' · 근무일 ' + u.workdays + '일</span></h3>'
+    + '<p class="muted small" style="margin:-6px 0 10px">접속·탭 사용은 자동으로 기록됩니다. 공지 확인 시간은 공지가 올라온 뒤 확인을 누르기까지 걸린 평균입니다.</p>'
+    + '<div class="scroll"><table class="tbl"><tr><th>팀원</th><th class="r">접속일</th><th class="r">접속</th><th>마지막 접속</th>' + tabs.map(function (t) { return '<th class="r">' + t + '</th>'; }).join('')
+    + '<th class="r">공지 확인</th><th class="r">재알림</th><th class="r">할일 완료</th><th class="r">가망건</th><th class="r">통화</th><th class="r">계약</th><th class="r">밀린 연락</th><th>알리미</th></tr>'
+    + u.members.map(function (m) {
+      var s = m.usage, low = s.days < u.workdays * 0.6;
+      return '<tr' + (low ? ' class="warn"' : '') + '><td><b>' + esc(m.name) + '</b></td><td class="r">' + s.days + '</td><td class="r">' + s.opens + '</td><td>' + (s.last ? esc(md(s.last)) + ' ' + esc(s.last.slice(11)) : '<span class="muted">없음</span>') + '</td>'
+        + tabs.map(function (t) { return '<td class="r">' + (s.tabs[t] || '') + '</td>'; }).join('')
+        + '<td class="r">' + (m.noticeDelay == null ? '-' : m.noticeDelay < 60 ? m.noticeDelay + '분' : Math.round(m.noticeDelay / 6) / 10 + '시간') + '</td><td class="r">' + (s.popups || '') + '</td>'
+        + '<td class="r">' + (m.tasks.rate == null ? '-' : m.tasks.rate + '%') + '</td><td class="r">' + m.sales.open + '</td><td class="r">' + m.sales.calls + '</td><td class="r">' + m.sales.contracts + '</td>'
+        + '<td class="r">' + (m.sales.overdue ? '<span class="down">' + m.sales.overdue + '</span>' : '0') + '</td><td>' + (s.alerter ? esc(md(s.alerter)) + ' ' + esc(s.alerter.slice(11)) : '<span class="muted">기록 없음</span>') + '</td></tr>';
+    }).join('') + '</table></div><p class="muted small" style="margin-top:6px">접속일이 근무일의 60% 미만이면 주황색으로 표시합니다.</p></div>';
 }
 
 /* ───────── 공지사항 ───────── */
@@ -298,6 +511,7 @@ function noticePopup() {
     var mun = r[1].filter(function (n) { return n.needAck && !n.read; });
     var total = un.length + mun.length;
     if (!total || !$('modal').hidden) return;
+    google.script.run.api('track', { kind: 'popup' });
     openModal('<h3>확인하지 않은 공지가 ' + total + '건 있어요</h3><p class="muted small" style="margin:4px 0 12px">확인을 누르기 전까지 1시간마다 다시 알려드려요.</p>'
       + un.map(function (n) {
         return '<div class="pop"><div class="ct"><span class="tag' + (n.type === '회사 공지' ? ' blue' : '') + '">' + esc(n.type) + '</span>' + (n.important ? '<span class="tag bad">중요</span>' : '')
@@ -405,24 +619,13 @@ function noticeSave(id) {
 function noticeDel(id) { if (!confirm('이 공지를 삭제할까요? 확인 기록도 함께 지워집니다.')) return; call('noticeDelete', { id: id }).then(function () { toast('삭제했어요'); viewNotice(); refreshBadges(); }).catch(fail); }
 
 /* ───────── 개인별 액션플랜 ───────── */
-function todoPopup() {
-  call('goalList', { email: B.me.email }).then(function (list) {
-    var act = list.filter(function (g) { return g.active && !g.todayCheck; });
-    if (!act.length || !$('modal').hidden) return;
-    openModal('<h3>오늘은 이것부터 해요</h3><p class="muted small" style="margin:4px 0 12px">' + esc(B.today) + ' · 끝나면 액션플랜에서 달성/실패를 체크해주세요.</p>'
-      + act.map(function (g) {
-        return '<div class="card"><div class="ct"><span class="tag">' + esc(g.period) + '</span><span class="t">' + esc(g.title) + '</span></div>'
-          + '<div class="kv" style="margin-top:6px"><span>오늘 기준 <b>' + amt(g.daily, g.unit) + '</b></span><span>지금까지 <b>' + amt(g.achieved, g.unit) + ' / ' + amt(g.target, g.unit) + '</b> (' + g.rate + '%)</span></div>'
-          + (g.plan ? '<div class="body small">' + esc(g.plan) + '</div>' : '') + '</div>';
-      }).join('') + '<div class="actions"><button class="btn pri" onclick="closeModal();go(\'plan\')">액션플랜 열기</button></div>');
-  });
-}
-
 function viewPlan() {
   var who = isLead() ? ST.planWho : B.me.email;
-  var jobs = [call('goalList', { email: who }), call('failureList', { email: who, all: !isLead() })];
+  var own = !isLead() || !who || who === B.me.email;
+  var jobs = [call('goalList', { email: who }), call('failureList', { email: who, all: !isLead() }), call('taskList', { email: who }), own ? call('today') : Promise.resolve(null)];
   Promise.all(jobs).then(function (r) {
-    var goals = r[0], fails = r[1];
+    var goals = r[0], fails = r[1], tasks = r[2], tday = r[3];
+    window._tasks = tasks;
     window._goals = goals;
     var mine = goals.filter(function (g) { return g.email === B.me.email; });
     var today = mine.filter(function (g) { return g.active; });
@@ -431,13 +634,17 @@ function viewPlan() {
     var running = goals.filter(function (g) { return g.status === '승인' && g.end >= B.today; });
     var past = goals.filter(function (g) { return g.status === '완료' || (g.status === '승인' && g.end < B.today); });
     var h = '<div class="head"><div><h2>개인별 액션플랜</h2><p>주·월·분기 목표를 세우고 팀장 승인을 받은 뒤, 매일 달성/실패를 체크합니다.</p></div>'
-      + '<div class="row"><button class="btn ghost" onclick="evalForm()">월별 평가자료 받기</button><button class="btn pri" onclick="goalForm()">목표 추가</button></div></div>';
+      + '<div class="row"><button class="btn ghost" onclick="evalForm()">월별 평가자료 받기</button><button class="btn" onclick="taskForm()">할일 추가</button><button class="btn pri" onclick="goalForm()">목표 추가</button></div></div>';
     if (isLead()) {
       h += '<div class="row" style="margin-bottom:6px"><span class="small muted">팀원 선택</span><select id="planWho" style="width:auto" onchange="ST.planWho=this.value;viewPlan()">' + memberOpts(who, true) + '</select></div>';
     }
-    if (today.length) {
-      h += '<div class="sec"><h3>오늘 할 일 <span class="muted small">' + esc(B.today) + '</span></h3><div class="cols">' + today.map(todayCard).join('') + '</div></div>';
+    if (tday && (tday.calls.length || today.length)) {
+      h += '<div class="sec"><h3>오늘 <span class="muted small">' + esc(B.today) + '</span></h3>'
+        + (tday.calls.length ? '<div class="card" style="margin-bottom:10px"><div class="ct" style="justify-content:space-between"><span class="t">📞 오늘 연락할 곳 ' + tday.calls.length + '곳</span><button class="btn sm" onclick="go(\'sales\')">영업노트</button></div>'
+          + tday.calls.map(function (c) { return '<div class="task' + (c.overdue ? ' late' : '') + '"><span class="dotk"></span><div class="tb"><div><b>' + esc(c.at.slice(11)) + '</b> ' + esc(c.company) + (c.overdue ? ' <span class="tag bad">지남</span>' : '') + '</div>' + (c.memo ? '<div class="muted small">' + esc(c.memo) + '</div>' : '') + '</div><button class="btn ok sm" onclick="openLead(\'' + c.id + '\')">결과 적기</button></div>'; }).join('') + '</div>' : '')
+        + (today.length ? '<div class="cols">' + today.map(todayCard).join('') + '</div>' : '') + '</div>';
     }
+    h += taskSection(tasks, who);
     if (isLead()) {
       h += '<div class="sec"><h3>승인 기다리는 목표 ' + pending.length + '건</h3>' + (pending.length ? pending.map(goalCard).join('') : '<p class="muted small">기다리는 목표가 없어요.</p>') + '</div>';
       h += '<div class="sec"><h3>소통이 필요한 실패 ' + fails.length + '건</h3><p class="muted small" style="margin:-6px 0 10px">팀원이 적은 사유를 보고 이야기를 나눈 뒤 소통완료를 체크하세요.</p>'
@@ -562,7 +769,12 @@ function evalDownload() {
       ['일일 체크 달성', ok], ['일일 체크 실패', fl], ['일일 달성 비율(%)', d.checks.length ? Math.round(ok / d.checks.length * 1000) / 10 : ''],
       ['소통 대기 실패', d.checks.filter(function (c) { return c.result === '실패' && !c.talked; }).length], [],
       ['이번 달 매출(원)', s.hasData ? s.total : '실적 데이터 연결 전'], ['지난달 매출(원)', s.hasData ? s.prevTotal : ''],
-      ['전월 대비(%)', s.hasData && s.prevTotal ? Math.round((s.total / s.prevTotal - 1) * 1000) / 10 : ''],
+      ['전월 대비(%)', s.hasData && s.prevTotal ? Math.round((s.total / s.prevTotal - 1) * 1000) / 10 : ''], [],
+      ['영업노트 진행 중 가망건', d.salesNote.open], ['이번 달 새 가망건', d.salesNote.added], ['이번 달 통화 기록', d.salesNote.calls],
+      ['이번 달 계약', d.salesNote.contracts], ['밀린 연락', d.salesNote.overdue], [],
+      ['할일 완료율(%)', d.tasks.rate == null ? '' : d.tasks.rate], ['할일 완료/해야 할 횟수', d.tasks.ok + ' / ' + d.tasks.need], [],
+      ['원보드 접속일', d.usage.days + ' / 근무일 ' + d.workdays], ['원보드 접속 횟수', d.usage.opens],
+      ['공지 확인까지 평균(분)', d.noticeDelay == null ? '' : d.noticeDelay], ['공지 재알림 받은 횟수', d.usage.popups],
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), '요약');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(g.map(function (x) {
@@ -578,6 +790,12 @@ function evalDownload() {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(s.accounts.map(function (a) {
       return { '매체': a.media, '광고주ID': a.id, '광고주명': a.name, '이번 달(원)': a.cur, '지난달(원)': a.prev, '증감(%)': a.prev ? Math.round((a.cur / a.prev - 1) * 1000) / 10 : '' };
     })), '계정별 매출');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(d.calls.length ? d.calls.map(function (c) {
+      return { '시각': c.at, '업체': c.company, '결과': c.result, '메모': c.memo, '다음 연락': c.next };
+    }) : [{ '시각': '', '업체': '이번 달 통화 기록 없음' }]), '영업노트 통화');
+    var tabs = Object.keys(d.usage.tabs || {});
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['탭', '연 횟수']].concat(tabs.map(function (t) { return [t, d.usage.tabs[t]]; }))
+      .concat([[], ['접속일', d.usage.days], ['근무일', d.workdays], ['마지막 접속', d.usage.last], ['솔루션 다운로드', d.usage.downloads]])), '이용률');
     XLSX.writeFile(wb, '월별평가_' + d.member.name + '_' + d.month + '.xlsx');
     closeModal(); toast('엑셀을 내려받았어요');
   }).catch(fail);
@@ -606,7 +824,7 @@ function viewCalendar() {
       d.checks.forEach(function (c) { by[c.who] = by[c.who] || { o: 0, x: 0 }; c.result === '달성' ? by[c.who].o++ : by[c.who].x++; });
       h += '<div class="chips" style="margin-bottom:6px">' + Object.keys(by).map(function (k) { return '<span class="tag gray">' + esc(k) + ' <span class="up">✓' + by[k].o + '</span> <span class="down">✗' + by[k].x + '</span></span>'; }).join('') + '</div>';
     }
-    h += '<div class="legend"><span class="ev 팀">팀</span><span class="ev 개인">개인</span><span class="ev 미팅">미팅</span><span class="ev 프로모션">프로모션</span><span class="ev 외근">외근</span><span class="ev 근태">근태</span><span class="ev 매체">매체 신청마감</span><span class="ev 마감">목표 마감</span><span><span class="up">✓달성</span> <span class="down">✗실패</span></span></div>';
+    h += '<div class="legend"><span class="ev 팀">팀</span><span class="ev 개인">개인</span><span class="ev 미팅">미팅</span><span class="ev 프로모션">프로모션</span><span class="ev 외근">외근</span><span class="ev 근태">근태</span><span class="ev 매체">매체 신청마감</span><span class="ev 연락">연락 예정</span><span class="ev 마감">목표 마감</span><span><span class="up">✓달성</span> <span class="down">✗실패</span></span></div>';
     h += '<div class="cal">' + ['일', '월', '화', '수', '목', '금', '토'].map(function (x) { return '<div class="dow">' + x + '</div>'; }).join('');
     for (var i = 0; i < 42; i++) {
       var day = addDays(startDay, i);
@@ -614,9 +832,11 @@ function viewCalendar() {
       var evs = d.events.filter(function (e) { return e.start <= day && e.end >= day; });
       var dl = d.deadlines.filter(function (x) { return x.date === day; });
       var mdl = (d.mediaDeadlines || []).filter(function (x) { return x.date === day; });
+      var cls = (d.calls || []).filter(function (x) { return x.date === day; });
       var cks = d.checks.filter(function (c) { return c.date === day; });
       var o = cks.filter(function (c) { return c.result === '달성'; }).length, x = cks.length - o;
-      var items = evs.map(function (e) { return '<span class="ev ' + esc(e.type) + '">' + esc(e.title) + '</span>'; })
+      var items = (cls.length > 1 ? ['<span class="ev 연락">📞 연락 ' + cls.length + '곳</span>'] : cls.map(function (c) { return '<span class="ev 연락">📞 ' + esc(c.time) + ' ' + esc(c.company) + '</span>'; }))
+        .concat(evs.map(function (e) { return '<span class="ev ' + esc(e.type) + '">' + esc(e.title) + '</span>'; }))
         .concat(dl.map(function (e) { return '<span class="ev 마감">마감 ' + esc(e.title) + '</span>'; }))
         .concat(mdl.length > 1 ? ['<span class="ev 매체">매체 신청마감 ' + mdl.length + '건</span>']
           : mdl.map(function (e) { return '<span class="ev 매체" title="' + esc(e.title) + '">' + esc(e.media) + ' · ' + esc(e.title) + '</span>'; }));
@@ -635,9 +855,11 @@ function dayDetail(day) {
   var evs = d.events.filter(function (e) { return e.start <= day && e.end >= day; });
   var dl = d.deadlines.filter(function (x) { return x.date === day; });
   var mdl = (d.mediaDeadlines || []).filter(function (x) { return x.date === day; });
+  var cls = (d.calls || []).filter(function (x) { return x.date === day; });
   var cks = d.checks.filter(function (c) { return c.date === day; });
   var h = '<div class="row" style="justify-content:space-between"><h3>' + md(day) + ' 상세</h3><button class="btn sm" onclick="eventForm(null,\'' + day + '\')">이 날 일정 추가</button></div>';
-  if (!evs.length && !dl.length && !mdl.length && !cks.length) h += '<p class="muted small">기록이 없어요.</p>';
+  h += cls.map(function (c) { return '<div class="card"><span class="ev 연락">연락 예정</span> <b>' + esc(c.time) + ' ' + esc(c.company) + '</b> <span class="muted small">' + esc(c.who) + '</span> <button class="btn ok sm" onclick="openLead(\'' + c.id + '\')">영업노트에서 열기</button></div>'; }).join('');
+  if (!evs.length && !dl.length && !mdl.length && !cks.length && !cls.length) h += '<p class="muted small">기록이 없어요.</p>';
   h += evs.map(function (e) {
     return '<div class="card"><div class="ct"><span class="ev ' + esc(e.type) + '">' + esc(e.type) + '</span><span class="t">' + esc(e.title) + '</span>' + (e.time ? '<span class="muted small">' + esc(e.time) + '</span>' : '') + '</div>'
       + '<div class="meta">' + (e.start !== e.end ? md(e.start) + ' ~ ' + md(e.end) + ' · ' : '') + (e.who ? esc(e.who) + ' · ' : '') + '등록 ' + esc(e.author) + '</div>' + (e.memo ? '<div class="body">' + esc(e.memo) + '</div>' : '')
@@ -683,7 +905,7 @@ function viewSolution() {
         return '<div class="card"><div class="ct"><span class="t">' + esc(s.name) + '</span><span class="tag">최신</span></div>'
           + '<div class="meta">' + esc(l.name) + ' · ' + esc(l.updated) + ' · ' + (l.size ? Math.max(1, Math.round(l.size / 1024)).toLocaleString() + 'KB' : '') + '</div>'
           + (l.desc ? '<div class="body small">' + esc(l.desc) + '</div>' : '')
-          + '<div class="row" style="margin-top:10px"><a class="btn pri sm" href="' + esc(l.download) + '" target="_blank" rel="noopener">최신 버전 받기</a><a class="btn ghost sm" href="' + esc(l.url) + '" target="_blank" rel="noopener">드라이브에서 보기</a></div>'
+          + '<div class="row" style="margin-top:10px"><a class="btn pri sm" href="' + esc(l.download) + '" target="_blank" rel="noopener" onclick="google.script.run.api(\'track\',{kind:\'download\'})">최신 버전 받기</a><a class="btn ghost sm" href="' + esc(l.url) + '" target="_blank" rel="noopener">드라이브에서 보기</a></div>'
           + (s.older.length ? '<details><summary>이전 버전 ' + s.older.length + '개</summary>' + s.older.map(function (o) { return '<div class="small" style="padding:3px 0"><a href="' + esc(o.download) + '" target="_blank" rel="noopener">' + esc(o.name) + '</a> <span class="muted">' + esc(o.updated) + '</span></div>'; }).join('') + '</details>' : '')
           + '</div>';
       }).join('') + '</div>';
@@ -799,7 +1021,8 @@ function ahiBlock(a) {
 /* ───────── 팀 현황 (팀장) ───────── */
 function viewAdmin() {
   var month = ST.adminMonth || B.today.slice(0, 7);
-  call('teamStats', { month: month }).then(function (d) {
+  Promise.all([call('teamStats', { month: month }), call('usageStats', { month: month })]).then(function (r) {
+    var d = r[0], u = r[1];
     var h = '<div class="head"><div><h2>팀 현황</h2><p>팀장만 보는 화면입니다. 달성과 실패가 어디에 몰리는지 보고 팀원별로 관리 방식을 정하세요.</p></div>'
       + '<div class="row"><input type="month" style="width:auto" value="' + month + '" onchange="ST.adminMonth=this.value;viewAdmin()"></div></div>'
       + '<div class="scroll"><table class="tbl"><tr><th>팀원</th><th class="r">달성</th><th class="r">실패</th><th class="r">달성 비율</th><th class="r">소통 대기</th><th class="r">승인 대기</th><th class="r">진행 목표</th><th class="r">미확인 공지</th><th>마지막 체크</th><th>알리미</th><th></th></tr>'
@@ -811,6 +1034,7 @@ function viewAdmin() {
           + '<td><button class="btn sm ghost" onclick="evalForm(\'' + m.email + '\')">평가자료</button></td></tr>';
       }).join('') + '</table></div>'
       + '<p class="muted small" style="margin-top:8px">달성 비율이 60% 미만이면 주황색으로 표시합니다. 팀원 추가·삭제와 담당자명은 원보드 시트의 <code>팀원</code> 탭에서 바꿉니다.</p>'
+      + usageBlock(u)
       + '<div class="sec"><h3>팀장 전용 메뉴 늘리기</h3><p class="muted small">관리자 회의록 요약 같은 팀장 전용 탭은 코드의 <code>TABS</code> 목록에 한 줄을 추가하면 이 탭처럼 팀장에게만 보입니다.</p></div>';
     $('view').innerHTML = h;
   }).catch(fail);

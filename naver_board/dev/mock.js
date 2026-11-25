@@ -22,7 +22,10 @@
   window.Utilities={ formatDate:(d,tz,f)=>{ const k=kst(window.__NOW?new Date(window.__NOW):d===undefined?new Date():d); const k2=kst(d); const x=k2; return f.replace('yyyy',x.getUTCFullYear()).replace('MM',p2(x.getUTCMonth()+1)).replace('dd',p2(x.getUTCDate())).replace('HH',p2(x.getUTCHours())).replace('mm',p2(x.getUTCMinutes())).replace(/^H$/,String(x.getUTCHours())); },
     getUuid:()=>([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c^Math.random()*16>>c/4).toString(16)) };
   window.Session={ getActiveUser:()=>({ getEmail:()=>window.__USER }) };
-  window.LockService={ getScriptLock:()=>({ waitLock(){}, releaseLock(){} }) };
+  window.LockService={ getScriptLock:()=>({ waitLock(){}, tryLock(){ return true; }, releaseLock(){} }) };
+  const PROPS = (window.__PROPS = window.__PROPS || {});
+  window.PropertiesService={ getScriptProperties:()=>({ getProperty:k=>PROPS[k]===undefined?null:PROPS[k], setProperty:(k,v)=>{PROPS[k]=String(v);},
+    deleteProperty:k=>{delete PROPS[k];}, getProperties:()=>Object.assign({},PROPS) }) };
   window.ScriptApp={ getService:()=>({ getUrl:()=>'https://script.google.com/macros/s/TEST/exec' }) };
   window.ContentService={ MimeType:{JSON:'json'}, createTextOutput:t=>({ text:t, setMimeType(){ return this; } }) };
   function F(name,days,size){ const d=new Date(Date.now()-days*864e5); return { getId:()=>name.replace(/\W/g,''), getName:()=>name, getLastUpdated:()=>d, getSize:()=>size, getUrl:()=>'https://drive.google.com/file/d/'+name, getDescription:()=>'' }; }

@@ -22,7 +22,7 @@ const { chromium } = require('playwright');
   // 팀장: 소통완료
   const q = await b.newPage({viewport:{width:1280,height:900}}); q.on('pageerror', e => log.push('PAGEERR '+e.message));
   await q.goto('file://'+require('path').resolve(dir)+'/board_lead.html'); await q.waitForTimeout(600);
-  await q.evaluate(()=>{closeModal();go('plan');}); await q.waitForTimeout(400);
+  await q.evaluate(()=>{closeModal();go('plan');}); await q.waitForTimeout(1000);
   const before = await q.evaluate(()=>B.badges.talk);
   await q.locator('button:has-text("소통완료")').first().click(); await q.waitForTimeout(200);
   await q.fill('#t_memo','다음 주 오전 작성 시간 고정'); await q.locator('.sheet button:has-text("소통완료")').click(); await q.waitForTimeout(500);
