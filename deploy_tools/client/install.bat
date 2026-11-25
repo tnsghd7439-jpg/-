@@ -410,6 +410,21 @@ function Do-Program($t) {
   [void]$Changes.Add($t.name)
 }
 
+# 배포 중단된 도구 — 이 PC에 설치해 둔 파일과 바탕화면 폴더의 바로가기를 휴지통으로 (한 번만)
+function Do-Retired($t) {
+  $file = Join-Path $FilesDir $t.target
+  $lnk = Join-Path $DeskDir ([IO.Path]::GetFileNameWithoutExtension($t.target) + '.lnk')
+  $found = $false
+  foreach ($x in @($file, $lnk)) {
+    if (Test-Path -LiteralPath $x) { try { To-RecycleBin $x; $found = $true } catch { Log "정리 실패 $x : $_" } }
+  }
+  if ($State.ContainsKey($t.id)) { $State.Remove($t.id); $found = $true }
+  if ($found) {
+    Say "[-] $($t.name): 배포가 중단되어 이 PC에서 정리했습니다" 'DarkGray'
+    [void]$Changes.Add("$($t.name) 정리(배포 중단)")
+  }
+}
+
 function Get-PsPart([string]$text) {
   $i = $text.IndexOf('#' + 'PS_START')
   if ($i -lt 0) { throw '업데이트 프로그램 형식이 올바르지 않습니다' }
@@ -520,6 +535,7 @@ foreach ($t in $tools) {
       'extension' { Do-Extension $t }
       'app'       { Do-App $t }
       'program'   { Do-Program $t }
+      'retired'   { Do-Retired $t }
       'self'      { Do-Self $t }
     }
   } catch {

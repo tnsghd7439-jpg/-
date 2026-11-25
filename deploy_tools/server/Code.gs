@@ -27,30 +27,31 @@ const PYTHON_URL = 'https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd
  *   extension : 크롬 확장프로그램 ZIP — PC의 고정 폴더에 풀어서 교체
  *   app       : '마케터 할 일' 앱 — 처음 한 번 설치만 (이후 업데이트는 앱이 스스로 함)
  *   program   : ZIP 프로그램 — PC의 고정 폴더에 풀고 실행 파일 바로가기 생성, 새 버전이면 폴더째 교체
- *   self      : 업데이트 프로그램(install.bat) 자기 자신
+ *   self      : 업데이트 프로그램(install.bat) 자기 자신 — install_20261125.bat 처럼 날짜를 붙여도 된다
+ *   retired   : 배포 중단 — 팀원 PC에서 해당 파일과 바로가기를 정리
  * legacy: 처음 설치할 때 바탕화면·다운로드 폴더에서 찾아 휴지통으로 보낼 예전 파일 이름 (와일드카드)
  */
 const TOOLS = [
-  { id: 'deck', name: '고액광고주 제안서 작성툴', type: 'desktop', match: /^search_ad_deck_tool.*\.html$/i,
-    target: '고액광고주 제안서 작성툴.html', legacy: ['search_ad_deck_tool*.html'] },
-  { id: 'deck-guide', name: '보고서 다운로드 가이드', type: 'desktop', match: /^보고서.*가이드.*\.html$/,
-    target: '보고서 다운로드 가이드.html', legacy: ['보고서*가이드*.html'] },
+  { id: 'deck', name: '고액광고주 제안서 작성툴', type: 'desktop',
+    match: /^(search_ad_deck_tool|제안서\s*작성툴|고액광고주\s*제안서).*\.html$/i,
+    target: '고액광고주 제안서 작성툴.html', legacy: ['search_ad_deck_tool*.html', '제안서작성툴*.html'] },
   { id: 'auth', name: '권한분석툴', type: 'desktop', match: /^권한분석툴.*\.html$/,
     target: '권한분석툴.html', legacy: ['권한분석툴*.html'] },
-  { id: 'note-guide', name: '영업노트 가이드', type: 'desktop', match: /^영업노트.*가이드.*\.html$/,
-    target: '영업노트 가이드.html', legacy: ['영업노트*가이드*.html'] },
-  { id: 'supporter-guide', name: '영업서포터 사용가이드', type: 'desktop', match: /^영업서포터.*가이드.*\.html$/,
-    target: '영업서포터 사용가이드.html', legacy: ['영업서포터*가이드*.html'] },
   { id: 'note', name: '영업노트', type: 'link', url: SALES_NOTE_URL, target: '영업노트 (웹).url' },
   { id: 'supporter', name: '네이버 영업 서포터', type: 'extension', match: /서포터.*\.zip$/,
     target: 'naver-sales-supporter' },
-  { id: 'checker', name: '영업권·자사 체크', type: 'extension', match: /^영업권.*\.zip$/,
+  { id: 'checker', name: '영업권·자사 체크', type: 'extension', match: /^(영업권|자사\s*체크).*\.zip$/,
     target: 'naver-store-checker' },
   { id: 'shopping', name: '쇼핑세팅기', type: 'program', match: /^쇼핑세팅기.*\.zip$/,
     target: 'shopping-setter' },
   { id: 'todo', name: '마케터 할 일', type: 'app', match: /^update.*\.zip$/i,
     target: 'marketer-todo', pinnedId: TODO_UPDATE_FILE_ID, pythonUrl: PYTHON_URL },
   { id: 'installer', name: '설치·업데이트 프로그램', type: 'self', match: /^install.*\.bat$/i },
+
+  // 배포 중단 — 팀원 PC에 남은 파일·바로가기를 정리한다 (올릴 파일 없음)
+  { id: 'deck-guide', name: '보고서 다운로드 가이드', type: 'retired', target: '보고서 다운로드 가이드.html' },
+  { id: 'note-guide', name: '영업노트 가이드', type: 'retired', target: '영업노트 가이드.html' },
+  { id: 'supporter-guide', name: '영업서포터 사용가이드', type: 'retired', target: '영업서포터 사용가이드.html' },
 ];
 
 /* ---------- 웹 앱 ---------- */
