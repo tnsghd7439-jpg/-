@@ -39,6 +39,7 @@ const DEFAULT_SETTINGS = [
   ['인트라넷보충매체', '11번가,카카오,에이블리', 'MP AI에 아직 없는 매체만 인트라넷에서 보충. MP AI에 들어오기 시작하면 여기서 지우세요(겹치는 기간은 자동으로 MP AI 우선)'],
   ['수집토큰', '', '인트라넷 보충 수집기(GitHub Actions)가 보낼 때 쓰는 비밀 문자열. BOARD_TOKEN 과 같은 값'],
   ['마지막인트라넷수집', '', '자동으로 기록됩니다'],
+  ['마지막SA수집', '', '오늘 점검(네이버 SA) 마지막 수집. 자동으로 기록됩니다'],
   ['매체공지매체', '네이버,지마켓,카카오,11번가', 'MP AI 매체 공지 중 보드에 보여줄 매체(쉼표로 구분). 비우면 전부'],
   ['매체공지확인일', '7', "'조치필요' 매체 공지를 확인 대상으로 삼는 기간(게시 후 며칠). 신청 마감이 남아 있으면 기간이 지나도 대상"],
   ['매체공지팝업매체', '네이버', '이 매체의 공지는 중요도·유형과 관계없이 확인 팝업(1시간 재알림)으로 띄웁니다(최근 게시 또는 신청 마감이 남은 것). 쉼표로 구분'],
@@ -63,6 +64,7 @@ const GUIDE_SECTIONS = ['맵핑 방법', '세팅 방법', '문의 경로'];
 /** 탭 목록. lead: true 는 팀장에게만 보입니다. 팀장 전용 탭은 여기에 한 줄 추가하면 됩니다. */
 const TABS = [
   { id: 'perf', name: '계정별 실적' },
+  { id: 'check', name: '오늘 점검' },
   { id: 'plan', name: '개인별 액션플랜' },
   { id: 'sales', name: '영업노트' },
   { id: 'notice', name: '공지사항' },
@@ -78,6 +80,11 @@ function doGet(e) {
   MEMO_ = {};
   const p = (e && e.parameter) || {};
   if (p.api === 'alerts') return json_(alerts_(p.code || ''));
+  if (p.api === 'saPrev') {
+    const tk = settings_()['수집토큰'];
+    if (!tk || p.token !== tk) return json_({ ok: false, error: 'token' });
+    return ContentService.createTextOutput(blobRead_('sa') || '{}').setMimeType(ContentService.MimeType.JSON);
+  }
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('네이버 전담팀 원보드')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
@@ -125,6 +132,13 @@ function doPost(e) {
       if (body.monthly) out.monthly = replaceRows_('실적_월별', '월', body.monthly.months || [], norm(body.monthly.rows), source);
       if (body.schedules && viaToken) out.schedules = replaceIntraEvents_(body.schedules);
       if (body.mediaNotices && lead) out.mediaNotices = upsertMediaNotices_(body.mediaNotices);
+      if (body.sa && viaToken) {
+        blobWrite_('sa', JSON.stringify(body.sa.data));
+        if (body.sa.template) blobWrite_('sadash', String(body.sa.template));
+        update_('설정', '키', '마지막SA수집', { '값': now_() + ' (기준일 ' + (body.sa.data && body.sa.data.baseDate || '?') + ')' });
+        out.sa = { accounts: ((body.sa.data || {}).accounts || []).length };
+      }
+      if (body.intraChecks && viaToken) { blobWrite_('intra', JSON.stringify(body.intraChecks)); out.intra = true; }
       update_('설정', '키', viaToken ? '마지막인트라넷수집' : '마지막수집', { '값': now_() + (lead ? ' (' + lead.name + ')' : '') });
       return out;
     }));
@@ -1672,6 +1686,62 @@ const SALES_ACTIONS = {
   },
 };
 Object.keys(SALES_ACTIONS).forEach(function (k) { ACTIONS[k] = SALES_ACTIONS[k]; });
+
+
+/* ───────────────────────── 오늘 점검 (6팀 일일점검 흡수) ─────────────────────────
+ * 일일점검 결과(네이버 SA 점검)와 그 화면 틀(dashboard.html), 인트라 점검을 드라이브 파일로 보관합니다.
+ * 시트 칸(5만 자)보다 커서 파일로 둡니다. 파일 ID는 스크립트 저장소에 기억합니다.
+ */
+function blobWrite_(key, text) {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('F|' + key);
+  let f = null;
+  if (id) { try { f = DriveApp.getFileById(id); } catch (e) { f = null; } }
+  if (f) f.setContent(text);
+  else {
+    f = DriveApp.createFile('원보드_' + key + '.json', text, 'application/json');
+    props.setProperty('F|' + key, f.getId());
+  }
+}
+
+function blobRead_(key) {
+  const id = PropertiesService.getScriptProperties().getProperty('F|' + key);
+  if (!id) return '';
+  try { return DriveApp.getFileById(id).getBlob().getDataAsString('UTF-8'); } catch (e) { return ''; }
+}
+
+/** 팀원 화면: 일일점검의 '팀원별 파일'과 같은 방식으로 그 팀원 계정만 남김 */
+function personalSa_(data, names) {
+  const has = function (owners) { return (owners || []).some(function (o) { return names.indexOf(o) >= 0; }); };
+  const accs = (data.accounts || []).filter(function (a) { return has(a.owners); });
+  const me = names.find(function (n) { return accs.some(function (a) { return (a.owners || []).indexOf(n) >= 0; }); }) || names[0];
+  const out = {};
+  Object.keys(data).forEach(function (k) { out[k] = data[k]; });
+  out.personal = me; out.errors = []; out.accounts = accs;
+  out.disconnected = (data.disconnected || []).filter(function (d) { return has(d.owners); });
+  if (data.gfa) { out.gfa = {}; Object.keys(data.gfa).forEach(function (k) { out.gfa[k] = data.gfa[k]; }); out.gfa.rows = (data.gfa.rows || []).filter(function (r) { return names.indexOf(r.owner) >= 0; }); }
+  if (data.mpai) { out.mpai = {}; Object.keys(data.mpai).forEach(function (k) { out.mpai[k] = data.mpai[k]; }); out.mpai.scopes = (data.mpai.scopes || []).filter(function (s) { return names.indexOf(s.owner) >= 0; }); }
+  if (data.saGoals && data.saGoals[me]) out.saGoal = data.saGoals[me]; else delete out.saGoal;
+  return out;
+}
+
+ACTIONS.checkView = function (me, p) {
+  let names = null;
+  if (!isLead_(me)) names = [me.manager, me.name];
+  else if (p.email) {
+    const m = members_().find(function (x) { return x.email === low_(p.email); });
+    if (m) names = [m.manager, m.name];
+  }
+  const intra = JSON.parse(blobRead_('intra') || 'null');
+  const pick = function (list) { return (list || []).filter(function (r) { return !names || names.indexOf(String(r['담당자'] || '').trim()) >= 0; }); };
+  const intraOut = intra ? { date: intra.date, transfers: pick(intra.transfers), missing: pick(intra.missing), fees: pick(intra.fees) } : null;
+  const raw = blobRead_('sa'), tpl = blobRead_('sadash');
+  if (!raw || !tpl) return { empty: true, intra: intraOut };
+  let data = JSON.parse(raw);
+  if (names) data = personalSa_(data, names.filter(String));
+  return { empty: false, template: tpl, data: data, intra: intraOut, updatedAt: settings_()['마지막SA수집'] || '' };
+};
+USAGE_TAB_.checkView = '오늘점검';
 
 
 /* ───────────────────────── 가이드 초안 ───────────────────────── */

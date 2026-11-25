@@ -17,6 +17,7 @@
   node naver_board/dev/shot.js naver_board/dev/out    # 화면 오류·가로 넘침
   node naver_board/dev/act.js naver_board/dev/out     # 실패 사유·소통완료·평가자료·권한·알리미
   node naver_board/dev/sales_test.js naver_board/dev/out  # 영업노트·할일·오늘·이용 기록·권한
+  node naver_board/dev/check_test.js naver_board/dev/out <latest.json>  # 오늘 점검(일일점검 화면·바로가기·팀원 필터)
   ```
 
 ### 2. 사용자 손을 최소로
@@ -41,7 +42,7 @@
 ### 5. 크레딧
 주간 사용량이 70%를 넘으면 사용자에게 알린다. 무거운 작업(대량 재수집, 전체 재빌드)은 시작 전에 한 줄로 알린다.
 
-## 예정 작업: 6팀 일일점검을 원보드로 흡수 (2026-11-26 목 오전 시작)
+## 진행(2026-11-25): 6팀 일일점검을 원보드로 흡수 — '오늘 점검' 탭(일일점검 화면 그대로 + 인트라 점검), GitHub Actions board-sa(회사 PC 불필요)
 일일점검(`naver_dash`, 브랜치 `claude/funny-mccarthy-tfc8gd`)은 폐기하고 원보드에서만 운영한다. 팀원이 위화감 없게:
 구글챗 공지 모양·시간(09:50·15:30)과 경고 기준(비즈머니 며칠분, 급감 %, 적색·황색 경보, 이탈 위험)은 그대로, 링크만 원보드로.
 - 1단계: 인트라 점검(신규·이관·피이관, 광고주 정보 누락, 수수료 요청 누락)을 "오늘 점검" 탭에 + 원보드가 구글챗 공지 발송

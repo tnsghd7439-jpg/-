@@ -292,7 +292,7 @@ function drawTabs() {
 function go(id) {
   CUR = id; store('ob-tab', id); drawTabs();
   $('view').innerHTML = '<div class="loading">불러오는 중…</div>';
-  ({ perf: viewPerf, plan: viewPlan, sales: viewSales, notice: viewNotice, solution: viewSolution, guide: viewGuide, calendar: viewCalendar, admin: viewAdmin }[id] || viewPlan)();
+  ({ perf: viewPerf, check: viewCheck, plan: viewPlan, sales: viewSales, notice: viewNotice, solution: viewSolution, guide: viewGuide, calendar: viewCalendar, admin: viewAdmin }[id] || viewPlan)();
 }
 function refreshBadges() { return call('badges').then(function (b) { B.badges = b; drawTabs(); return b; }); }
 
@@ -502,6 +502,42 @@ function usageBlock(u) {
         + '<td class="r">' + (m.tasks.rate == null ? '-' : m.tasks.rate + '%') + '</td><td class="r">' + m.sales.open + '</td><td class="r">' + m.sales.calls + '</td><td class="r">' + m.sales.contracts + '</td>'
         + '<td class="r">' + (m.sales.overdue ? '<span class="down">' + m.sales.overdue + '</span>' : '0') + '</td><td>' + (s.alerter ? esc(md(s.alerter)) + ' ' + esc(s.alerter.slice(11)) : '<span class="muted">기록 없음</span>') + '</td></tr>';
     }).join('') + '</table></div><p class="muted small" style="margin-top:6px">접속일이 근무일의 60% 미만이면 주황색으로 표시합니다.</p></div>';
+}
+
+/* ───────── 오늘 점검 (6팀 일일점검 흡수) ───────── */
+function viewCheck() {
+  var who = isLead() ? ST.checkWho : '';
+  call('checkView', { email: who }).then(function (d) {
+    var h = '<div class="head"><div><h2>오늘 점검</h2><p>6팀 일일점검과 같은 화면입니다. 계정명·예산 소진 캠페인·마지막 수정일을 누르면 네이버 광고센터 해당 화면으로 바로 이동합니다.</p></div>'
+      + (isLead() ? '<select style="width:auto" onchange="ST.checkWho=this.value;viewCheck()">' + memberOpts(who, true) + '</select>' : '') + '</div>';
+    h += intraBlock(d.intra);
+    if (d.empty) h += '<div class="empty"><b>네이버 SA 점검 결과가 아직 없어요</b>매일 아침 자동 수집이 끝나면 여기에 일일점검 화면이 나옵니다.</div>';
+    else h += '<p class="muted small" style="margin:18px 0 6px">네이버 SA 점검 · ' + esc(d.updatedAt || '') + '</p><iframe id="saFrame" title="네이버 SA 점검" style="width:100%;border:0;min-height:600px;display:block"></iframe>';
+    $('view').innerHTML = h;
+    if (d.empty) return;
+    var json = JSON.stringify(d.data).replace(/</g, '\\u003c');
+    var f = $('saFrame');
+    f.srcdoc = d.template.replace('/*__DATA__*/null', json);
+    clearInterval(window._saFit);
+    window._saFit = setInterval(function () {
+      if (CUR !== 'check' || !document.body.contains(f)) return clearInterval(window._saFit);
+      try { var hgt = f.contentDocument.documentElement.scrollHeight; if (hgt && Math.abs(hgt - f.offsetHeight) > 4) f.style.height = hgt + 'px'; } catch (e) { /* 무시 */ }
+    }, 400);
+  }).catch(fail);
+}
+function intraBlock(x) {
+  if (!x) return '<div class="empty" style="padding:16px"><b>인트라 점검 결과가 아직 없어요</b>매일 오전 인트라넷 보충 수집 때 함께 들어옵니다.</div>';
+  var tbl = function (title, hint, rows, cols) {
+    return '<div class="sec" style="margin-top:16px"><h3>' + title + ' <span class="' + (rows.length ? 'down' : 'muted') + ' small">' + rows.length + '건</span></h3>'
+      + (hint ? '<p class="muted small" style="margin:-6px 0 8px">' + hint + '</p>' : '')
+      + (rows.length ? '<div class="scroll"><table class="tbl"><tr>' + cols.map(function (c) { return '<th' + (c[2] ? ' class="r"' : '') + '>' + c[0] + '</th>'; }).join('') + '</tr>'
+        + rows.map(function (r) { return '<tr>' + cols.map(function (c) { var v = r[c[1]]; return '<td' + (c[2] ? ' class="r"' : '') + '>' + (c[2] && v !== '' && v != null ? won(v) : esc(v == null ? '' : v)) + '</td>'; }).join('') + '</tr>'; }).join('') + '</table></div>'
+        : '<p class="muted small">없음</p>') + '</div>';
+  };
+  return '<p class="muted small">인트라 점검 · ' + esc(x.date || '') + ' 기준</p>'
+    + tbl('수수료·세금계산서 요청 누락', '쿠팡·메타·구글 전월분. 매월 7일까지 업무요청', x.fees || [], [['상태', '상태'], ['매체', '매체'], ['광고주', '광고주명'], ['담당', '담당자'], ['전월 광고비', '전월광고비', 1], ['근거', '추적근거'], ['', '신규추적']])
+    + tbl('광고주 정보 누락', '전월 매출이 있는데 담당자·연락처·사업자번호 등이 비어 있는 광고주', x.missing || [], [['매체', '매체'], ['광고주', '광고주명'], ['담당', '담당자'], ['월 매출', '월매출', 1], ['빠진 항목', '누락항목']])
+    + tbl('신규·이관·피이관 (이번 달)', '', x.transfers || [], [['구분', '구분'], ['상태', '상태'], ['매체', '매체'], ['광고주', '광고주명'], ['담당', '담당자'], ['신청일', '신청일'], ['전월 매출', '전월매출', 1]]);
 }
 
 /* ───────── 공지사항 ───────── */

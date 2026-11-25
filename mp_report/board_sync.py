@@ -32,7 +32,8 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from collect import CHROMIUM, DEPT, KST, Intra, add_months, login, month_start, sales_range, ymd  # noqa: E402
+from collect import (CHROMIUM, DEPT, KST, Intra, add_months, collect_fee_requests, collect_missing_info,  # noqa: E402
+                     collect_transfers, login, month_start, sales_range, ymd)
 
 PAGE_LIMIT = 2000
 
@@ -106,7 +107,8 @@ async def collect(days: int, months: int):
     async with async_playwright() as p:
         exe = CHROMIUM if Path(CHROMIUM).exists() else None
         browser = await p.chromium.launch(executable_path=exe)
-        api = Intra(await login(browser))
+        ctx = await login(browser)
+        api = Intra(ctx)
         daily = []
         for d in day_list:
             daily += rows_of(await sales_range(api, d, d), "날짜", ymd(d))
@@ -118,11 +120,21 @@ async def collect(days: int, months: int):
             if end < m:
                 continue
             monthly += rows_of(await sales_range(api, m, end), "월", m.strftime("%Y-%m"))
+        # 6팀 일일점검의 인트라 점검 3가지 → 원보드 '오늘 점검' 탭 (실패해도 매출 동기화는 계속)
+        checks = {"date": ymd(today)}
+        for key, job in (("transfers", lambda: collect_transfers(api, today)),
+                         ("missing", lambda: collect_missing_info(ctx, today)),
+                         ("fees", lambda: collect_fee_requests(api, today))):
+            try:
+                checks[key] = await job()
+            except Exception as e:  # noqa: BLE001
+                checks[key + "Error"] = str(e)[:200]
         await browser.close()
     return {
         "daily": {"dates": [ymd(d) for d in day_list], "rows": daily},
         "monthly": {"months": [m.strftime("%Y-%m") for m in month_list], "rows": monthly},
         "schedules": {"from": ymd(cal_from), "to": ymd(cal_to), "rows": calendar},
+        "intraChecks": checks,
     }
 
 
@@ -147,7 +159,8 @@ def main():
     days, months = (62, 7) if a.backfill else (3, 2)
     payload = asyncio.run(collect(days, months))
     print(f"수집: 일별 {len(payload['daily']['rows'])}행({days}일), 월별 {len(payload['monthly']['rows'])}행({months}개월), "
-          f"근태·외근 {len(payload['schedules']['rows'])}건")
+          f"근태·외근 {len(payload['schedules']['rows'])}건, 인트라 점검 " +
+          ", ".join(f"{k} {len(v)}건" for k, v in payload["intraChecks"].items() if isinstance(v, list)))
     if not a.dry_run:
         send(payload)
 
