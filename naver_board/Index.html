@@ -781,6 +781,9 @@ function goalCard(g) {
     + (isLead() ? '<span class="tag blue">' + esc(g.who) + '</span>' : '') + '</div>'
     + '<div class="t" style="font-weight:800;font-size:16px;margin-top:6px">' + esc(g.title) + '</div>'
     + '<div class="meta">' + md(g.start) + ' ~ ' + md(g.end) + ' · 근무일 ' + g.workdays + '일 · 하루 기준 ' + amt(g.daily, g.unit) + '</div>'
+    + (g.status === '승인' && (g.month || g.week) ? '<div class="kv" style="margin-top:4px">'
+      + (g.month ? '<span>이번 달 몫 <b>' + amt(g.month.done, g.unit) + ' / ' + amt(g.month.target, g.unit) + '</b> (' + g.month.rate + '%)</span>' : '')
+      + (g.week ? '<span>이번 주 몫 <b>' + amt(g.week.done, g.unit) + ' / ' + amt(g.week.target, g.unit) + '</b> (' + g.week.rate + '%)</span>' : '') + '</div>' : '')
     + '<div class="bar"><i style="width:' + Math.min(100, g.rate) + '%"></i>' + (g.status === '승인' ? '<b style="left:' + exp + '%" title="오늘까지 예정"></b>' : '') + '</div>'
     + '<div class="kv"><span><b>' + amt(g.achieved, g.unit) + '</b> / ' + amt(g.target, g.unit) + '</span><span>달성률 <b>' + g.rate + '%</b></span>' + (pace ? '<span>' + pace + '</span>' : '') + '</div>'
     + '<div class="kv" style="margin-top:4px"><span>달성 <b>' + g.ok + '</b>일</span><span>실패 <b>' + g.fail + '</b>일</span>' + (g.talkPending ? '<span class="down">소통 대기 ' + g.talkPending + '</span>' : '') + '</div>'
@@ -811,12 +814,27 @@ function goalForm(id) {
     + (isLead() && !id ? '<label class="f"><span>누구의 목표인가요</span><select id="g_who">' + memberOpts(g.email, false) + '</select></label>' : '')
     + '<div class="grid2"><label class="f"><span>기간</span><select id="g_period">' + opts(B.options.goalPeriods, g.period) + '</select></label>'
     + '<label class="f"><span>기준일 (이 날짜가 들어간 주·월·분기)</span><input type="date" id="g_base" value="' + esc(g.start) + '"></label></div>'
+    + (id ? '' : quarterHint(g.email))
     + '<div class="grid2"><label class="f"><span>분류</span><select id="g_cat">' + opts(B.options.goalCategories, g.category) + '</select></label>'
     + '<label class="f"><span>목표 이름</span><input type="text" id="g_title" value="' + esc(g.title) + '" placeholder="예: 광고주 사례 블로그 포스팅"></label></div>'
     + '<div class="grid2"><label class="f"><span>목표 수치</span><input type="number" id="g_target" min="0" step="any" value="' + esc(g.target) + '"></label>'
     + '<label class="f"><span>단위</span><input type="text" id="g_unit" value="' + esc(g.unit) + '" placeholder="건, 개, 편, 원"></label></div>'
     + '<label class="f"><span>달성하려면 무엇을 할지</span><textarea id="g_plan" placeholder="예: 월·수·금 오전에 1편씩 작성. 주제는 이번 달 신규 광고주 세팅 사례.">' + esc(g.plan) + '</textarea></label>'
     + '<div class="actions"><button class="btn ghost" onclick="closeModal()">취소</button><button class="btn pri" onclick="goalSave(\'' + (id || '') + '\')">' + (id ? '저장' : (isLead() ? '등록' : '승인 요청')) + '</button></div>');
+}
+/** 월 목표를 쓸 때: 승인된 분기 목표에서 이번 달 몫을 가져오기 */
+function quarterHint(email) {
+  var qs = (window._goals || []).filter(function (x) { return x.period === '분기' && x.status === '승인' && x.month && x.email === (email || B.me.email); });
+  if (!qs.length) return '';
+  window._qs = qs;
+  return '<div class="pop small" style="margin:8px 0">분기 목표에서 이번 달 몫 가져오기 (근무일 비율로 계산): ' + qs.map(function (x, i) {
+    return '<button type="button" class="chip" onclick="useQuarter(' + i + ')">' + esc(x.title) + ' → ' + amt(x.month.target, x.unit) + '</button>';
+  }).join(' ') + '</div>';
+}
+function useQuarter(i) {
+  var x = window._qs[i];
+  $('g_period').value = '월'; $('g_base').value = B.today; $('g_cat').value = x.category;
+  $('g_title').value = x.title; $('g_target').value = x.month.target; $('g_unit').value = x.unit;
 }
 function goalSave(id) {
   call('goalSave', { id: id, email: val('g_who'), period: val('g_period'), base: val('g_base'), category: val('g_cat'), title: val('g_title'), target: val('g_target'), unit: val('g_unit'), plan: val('g_plan') })
@@ -1063,7 +1081,8 @@ function viewPerf() {
     var x = d.daily;
     if (x) {
       h += '<div class="stats"><div class="stat"><div class="l">이번 달 누적 (' + md(x.month + '-01') + '~' + md(x.latest) + ')</div><div class="v">' + won(x.mtd) + '</div><div class="d">' + (x.hasPrev ? '지난달 같은 기간 대비 ' + chg(x.mtd, x.prevMtd) : '<span class="muted">지난달 일별 데이터 없음</span>') + '</div></div>'
-        + '<div class="stat"><div class="l">어제 (' + md(x.latest) + ')</div><div class="v">' + won(x.last) + '</div><div class="d">직전 7일 평균 대비 ' + chg(x.last, x.avg7) + '</div></div>'
+        + '<div class="stat"><div class="l">이번 주 (' + md(x.weekFrom) + '~' + md(x.latest) + ')</div><div class="v">' + won(x.wtd) + '</div><div class="d">' + (x.hasPrevWeek ? '전주 같은 기간 대비 ' + chg(x.wtd, x.prevWtd) : '<span class="muted">전주 데이터 없음</span>') + '</div></div>'
+        + '<div class="stat"><div class="l">어제 (' + md(x.latest) + ' ' + dow(x.latest) + ')</div><div class="v">' + won(x.last) + '</div><div class="d">' + (x.hasSame ? '전주 같은 요일 대비 ' + chg(x.last, x.same) : '직전 7일 평균 대비 ' + chg(x.last, x.avg7)) + '</div></div>'
         + '<div class="stat"><div class="l">확인할 계정</div><div class="v" style="color:' + (x.alerts.length ? 'var(--warn)' : 'var(--g900)') + '">' + x.alerts.length + '곳</div><div class="d muted">소진중단·급락</div></div></div>';
       h += '<div class="sec"><h3>최근 30일 일별 매출</h3>' + trendSvg(x.trend) + '</div>';
       if (x.alerts.length) {
@@ -1071,8 +1090,11 @@ function viewPerf() {
           + x.alerts.map(function (a) { return '<tr class="warn"><td><span class="tag ' + (a.status === '소진중단' ? 'bad' : 'warn') + '">' + a.status + '</span></td><td>' + esc(a.media) + '</td><td>' + esc(a.name) + ' <span class="muted small">' + esc(a.id) + '</span></td><td class="r">' + won(a.last) + '</td><td class="r">' + won(a.avg7) + '</td><td class="r">' + won(a.mtd) + '</td></tr>'; }).join('')
           + '</table></div></div>';
       }
-      h += '<div class="sec"><h3>매체별 매출 변화</h3><div class="scroll"><table class="tbl"><tr><th>매체</th><th class="r">이번 달 누적</th><th class="r">지난달 같은 기간</th><th class="r">증감</th><th class="r">어제</th><th class="r">비중</th></tr>'
-        + x.media.map(function (m) { return '<tr><td><b>' + esc(m.media) + '</b></td><td class="r">' + won(m.mtd) + '</td><td class="r">' + won(m.prevMtd) + '</td><td class="r">' + chg(m.mtd, m.prevMtd) + '</td><td class="r">' + won(m.last) + '</td><td class="r">' + (x.mtd ? (m.mtd / x.mtd * 100).toFixed(1) + '%' : '') + '</td></tr>'; }).join('')
+      h += '<div class="sec"><h3>매체별 매출 변화</h3><p class="muted small" style="margin:-6px 0 10px">일: 어제 vs 전주 같은 요일(' + md(x.sameDay) + ') · 주: 이번 주 vs 전주 같은 기간 · 월: 이번 달 누적 vs 지난달 같은 기간</p>'
+        + '<div class="scroll"><table class="tbl"><tr><th>매체</th><th class="r">어제</th><th class="r">전주 같은 요일</th><th class="r">증감</th><th class="r">이번 주</th><th class="r">전주</th><th class="r">증감</th><th class="r">이번 달 누적</th><th class="r">지난달 같은 기간</th><th class="r">증감</th><th class="r">비중</th></tr>'
+        + x.media.map(function (m) { return '<tr><td><b>' + esc(m.media) + '</b></td><td class="r">' + won(m.last) + '</td><td class="r">' + won(m.same) + '</td><td class="r">' + chg(m.last, m.same) + '</td>'
+          + '<td class="r">' + won(m.wtd) + '</td><td class="r">' + won(m.prevWtd) + '</td><td class="r">' + chg(m.wtd, m.prevWtd) + '</td>'
+          + '<td class="r">' + won(m.mtd) + '</td><td class="r">' + won(m.prevMtd) + '</td><td class="r">' + chg(m.mtd, m.prevMtd) + '</td><td class="r">' + (x.mtd ? (m.mtd / x.mtd * 100).toFixed(1) + '%' : '') + '</td></tr>'; }).join('')
         + '</table></div></div>';
       var acc = x.accounts;
       var drops = acc.filter(function (a) { return a.mtd < a.prevMtd; }).slice(-15).reverse();
@@ -1082,9 +1104,23 @@ function viewPerf() {
         + accTable('많이 줄어든 계정', drops) + accTable('많이 늘어난 계정', ups) + '</div>'
         + '<details><summary>전체 계정 ' + acc.length + '곳 보기</summary>' + accTable('', acc.slice().sort(function (a, b) { return b.mtd - a.mtd; })) + '</details></div>';
     }
+    if (d.months && d.months.media.length) h += monthsBlock(d.months);
     if (d.ahi) h += ahiBlock(d.ahi);
     $('view').innerHTML = h;
   }).catch(fail);
+}
+function dow(d) { return '(' + '일월화수목금토'[new Date(d + 'T00:00:00Z').getUTCDay()] + ')'; }
+/** 최근 3개월 흐름: 지난 3개월 + 이번 달 누적, 매체별 막대 */
+function monthsBlock(m) {
+  var max = 1; m.media.forEach(function (r) { r.amts.forEach(function (a) { max = Math.max(max, a); }); });
+  var lab = m.months.map(function (x, i) { return Number(x.slice(5)) + '월' + (i === 3 ? '(누적)' : ''); });
+  return '<div class="sec"><h3>최근 3개월 흐름</h3><p class="muted small" style="margin:-6px 0 10px">매체별 월 매출. 이번 달은 어제까지 누적입니다.</p><div class="scroll"><table class="tbl"><tr><th>매체</th>'
+    + lab.map(function (l) { return '<th class="r">' + l + '</th>'; }).join('') + '<th>흐름</th><th class="r">3개월 전 → 지난달</th></tr>'
+    + m.media.map(function (r) {
+      var bars = r.amts.map(function (a, i) { var hh = Math.max(1, Math.round(a / max * 28)); return '<rect x="' + (i * 16) + '" y="' + (30 - hh) + '" width="12" height="' + hh + '" rx="2" fill="' + (i === 3 ? '#9fd3b6' : '#25935f') + '"/>'; }).join('');
+      return '<tr><td><b>' + esc(r.media) + '</b></td>' + r.amts.map(function (a, i) { return '<td class="r">' + (m.has[i] ? won(a) : '<span class="muted">-</span>') + '</td>'; }).join('')
+        + '<td><svg width="64" height="30" viewBox="0 0 64 30">' + bars + '</svg></td><td class="r">' + (m.has[0] && m.has[2] ? chg(r.amts[2], r.amts[0]) : '<span class="muted">-</span>') + '</td></tr>';
+    }).join('') + '</table></div></div>';
 }
 function accTable(title, list) {
   return '<div>' + (title ? '<h3 class="small muted">' + title + '</h3>' : '') + '<div class="scroll"><table class="tbl"><tr><th>광고주</th><th class="r">이번 달</th><th class="r">지난달 같은 기간</th><th class="r">증감</th></tr>'

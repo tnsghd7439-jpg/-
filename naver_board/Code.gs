@@ -1011,6 +1011,15 @@ function goalView_(g, checks, day) {
   const ok = mine.filter(function (c) { return c['결과'] === '달성'; }).length;
   const fail = mine.filter(function (c) { return c['결과'] === '실패'; }).length;
   const today = mine.find(function (c) { return c['날짜'] === day; });
+  const mon = addDays_(day, -((dt_(day).getUTCDay() + 6) % 7));
+  const span = function (f, t) {
+    if (f < g['시작일']) f = g['시작일'];
+    if (t > g['종료일']) t = g['종료일'];
+    if (f > t) return null;
+    const got = mine.filter(function (c) { return c['날짜'] >= f && c['날짜'] <= t; }).reduce(function (x, c) { return x + num_(c['실적']); }, 0);
+    const tgt = roundAmt_(target * workdays_(f, t) / total, target);
+    return { from: f, to: t, target: tgt, done: got, rate: tgt ? Math.round(got / tgt * 1000) / 10 : 0 };
+  };
   return {
     id: g.id, email: low_(g['이메일']), who: nameOf_(g['이메일']), period: g['기간'], start: g['시작일'], end: g['종료일'],
     category: g['분류'], title: g['제목'], target: target, unit: g['단위'], plan: g['실행계획'], status: g['상태'],
@@ -1020,6 +1029,9 @@ function goalView_(g, checks, day) {
     expected: roundAmt_(expected, target), pace: until ? Math.round((done - expected) * 10) / 10 : 0,
     ok: ok, fail: fail, talkPending: mine.filter(function (c) { return c['결과'] === '실패' && c['소통완료'] !== 'Y'; }).length,
     todayCheck: today ? checkView_(today, g) : null,
+    // 분기 → 이번 달 몫, 분기·월 → 이번 주 몫 (근무일 비율로 자동 계산)
+    month: g['기간'] === '분기' ? span(monthOf_(day) + '-01', monthEnd_(monthOf_(day))) : null,
+    week: g['기간'] !== '주' ? span(mon, addDays_(mon, 6)) : null,
     active: g['상태'] === '승인' && g['시작일'] <= day && g['종료일'] >= day,
   };
 }
@@ -1160,12 +1172,17 @@ function perf_(me, p) {
     const pmTo = pm + '-' + day <= monthEnd_(pm) ? pm + '-' + day : monthEnd_(pm);
     const hasPrevDaily = data.daily.some(function (r) { return monthOf_(r.date) === pm; });
     const d7 = addDays_(latest, -7);
+    // 주간: 이번 주 월요일~최근일 vs 전주 같은 기간
+    const wk = addDays_(latest, -((dt_(latest).getUTCDay() + 6) % 7)), pwk = addDays_(wk, -7), pwTo = addDays_(latest, -7);
     const media = {}, acc = {};
     const trend = {};
     data.daily.forEach(function (r) {
       const k = r.media + '|' + r.id;
-      const a = acc[k] = acc[k] || { media: r.media, id: r.id, name: r.name, mtd: 0, prevMtd: 0, last: 0, avg7: 0 };
-      const md = media[r.media] = media[r.media] || { media: r.media, mtd: 0, prevMtd: 0, last: 0, avg7: 0 };
+      const a = acc[k] = acc[k] || { media: r.media, id: r.id, name: r.name, mtd: 0, prevMtd: 0, last: 0, avg7: 0, same: 0, wtd: 0, prevWtd: 0 };
+      const md = media[r.media] = media[r.media] || { media: r.media, mtd: 0, prevMtd: 0, last: 0, avg7: 0, same: 0, wtd: 0, prevWtd: 0 };
+      if (r.date === d7) { a.same += r.amt; md.same += r.amt; }
+      if (r.date >= wk && r.date <= latest) { a.wtd += r.amt; md.wtd += r.amt; }
+      if (r.date >= pwk && r.date <= pwTo) { a.prevWtd += r.amt; md.prevWtd += r.amt; }
       if (monthOf_(r.date) === cm && r.date <= latest) { a.mtd += r.amt; md.mtd += r.amt; }
       if (r.date >= pm + '-01' && r.date <= pmTo) { a.prevMtd += r.amt; md.prevMtd += r.amt; }
       if (r.date === latest) { a.last += r.amt; md.last += r.amt; }
@@ -1187,13 +1204,30 @@ function perf_(me, p) {
     out.daily = {
       latest: latest, month: cm, prevMonth: pm, prevTo: pmTo, hasPrev: hasPrevDaily,
       mtd: sum(mediaList, 'mtd'), prevMtd: sum(mediaList, 'prevMtd'), last: sum(mediaList, 'last'), avg7: sum(mediaList, 'avg7'),
+      sameDay: d7, same: sum(mediaList, 'same'), hasSame: data.daily.some(function (r) { return r.date === d7; }),
+      weekFrom: wk, prevWeekFrom: pwk, prevWeekTo: pwTo, wtd: sum(mediaList, 'wtd'), prevWtd: sum(mediaList, 'prevWtd'),
+      hasPrevWeek: data.daily.some(function (r) { return r.date <= pwTo && r.date >= pwk; }),
       media: mediaList,
       accounts: accounts.sort(function (a, b) { return (b.mtd - b.prevMtd) - (a.mtd - a.prevMtd); }),
       alerts: accounts.filter(function (a) { return a.status; }).sort(function (a, b) { return b.avg7 - a.avg7; }),
       trend: trendList,
     };
   }
-  out.ahi = ahi_(monthMatrix_(data), names, data.daily, s);
+  const mat = monthMatrix_(data);
+  const nowM = out.daily ? out.daily.month : Object.keys(mat).sort().pop();
+  const months = [-3, -2, -1, 0].map(function (n) { return addMonths_(nowM, n); });
+  const mm = {};
+  months.forEach(function (m, i) {
+    Object.keys(mat[m] || {}).forEach(function (k) {
+      const md = k.split('|')[0];
+      (mm[md] = mm[md] || [0, 0, 0, 0])[i] += mat[m][k];
+    });
+  });
+  out.months = {
+    months: months, has: months.map(function (m) { return !!mat[m]; }),
+    media: Object.keys(mm).map(function (k) { return { media: k, amts: mm[k] }; }).sort(function (a, b) { return b.amts[3] - a.amts[3] || b.amts[2] - a.amts[2]; }),
+  };
+  out.ahi = ahi_(mat, names, data.daily, s);
   return out;
 }
 
