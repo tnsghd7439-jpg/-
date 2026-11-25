@@ -1239,7 +1239,17 @@ function perf_(me, p) {
 
   const out = { empty: false, managers: managers, migrated: data.migrated, supplement: list_(s['인트라넷보충매체']) };
   if (data.daily.length) {
-    const latest = data.daily.reduce(function (m, r) { return r.date > m ? r.date : m; }, '');
+    // 최근일 = 데이터가 다 들어온 날(그날 합계가 앞선 7일 평균의 절반 이상). 아직 덜 들어온 날은 건너뜀(가짜 '소진중단' 방지)
+    const byDay = {};
+    data.daily.forEach(function (r) { byDay[r.date] = (byDay[r.date] || 0) + r.amt; });
+    const days = Object.keys(byDay).sort();
+    let latest = days[days.length - 1];
+    for (let i = days.length - 1; i > 0; i--) {
+      const prev = days.slice(Math.max(0, i - 7), i);
+      const avg = prev.reduce(function (t, d) { return t + byDay[d]; }, 0) / prev.length;
+      if (byDay[days[i]] >= avg * 0.5) { latest = days[i]; break; }
+      latest = days[i - 1];
+    }
     const cm = monthOf_(latest), day = latest.slice(8, 10);
     const pm = addMonths_(cm, -1);
     const pmTo = pm + '-' + day <= monthEnd_(pm) ? pm + '-' + day : monthEnd_(pm);
