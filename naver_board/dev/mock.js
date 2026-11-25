@@ -18,7 +18,7 @@
   Sheet.prototype.setFrozenRows=function(){};
   window.SpreadsheetApp={ getActive:()=>({ getSheetByName:n=>store[n]||null, insertSheet:n=>(store[n]=new Sheet(n)) }),
     // 다른 스프레드시트(영업노트_DB): 'NOTE:시트이름' 으로 보관
-    openById:id=>({ getSheetByName:n=>store['NOTE:'+n]||null }), __Sheet:Sheet };
+    openById:id=>({ getSheetByName:n=>store['NOTE:'+n]||null, getSheets:()=>[store['GUIDESRC']] }), __Sheet:Sheet };
   const CACHE=(window.__CACHE=window.__CACHE||{});
   window.CacheService={ getScriptCache:()=>({ get:k=>CACHE[k]===undefined?null:CACHE[k], put:(k,v)=>{CACHE[k]=v;}, remove:k=>{delete CACHE[k];} }) };
   function kst(d){ return new Date(d.getTime()+9*3600e3); }
@@ -38,7 +38,7 @@
   const mkFile = (id) => ({ getId: () => id, setContent: (t) => { FILES[id] = t; }, getBlob: () => ({ getDataAsString: () => FILES[id] }) });
   window.DriveApp_files = { createFile: (n, t) => { const id = 'f' + (++fid); FILES[id] = t; return mkFile(id); },
     getFileById: (id) => { if (!(id in FILES)) throw new Error('no file'); return mkFile(id); } };
-  window.DriveApp={ getFilesByName:(n)=>it(n==='영업노트_DB'?[{ getId:()=>'NOTEDB', getMimeType:()=>'application/vnd.google-apps.spreadsheet', getLastUpdated:()=>new Date() }]:[]), createFile: (...a) => window.DriveApp_files.createFile(...a), getFileById: (id) => window.DriveApp_files.getFileById(id), getFolderById:()=>({ getUrl:()=>'https://drive.google.com/drive/folders/X',
+  window.DriveApp={ getFilesByName:(n)=>it(n==='원보드_매체가이드'&&store['GUIDESRC']?[{ getId:()=>'GUIDESRC' }]:n==='영업노트_DB'?[{ getId:()=>'NOTEDB', getMimeType:()=>'application/vnd.google-apps.spreadsheet', getLastUpdated:()=>new Date() }]:[]), createFile: (...a) => window.DriveApp_files.createFile(...a), getFileById: (id) => window.DriveApp_files.getFileById(id), getFolderById:()=>({ getUrl:()=>'https://drive.google.com/drive/folders/X',
     getFiles:()=>it([F('키워드추출기_v1.2.zip',30,120000),F('키워드추출기_v1.3.zip',2,130000),F('6팀 일일점검 가이드.pdf',10,800000)]),
     getFolders:()=>it([{ getName:()=>'스마트스토어 진단 확장', getFiles:()=>it([F('smartstore-audit-1.0.zip',40,50000),F('smartstore-audit-1.1.zip',5,52000)]) }]) }) };
   // google.script.run 흉내: 실제 Code.gs 의 함수를 비동기로 호출

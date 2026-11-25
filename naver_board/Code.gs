@@ -877,6 +877,7 @@ const ACTIONS = {
 
   /* 매체별 가이드 */
   guideList: function () {
+    guideImport_();
     return rows_('가이드').map(function (g) {
       return {
         id: g.id, media: g['매체'], section: g['구분'], title: g['제목'], body: g['내용'], link: g['링크'],
@@ -1874,6 +1875,35 @@ USAGE_TAB_.checkView = '오늘점검';
 
 
 /* ───────────────────────── 가이드 초안 ───────────────────────── */
+
+/**
+ * 드라이브의 '원보드_매체가이드' 시트(사내 교육 자료라 공개 코드에 넣지 않음)를 '가이드' 탭으로 옮깁니다.
+ * 같은 매체·제목이 이미 있으면 건너뛰고, 대체되는 네이버 맵핑 초안은 지웁니다. 드라이브 검색은 하루 한 번만 합니다.
+ */
+function guideImport_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('GUIDE_SRC') === 'done' || props.getProperty('GUIDE_SRC') === today_()) return;
+  props.setProperty('GUIDE_SRC', today_());
+  try {
+    const it = DriveApp.getFilesByName('원보드_매체가이드');
+    if (!it.hasNext()) return;
+    const src = tableRows_(SpreadsheetApp.openById(it.next().getId()).getSheets()[0]);
+    if (!src.length) return;
+    locked_(function () {
+      const have = {};
+      rows_('가이드').forEach(function (g) { have[g['매체'] + '|' + g['제목']] = 1; });
+      const add = src.filter(function (g) { return g['제목'] && !have[g['매체'] + '|' + g['제목']]; }).map(function (g) {
+        return { id: uid_(), '매체': g['매체'], '구분': g['구분'] || '맵핑 방법', '제목': g['제목'], '내용': g['내용'], '링크': g['링크'] || '',
+          '순서': g['순서'] || 50, '수정일': today_() };
+      });
+      if (add.length) {
+        remove_('가이드', function (g) { return g['제목'] === '광고주 계정을 우리 관리 계정에 연결하기' && String(g['내용']).indexOf('※ 팀장 검수 전 초안') === 0; });
+        insertMany_('가이드', add);
+      }
+    });
+    props.setProperty('GUIDE_SRC', 'done');
+  } catch (e) { /* 다음 날 다시 시도 */ }
+}
 
 function seedGuides_() {
   const T = '※ 팀장 검수 전 초안입니다. 실제 메뉴 이름과 절차를 확인한 뒤 고쳐주세요.';
