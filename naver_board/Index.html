@@ -1042,25 +1042,30 @@ function viewSolution() {
 function viewGuide() {
   call('guideList').then(function (list) {
     window._guides = list;
-    var media = []; list.forEach(function (g) { if (media.indexOf(g.media) < 0) media.push(g.media); });
+    // 위쪽 탭: 맵핑(항상) · 세팅 · 문의 — 내용이 생기면 탭이 저절로 나타납니다
+    var LABEL = { '맵핑 방법': '맵핑', '세팅 방법': '세팅', '문의 경로': '문의' };
+    var secs = B.options.guideSections.filter(function (sec) { return sec === '맵핑 방법' || list.some(function (g) { return g.section === sec; }); });
+    if (secs.indexOf(ST.guideSec) < 0) ST.guideSec = secs[0];
+    var inSec = list.filter(function (g) { return g.section === ST.guideSec; });
+    var media = []; inSec.forEach(function (g) { if (media.indexOf(g.media) < 0) media.push(g.media); });
     if (!ST.guideMedia || media.indexOf(ST.guideMedia) < 0) ST.guideMedia = media[0] || '';
     var h = '<div class="head"><div><h2>매체별 가이드</h2><p>매체마다 계정 연동(맵핑) 방법을 실제 화면과 함께 정리합니다.</p></div>'
-      + (isLead() ? '<button class="btn pri" onclick="guideForm()">가이드 추가</button>' : '') + '</div>';
-    if (!media.length) { $('view').innerHTML = h + '<div class="empty"><b>가이드가 없어요</b>' + (isLead() ? '가이드 추가로 첫 매체를 등록하세요.' : '') + '</div>'; return; }
-    h += '<div class="guide"><div class="mlist">' + media.map(function (m) { return '<button class="' + (m === ST.guideMedia ? 'on' : '') + '" onclick="ST.guideMedia=\'' + esc(m).replace(/'/g, '') + '\';viewGuide()">' + esc(m) + '</button>'; }).join('') + '</div><div>';
-    B.options.guideSections.forEach(function (sec) {
-      var items = list.filter(function (g) { return g.media === ST.guideMedia && g.section === sec; });
-      if (!items.length) return; // 자료가 없는 구분(세팅 방법 등)은 보이지 않게
-      h += '<div style="margin-bottom:22px"><h3>' + esc(sec) + '</h3>' + (items.length ? items.map(function (g) {
+      + (isLead() ? '<button class="btn pri" onclick="guideForm()">가이드 추가</button>' : '') + '</div>'
+      + '<div class="chips" style="margin-bottom:14px">' + secs.map(function (sec) {
+        return '<button class="chip' + (sec === ST.guideSec ? ' on' : '') + '" onclick="ST.guideSec=\'' + sec + '\';viewGuide()">' + (LABEL[sec] || esc(sec)) + '</button>';
+      }).join('') + '</div>';
+    if (!media.length) { $('view').innerHTML = h + '<div class="empty"><b>아직 가이드가 없어요</b>' + (isLead() ? '가이드 추가로 등록하세요.' : '') + '</div>'; return; }
+    var items = inSec.filter(function (g) { return g.media === ST.guideMedia; });
+    h += '<div class="guide"><div class="mlist">' + media.map(function (m) { return '<button class="' + (m === ST.guideMedia ? 'on' : '') + '" onclick="ST.guideMedia=\'' + esc(m).replace(/'/g, '') + '\';viewGuide()">' + esc(m) + '</button>'; }).join('') + '</div><div>'
+      + items.map(function (g) {
         return '<div class="card"><div class="ct"><span class="t">' + esc(g.title) + '</span><span class="muted small">수정 ' + esc(g.updated) + '</span></div>'
           + '<div class="gbody" id="gb-' + g.id + '" style="margin-top:6px">' + shotMarks(linkify(g.body)) + '</div>'
           + (g.images && !/⟦화면 \d/.test(g.body) ? '<div id="gs-' + g.id + '" style="margin-top:10px"><button class="btn ok sm" onclick="guideShots(\'' + g.id + '\')">📷 실제 화면 펼치기 (' + g.images + '장)</button></div>' : '') + (g.link ? '<div style="margin-top:8px"><a class="btn sm" href="' + esc(g.link) + '" target="_blank" rel="noopener">관련 페이지 열기</a></div>' : '')
           + (isLead() ? '<div class="row" style="margin-top:8px"><button class="btn ghost sm" onclick="guideForm(\'' + g.id + '\')">수정</button><button class="btn ghost sm" onclick="guideDel(\'' + g.id + '\')">삭제</button></div>' : '') + '</div>';
-      }).join('') : '<p class="muted small">아직 없어요.</p>') + '</div>';
-    });
+      }).join('');
     $('view').innerHTML = h + '</div></div>';
-    // 글 사이에 화면 자리가 있는 가이드(맵핑 등)는 매체를 열면 바로 채웁니다
-    list.filter(function (g) { return g.media === ST.guideMedia && g.images && /⟦화면 \d/.test(g.body); }).forEach(function (g) { guideShots(g.id); });
+    // 글 사이에 화면 자리가 있는 가이드는 매체를 열면 바로 채웁니다
+    items.filter(function (g) { return g.images && /⟦화면 \d/.test(g.body); }).forEach(function (g) { guideShots(g.id); });
   }).catch(fail);
 }
 /** 본문 속 ⟦화면 N · 설명⟧ 자리에 화면이 들어갑니다(2팀 가이드처럼 글 사이에 화면) */
@@ -1091,7 +1096,7 @@ function guideShots(id) {
   }).catch(function (e) { if (box) box.innerHTML = ''; fail(e); });
 }
 function guideForm(id) {
-  var g = id ? window._guides.find(function (x) { return x.id === id; }) : { media: ST.guideMedia, section: B.options.guideSections[0], title: '', body: '', link: '', order: 100 };
+  var g = id ? window._guides.find(function (x) { return x.id === id; }) : { media: ST.guideMedia, section: ST.guideSec || B.options.guideSections[0], title: '', body: '', link: '', order: 100 };
   openModal('<h3>' + (id ? '가이드 수정' : '가이드 추가') + '</h3><div class="grid2" style="margin-top:12px"><label class="f"><span>매체</span><input type="text" id="gd_media" value="' + esc(g.media) + '" placeholder="네이버 검색광고"></label>'
     + '<label class="f"><span>구분</span><select id="gd_sec">' + opts(B.options.guideSections, g.section) + '</select></label></div>'
     + '<label class="f"><span>제목</span><input type="text" id="gd_title" value="' + esc(g.title) + '"></label>'
