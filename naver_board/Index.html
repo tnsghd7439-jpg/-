@@ -1082,7 +1082,10 @@ function guideShots(id) {
   var g = (window._guides || []).find(function (x) { return x.id === id; }) || {};
   var box = $('gs-' + id);
   if (box) box.innerHTML = '<span class="muted small">화면을 불러오는 중… (' + (g.images || '') + '장)</span>';
-  call('guideImages', { id: id }).then(function (d) {
+  window._shotCache = window._shotCache || {};
+  var got = window._shotCache[id] ? Promise.resolve(window._shotCache[id]) : call('guideImages', { id: id });
+  got.then(function (d) {
+    window._shotCache[id] = d; // 한 번 본 화면은 다시 내려받지 않음
     var items = d.items || [], body = $('gb-' + id);
     var used = {};
     if (body) [].forEach.call(body.querySelectorAll('figure.shot[data-n]'), function (f) {
