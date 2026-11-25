@@ -13,7 +13,7 @@
 - 고친 뒤 아래 점검을 돌려 숫자를 비교하고 결과를 사용자에게 한 줄로 알린다. 탭별 시트 읽기 횟수가 늘면 안 된다.
   ```
   python3 naver_board/dev/build.py
-  node naver_board/dev/speed.js naver_board/dev/out   # 탭별 시트 읽기 횟수 (2026-11-25 밤 기준: 첫 화면 9, 캘린더 6, 팀 현황 7)
+  node naver_board/dev/speed.js naver_board/dev/out   # 탭별 시트 읽기 횟수 (2026-11-26 기준: 첫 화면 9, 캘린더 6, 팀 현황 7)
   node naver_board/dev/shot.js naver_board/dev/out    # 화면 오류·가로 넘침
   node naver_board/dev/act.js naver_board/dev/out     # 실패 사유·소통완료·평가자료·권한·알리미
   node naver_board/dev/sales_test.js naver_board/dev/out  # 영업노트·할일·오늘·이용 기록·권한
@@ -57,6 +57,11 @@
   ③ 매체별 가이드에 "교육·영업 자료" 묶음(드라이브 링크). 통화 건수(녹취 데이터)는 출처 확인 후 결정.
 - 흡수하지 않음: 개별 프로그램(솔루션 탭 연결로 충분), 일회성 작업 도구, 광고주용 결과물 스킬(배너·제안서).
 
+## 디자인 v1(2026-11-26, Claude Design 시안 적용): 토큰은 Index.html :root(--bad/--warn/--ok/--info 3단계+정보, --bg 회색 배경),
+   PC 왼쪽 메뉴 4묶음(오늘·성과·자료·팀장 전용, 빨강 배지=오늘 손댈 것) / 900px 이하 아래 탭 5칸(점검·할일·영업노트·실적·더보기),
+   640px 이하 표는 cardify()가 data-label 붙여 카드로. 접는 영역 fold(), 지금 할 일 줄 .todo-strip, 모바일 모달=아래 시트.
+   오늘 점검 아래쪽 일일점검 화면은 dashboard.html 원본을 고치지 않고 SA_SKIN(원보드 색·표)으로 덮어씀.
+   시안 원본: 사용자 첨부 .dc.html(채팅). 새 화면도 같은 규칙: 상태 태그는 정상이 아닐 때만, 버튼은 주 동작 1개 + ··· 메뉴.
 ## 변경(2026-11-25 밤8): 정시 자동 실행 — GitHub 예약이 8~10시간 밀림(실측) → 원보드 앱스 스크립트 10분 예약(kickRunner)이
    설정 '자동실행' 시각(오늘점검 06:40 매일·09:35/15:15 평일 공지, 인트라넷 11:10 매일)에 workflow_dispatch 요청. 설정 '깃허브토큰'(Actions 읽기·쓰기,
    이 저장소만) 필요. 시각 후 1시간 안에만, 실패 시 10분 간격 3번까지. 팀장이 보드를 열 때 예약·새 설정 줄 자동 생성(ensureKick_).
