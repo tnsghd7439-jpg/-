@@ -17,9 +17,12 @@ const SCHEMA = {
   '일일체크': ['id', '목표id', '이메일', '날짜', '결과', '실적', '메모', '실패사유', '소통완료', '소통메모',
               '소통시각', '기록시각'],
   '일정': ['id', '유형', '제목', '시작일', '종료일', '시간', '대상', '작성자', '메모'],
-  '가이드': ['id', '매체', '구분', '제목', '내용', '링크', '순서', '수정일'],
+  '가이드': ['id', '매체', '구분', '제목', '내용', '링크', '순서', '수정일', '이미지'],
   '매체공지': ['id', '매체', '제목', '요약', '영업포인트', '링크', '게시일', '중요도', '유형', '상품', '신청시작', '마감일',
               '행사시작', '행사종료', '기간', '수집일'],
+  '할일': ['id', '이메일', '분류', '제목', '메모', '반복', '반복값', '기한', '시간', '시작일', '상태', '작성일'],
+  '할일완료': ['id', '할일id', '이메일', '날짜', '완료시각'],
+  '이용기록': ['날짜', '이메일', '기록'],
   '실적_일별': ['날짜', '담당자', '매체', '광고주ID', '광고주명', '매출', '출처'],
   '실적_월별': ['월', '담당자', '매체', '광고주ID', '광고주명', '매출', '출처'],
 };
@@ -34,8 +37,14 @@ const DEFAULT_SETTINGS = [
   ['인트라넷보충매체', '11번가,카카오,에이블리', 'MP AI에 아직 없는 매체만 인트라넷에서 보충. MP AI에 들어오기 시작하면 여기서 지우세요(겹치는 기간은 자동으로 MP AI 우선)'],
   ['수집토큰', '', '인트라넷 보충 수집기(GitHub Actions)가 보낼 때 쓰는 비밀 문자열. BOARD_TOKEN 과 같은 값'],
   ['마지막인트라넷수집', '', '자동으로 기록됩니다'],
+  ['마지막SA수집', '', '오늘 점검(네이버 SA) 마지막 수집. 자동으로 기록됩니다'],
+  ['깃허브토큰', '', 'GitHub에서 만든 실행 전용 토큰(github_pat_로 시작). 넣으면 원보드가 정해진 시각에 오늘 점검·인트라넷 수집을 실행시킵니다'],
+  ['깃허브저장소', 'tnsghd7439-jpg/-', '수집기가 있는 GitHub 저장소(소유자/이름)'],
+  ['자동실행', '오늘점검 06:40 매일, 오늘점검 09:35 평일 공지, 오늘점검 15:15 평일 공지, 인트라넷 11:10 매일',
+    "원보드가 GitHub 수집을 실행시키는 시각(한국시간). '공지'가 붙은 시각은 수집 뒤 구글챗 공지까지(BOARD_NOTIFY=1일 때)"],
   ['매체공지매체', '네이버,지마켓,카카오,11번가', 'MP AI 매체 공지 중 보드에 보여줄 매체(쉼표로 구분). 비우면 전부'],
   ['매체공지확인일', '7', "'조치필요' 매체 공지를 확인 대상으로 삼는 기간(게시 후 며칠). 신청 마감이 남아 있으면 기간이 지나도 대상"],
+  ['매체공지팝업매체', '네이버', '이 매체의 공지는 중요도·유형과 관계없이 확인 팝업(1시간 재알림)으로 띄웁니다(최근 게시 또는 신청 마감이 남은 것). 쉼표로 구분'],
   ['매체공지확인제외유형', '프로모션·이벤트', "'조치필요'여도 확인 팝업 없이 목록·캘린더로만 보여줄 유형(쉼표로 구분). 비우면 조치필요 전부 확인 대상"],
   ['수집시각', '11', '팀장 알리미가 MP AI 매출을 가져오는 시각(0~23시). MP AI 전일 집계 이후로'],
   ['마지막수집', '', '자동으로 기록됩니다'],
@@ -57,7 +66,10 @@ const GUIDE_SECTIONS = ['맵핑 방법', '세팅 방법', '문의 경로'];
 /** 탭 목록. lead: true 는 팀장에게만 보입니다. 팀장 전용 탭은 여기에 한 줄 추가하면 됩니다. */
 const TABS = [
   { id: 'perf', name: '계정별 실적' },
+  { id: 'check', name: '오늘 점검' },
   { id: 'plan', name: '개인별 액션플랜' },
+  { id: 'sales', name: '영업노트' },
+  { id: 'task', name: '할일' },
   { id: 'notice', name: '공지사항' },
   { id: 'solution', name: '솔루션' },
   { id: 'guide', name: '매체별 가이드' },
@@ -68,8 +80,14 @@ const TABS = [
 /* ───────────────────────── 웹 앱 진입점 ───────────────────────── */
 
 function doGet(e) {
+  MEMO_ = {};
   const p = (e && e.parameter) || {};
   if (p.api === 'alerts') return json_(alerts_(p.code || ''));
+  if (p.api === 'saPrev') {
+    const tk = settings_()['수집토큰'];
+    if (!tk || p.token !== tk) return json_({ ok: false, error: 'token' });
+    return ContentService.createTextOutput(blobRead_('sa') || '{}').setMimeType(ContentService.MimeType.JSON);
+  }
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('네이버 전담팀 원보드')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
@@ -77,11 +95,14 @@ function doGet(e) {
 
 /** 화면에서 google.script.run.api(action, payload) 로 부르는 단일 창구 */
 function api(action, payload) {
+  MEMO_ = {};
   try {
     const fn = ACTIONS[action];
     if (!fn) throw new Error('알 수 없는 요청입니다: ' + action);
     const me = me_();
-    return JSON.stringify({ ok: true, data: fn(me, payload || {}) });
+    const data = fn(me, payload || {});
+    if (USAGE_TAB_[action]) useMark_(me.email, USAGE_TAB_[action]);
+    return JSON.stringify({ ok: true, data: data });
   } catch (err) {
     return JSON.stringify({ ok: false, error: String(err && err.message || err) });
   }
@@ -94,6 +115,7 @@ function api(action, payload) {
  * 같은 출처·같은 날짜(월) 데이터는 지우고 다시 씁니다. 일별은 최근 120일만 남깁니다(월별에 이력이 남음).
  */
 function doPost(e) {
+  MEMO_ = {};
   try {
     const body = JSON.parse(e.postData.contents);
     const s = settings_();
@@ -111,8 +133,23 @@ function doPost(e) {
           function (v) { return v < keep; });
       }
       if (body.monthly) out.monthly = replaceRows_('실적_월별', '월', body.monthly.months || [], norm(body.monthly.rows), source);
+      if (body.daily || body.monthly) PropertiesService.getScriptProperties().setProperty('SALES_VER', String(Date.now()));
       if (body.schedules && viaToken) out.schedules = replaceIntraEvents_(body.schedules);
       if (body.mediaNotices && lead) out.mediaNotices = upsertMediaNotices_(body.mediaNotices);
+      if (body.sa && viaToken) {
+        blobWrite_('sa', JSON.stringify(body.sa.data));
+        if (body.sa.template) blobWrite_('sadash', String(body.sa.template));
+        update_('설정', '키', '마지막SA수집', { '값': now_() + ' (기준일 ' + (body.sa.data && body.sa.data.baseDate || '?') + ')' });
+        out.sa = { accounts: ((body.sa.data || {}).accounts || []).length };
+      }
+      if (body.intraChecks && viaToken) { blobWrite_('intra', JSON.stringify(body.intraChecks)); out.intra = true; }
+      if (body.newbiz && viaToken) {
+        const kinds = list_(s['목표_신규구분'] || '신규');
+        const nb = (body.newbiz.rows || []).filter(function (r) { return r['상태'] === '완료' && kinds.indexOf(r['구분']) >= 0; })
+          .map(function (r) { return { '날짜': r['날짜'], '구분': r['구분'], '마케터': r['마케터'] }; });
+        blobWrite_('newbiz', JSON.stringify({ from: body.newbiz.from, to: body.newbiz.to, kinds: kinds, rows: nb }));
+        out.newbiz = nb.length;
+      }
       update_('설정', '키', viaToken ? '마지막인트라넷수집' : '마지막수집', { '값': now_() + (lead ? ' (' + lead.name + ')' : '') });
       return out;
     }));
@@ -149,27 +186,44 @@ function replaceIntraEvents_(sc) {
   return { removed: removed, added: rows.length };
 }
 
-/** MP AI 매체 공지를 id 기준으로 덮어쓰고, 게시 180일이 지난 것(마감 남은 것 제외)은 지웁니다 */
+/**
+ * MP AI 매체 공지를 id 기준으로 덮어쓰고, 게시 180일이 지난 것(마감 남은 것 제외)은 지웁니다.
+ * 수백 건을 한 줄씩 쓰면 느려서(알리미 연결이 끊김) 시트 전체를 한 번에 다시 씁니다.
+ */
 function upsertMediaNotices_(list) {
+  forget_('매체공지');
+  const sh = sheet_('매체공지');
+  const head = SCHEMA['매체공지'];
+  const vals = sh.getDataRange().getValues();
+  const cur = vals.length > 1 ? vals.slice(1) : [];
+  const col = function (name) { return head.indexOf(name); };
   const ids = {};
   list.forEach(function (n) { if (n && n.id) ids[String(n.id)] = true; });
   const old = addDays_(today_(), -180), day = today_();
-  const removed = remove_('매체공지', function (r) {
-    return ids[String(r.id)] || (r['게시일'] < old && !(r['마감일'] >= day));
-  });
-  list.forEach(function (n) {
-    if (!n || !n.id) return;
-    const d = function (v) { return isDate_(String(v || '').slice(0, 10)) ? String(v).slice(0, 10) : ''; };
-    insert_('매체공지', {
+  const kept = cur.filter(function (r) {
+    const id = String(r[col('id')] || '');
+    const pub = String(cell_(r[col('게시일')])), dl = String(cell_(r[col('마감일')]));
+    return id && !ids[id] && !(pub < old && !(dl >= day));
+  }).map(function (r) { return head.map(function (h, i) { return String(cell_(r[i])); }); });
+  const d = function (v) { return isDate_(String(v || '').slice(0, 10)) ? String(v).slice(0, 10) : ''; };
+  const add = list.filter(function (n) { return n && n.id; }).map(function (n) {
+    const o = {
       id: String(n.id), '매체': text_(n.media, 30), '제목': text_(n.title, 300),
       '요약': text_([n.headline || ''].concat(n.summary || []).filter(String).join('\n'), 2000),
       '영업포인트': text_(n.sales, 1000), '링크': text_(n.url, 500), '게시일': d(n.published),
       '중요도': text_(n.impact, 20), '유형': text_(n.type, 30), '상품': text_(n.product, 30),
       '신청시작': d(n.apply_start), '마감일': d(n.deadline), '행사시작': d(n.event_start), '행사종료': d(n.event_end),
-      '기간': text_(n.period || n.digest, 200), '수집일': today_(),
-    });
+      '기간': text_(n.period || n.digest, 200), '수집일': day,
+    };
+    return head.map(function (h) { return safe_(o[h]); });
   });
-  return { saved: Object.keys(ids).length, removed: removed };
+  const all = kept.concat(add);
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(head.length, sh.getLastColumn())).clearContent();
+  if (all.length) {
+    sh.getRange(2, 1, all.length, head.length).setNumberFormat('@');
+    sh.getRange(2, 1, all.length, head.length).setValues(all);
+  }
+  return { saved: add.length, total: all.length };
 }
 
 /** 보드에 보여줄 매체 공지 (설정의 매체만) */
@@ -180,6 +234,13 @@ function mediaNotices_() {
 
 /** '조치필요'이면서 최근 게시됐거나 신청 마감이 남은 공지만 확인 대상 */
 function needsAck_(n, s) {
+  const days0 = num_(s['매체공지확인일'] || 7);
+  const popup = s['매체공지팝업매체'] === undefined ? ['네이버'] : list_(s['매체공지팝업매체']);
+  if (popup.indexOf(String(n['매체'])) >= 0) {
+    // 팝업 매체(기본: 네이버)는 유형과 관계없이 최근 게시분, 또는 신청 마감이 남은 조치필요·영업기회
+    return n['게시일'] >= addDays_(today_(), -days0) ||
+      (n['마감일'] >= today_() && (n['중요도'] === '조치필요' || n['중요도'] === '영업기회'));
+  }
   if (n['중요도'] !== '조치필요') return false;
   if (list_(s['매체공지확인제외유형']).indexOf(String(n['유형'])) >= 0) return false;
   const days = num_(s['매체공지확인일'] || 14);
@@ -226,7 +287,8 @@ function normalizeSales_(rows, rule, lead, source) {
     let amt = num_(r['매출']);
     const media = String(r['매체'] || '');
     if (!intra && rule.vat.some(function (v) { return media.indexOf(v) >= 0; })) amt = amt / 1.1;
-    if (rule.half.indexOf(String(r['광고주ID'])) >= 0) amt = amt * 0.5;
+    // 알리미가 MP AI 공유 비율을 이미 적용한 행은 절반 규칙을 다시 적용하지 않습니다(이중 반영 방지)
+    if (!r['공유비율'] && rule.half.indexOf(String(r['광고주ID'])) >= 0) amt = amt * 0.5;
     const o = {};
     Object.keys(r).forEach(function (k) { o[k] = r[k]; });
     o['매출'] = Math.round(amt);
@@ -234,11 +296,13 @@ function normalizeSales_(rows, rule, lead, source) {
     // MP AI는 담당자 이메일(비어 있으면 보낸 팀장 본인), 인트라넷은 담당자 이름으로 저장합니다
     o['담당자'] = intra ? String(r['담당자'] || '').trim() : (low_(r['담당자']) || lead.email);
     o['출처'] = source;
+    delete o['공유비율'];
     return o;
   });
 }
 
 function replaceRows_(name, keyCol, keys, rows, source, dropIf) {
+  forget_(name);
   const sh = sheet_(name);
   const head = SCHEMA[name];
   const vals = sh.getDataRange().getValues();
@@ -292,14 +356,21 @@ function setup() {
   if (email && !rows_('팀원').some(function (r) { return low_(r['이메일']) === email; })) {
     insert_('팀원', { '이메일': email, '이름': email.split('@')[0], '역할': '팀장', '담당자명': '', '사용': 'Y' });
   }
-  if (!rows_('가이드').length) seedGuides_();
   return '설치 완료';
 }
 
 /* ───────────────────────── 시트 도우미 ───────────────────────── */
 
 function sheet_(name) {
-  const sh = SpreadsheetApp.getActive().getSheetByName(name);
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(name);
+  if (!sh && SCHEMA[name]) {
+    // 새 기능의 시트는 처음 쓸 때 자동으로 만듭니다(setup 을 다시 돌리지 않아도 되게)
+    sh = ss.insertSheet(name);
+    sh.getRange(1, 1, 1, SCHEMA[name].length).setValues([SCHEMA[name]]).setFontWeight('bold');
+    sh.setFrozenRows(1);
+    if (name.indexOf('실적') < 0) sh.getRange('A:Z').setNumberFormat('@');
+  }
   if (!sh) throw new Error("'" + name + "' 시트가 없습니다. 앱스 스크립트에서 setup 을 먼저 실행하세요.");
   return sh;
 }
@@ -312,8 +383,23 @@ function cell_(v) {
   return v === null || v === undefined ? '' : v;
 }
 
+/**
+ * 한 번의 요청 안에서 같은 시트를 여러 번 읽지 않도록 기억해 둡니다(요청이 끝나면 사라짐).
+ * 쓰기(insert_/update_/remove_/전체 다시 쓰기)를 하면 그 시트의 기억을 지웁니다.
+ */
+var MEMO_ = {};
+function forget_(name) { delete MEMO_[name]; }
+
 function rows_(name) {
-  const vals = sheet_(name).getDataRange().getValues();
+  if (!MEMO_[name]) MEMO_[name] = readRows_(name);
+  return MEMO_[name].map(function (o) { const c = {}; for (const k in o) c[k] = o[k]; return c; });
+}
+
+function readRows_(name) { return tableRows_(sheet_(name)); }
+
+function tableRows_(sh) {
+  if (!sh) return [];
+  const vals = sh.getDataRange().getValues();
   const head = vals.shift() || [];
   return vals.filter(function (r) { return r.some(function (c) { return c !== ''; }); }).map(function (r) {
     const o = {};
@@ -329,12 +415,25 @@ function safe_(v) {
 }
 
 function insert_(name, obj) {
+  forget_(name);
   const sh = sheet_(name);
   const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
   sh.appendRow(head.map(function (h) { return safe_(obj[h]); }));
 }
 
+/** 여러 줄을 한 번에 씁니다(반복문 안에서 appendRow 하지 않게) */
+function insertMany_(name, objs) {
+  if (!objs.length) return 0;
+  forget_(name);
+  const sh = sheet_(name);
+  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  sh.getRange(sh.getLastRow() + 1, 1, objs.length, head.length)
+    .setValues(objs.map(function (o) { return head.map(function (h) { return safe_(o[h]); }); }));
+  return objs.length;
+}
+
 function update_(name, key, id, patch) {
+  forget_(name);
   const sh = sheet_(name);
   const vals = sh.getDataRange().getValues();
   const head = vals[0];
@@ -352,6 +451,7 @@ function update_(name, key, id, patch) {
 }
 
 function remove_(name, pred) {
+  forget_(name);
   const sh = sheet_(name);
   const vals = sh.getDataRange().getValues();
   const head = vals[0];
@@ -454,6 +554,7 @@ function scopeEmails_(me, email) {
 
 const ACTIONS = {
   bootstrap: function (me) {
+    if (isLead_(me)) ensureKick_();
     const mem = members_();
     return {
       me: { email: me.email, name: me.name, role: me.role, manager: me.manager },
@@ -463,6 +564,7 @@ const ACTIONS = {
       options: {
         noticeTypes: NOTICE_TYPES, goalPeriods: GOAL_PERIODS, goalCategories: GOAL_CATEGORIES,
         eventTypes: EVENT_TYPES, guideSections: GUIDE_SECTIONS,
+        noteGrades: NOTE_GRADES, taskKinds: TASK_KINDS, taskRepeats: TASK_REPEATS, weekdays: WEEKDAYS,
       },
       badges: badges_(me),
     };
@@ -639,7 +741,7 @@ const ACTIONS = {
       if (g['상태'] !== '승인') throw new Error('팀장 승인 후에 체크할 수 있습니다.');
       if (date < g['시작일'] || date > g['종료일']) throw new Error('목표 기간 밖의 날짜입니다.');
       const rec = {
-        '결과': result, '실적': num_(p.amount), '메모': text_(p.memo, 1000), '실패사유': result === '실패' ? reason : '',
+        '결과': result, '실적': autoKind_(g) ? autoAmt_(g, autoKind_(g), date, date) : num_(p.amount), '메모': text_(p.memo, 1000), '실패사유': result === '실패' ? reason : '',
         '기록시각': now_(),
       };
       const prev = rows_('일일체크').find(function (c) { return c['목표id'] === g.id && c['날짜'] === date; });
@@ -713,7 +815,11 @@ const ACTIONS = {
     const mediaDeadlines = mediaNotices_().filter(function (n) {
       return n['마감일'] >= from && n['마감일'] <= to && n['마감일'] >= today_() && (n['중요도'] === '조치필요' || n['중요도'] === '영업기회');
     }).map(function (n) { return { date: n['마감일'], media: n['매체'], title: n['제목'], impact: n['중요도'], url: n['링크'] }; });
-    return { month: month, events: events, checks: checks, deadlines: deadlines, mediaDeadlines: mediaDeadlines };
+    const calls = noteLeads_(emails).filter(function (l) {
+      const d = l.next.slice(0, 10);
+      return l.open && d >= from && d <= to;
+    }).map(function (l) { return { id: l.id, date: l.next.slice(0, 10), time: l.next.slice(11, 16), company: l.company, who: l.who }; });
+    return { month: month, events: events, checks: checks, deadlines: deadlines, mediaDeadlines: mediaDeadlines, calls: calls };
   },
 
   eventSave: function (me, p) {
@@ -775,12 +881,21 @@ const ACTIONS = {
 
   /* 매체별 가이드 */
   guideList: function () {
+    guideImport_();
     return rows_('가이드').map(function (g) {
       return {
         id: g.id, media: g['매체'], section: g['구분'], title: g['제목'], body: g['내용'], link: g['링크'],
-        order: num_(g['순서']), updated: g['수정일'],
+        order: num_(g['순서']), updated: g['수정일'], images: Number(String(g['이미지'] || '').split('|')[1]) || 0,
       };
     }).sort(function (a, b) { return a.order - b.order; });
+  },
+
+  /** 가이드 화면 캡처: 가이드 줄의 '이미지' 칸(드라이브 파일ID|장수)에 적힌 파일만 읽습니다 */
+  guideImages: function (me, p) {
+    const g = rows_('가이드').find(function (x) { return x.id === p.id; });
+    const fid = g ? String(g['이미지'] || '').split('|')[0] : '';
+    if (!fid) return { items: [] };
+    return JSON.parse(DriveApp.getFileById(fid).getBlob().getDataAsString('UTF-8'));
   },
 
   guideSave: function (me, p) {
@@ -811,8 +926,9 @@ const ACTIONS = {
     const month = /^\d{4}-\d{2}$/.test(p.month || '') ? p.month : monthOf_(today_());
     const goals = rows_('목표');
     const checks = rows_('일일체크');
+    const kp = PropertiesService.getScriptProperties();
     return {
-      month: month,
+      month: month, kick: { token: !!settings_()['깃허브토큰'], last: kp.getProperty('KICK_LAST') || '' },
       members: members_().map(function (m) {
         const mc = checks.filter(function (c) { return low_(c['이메일']) === m.email && monthOf_(c['날짜']) === month; });
         const ok = mc.filter(function (c) { return c['결과'] === '달성'; }).length;
@@ -851,9 +967,15 @@ const ACTIONS = {
     }).map(function (c) { return checkView_(c, goals.find(function (g) { return g.id === c['목표id']; }) || {}); })
       .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
     const sales = monthSales_(ids_(member), month);
+    const calls = noteLogs_([email]).filter(function (c) { const d = c.at.slice(0, 10); return d >= from && d <= to; })
+      .sort(function (a, b) { return a.at < b.at ? -1 : 1; });
     return {
       member: { name: member.name, email: member.email, manager: member.manager },
       month: month, generatedAt: now_(), goals: goalRows, checks: monthChecks, sales: sales,
+      salesNote: salesSummary_(email, from, asOf), calls: calls,
+      tasks: taskRate_(rows_('할일'), rows_('할일완료'), email, from, asOf),
+      usage: usageSummary_(usageRows_(from, asOf)[email]), noticeDelay: noticeDelay_(email, member.name, month),
+      workdays: workdays_(from, asOf),
     };
   },
 
@@ -875,7 +997,12 @@ const ACTIONS = {
 /* ───────────────────────── 계산 도우미 ───────────────────────── */
 
 function badges_(me) {
-  const out = { unread: unreadAll_(me.email).length, todo: todo_(me).filter(function (t) { return !t.checked; }).length };
+  const b = todayBundle_(me);
+  const out = {
+    unread: unreadAll_(me.email).length,
+    todo: b.goals.filter(function (t) { return !t.checked; }).length + b.tasks.length,
+    calls: b.calls.length,
+  };
   if (isLead_(me)) {
     out.pending = rows_('목표').filter(function (g) { return g['상태'] === '대기'; }).length;
     out.talk = rows_('일일체크').filter(function (c) { return c['결과'] === '실패' && c['소통완료'] !== 'Y'; }).length;
@@ -895,10 +1022,60 @@ function todo_(me) {
   });
 }
 
+/* ── 목표 실적 자동 집계: '신규 계약' = 인트라넷 신규/이관(승인일자), '광고매출'(단위 원·만원·억) = MP AI 매출 ── */
+const AUTO_GOAL_LABEL = { newbiz: '인트라 신규/이관 자동 집계', sales: 'MP AI 매출 자동 집계' };
+function unitDiv_(u) { return { '원': 1, '천원': 1e3, '만원': 1e4, '백만원': 1e6, '억': 1e8, '억원': 1e8 }[String(u || '').trim()] || 0; }
+function autoKind_(g) {
+  if (g['분류'] === '신규 계약') return 'newbiz';
+  if (g['분류'] === '광고매출' && unitDiv_(g['단위'])) return 'sales';
+  return '';
+}
+function newbiz_() {
+  if (!MEMO_.__nb) {
+    let d = {};
+    try { d = JSON.parse(blobRead_('newbiz') || '{}'); } catch (e) { d = {}; }
+    MEMO_.__nb = d.rows || [];
+  }
+  return MEMO_.__nb;
+}
+/** 자동 집계 실적(기간 f~t). 사람 이름은 팀원 탭의 이름 또는 담당자명과 맞춥니다 */
+function autoAmt_(g, kind, f, t) {
+  const m = members_().find(function (x) { return x.email === low_(g['이메일']); });
+  if (!m) return 0;
+  if (kind === 'newbiz') {
+    const names = [m.name, m.manager].map(low_);
+    return newbiz_().filter(function (r) {
+      return r['날짜'] >= f && r['날짜'] <= t && names.indexOf(low_(r['마케터'])) >= 0;
+    }).length;
+  }
+  const byDay = salesByDay_(m);
+  const sum = Object.keys(byDay).reduce(function (x, d) { return d >= f && d <= t ? x + byDay[d] : x; }, 0);
+  return Math.round(sum / unitDiv_(g['단위']) * 10) / 10;
+}
+
+/** 팀원별 일 매출 합계. 매출이 새로 들어올 때까지(최대 6시간) 기억해 시트를 다시 읽지 않습니다 */
+function salesByDay_(m) {
+  const key = 'sd|' + (PropertiesService.getScriptProperties().getProperty('SALES_VER') || '0') + '|' + m.email;
+  if (MEMO_[key]) return MEMO_[key];
+  const cache = CacheService.getScriptCache();
+  let hit = null;
+  try { hit = cache.get(key); } catch (e) { hit = null; }
+  if (hit) return (MEMO_[key] = JSON.parse(hit));
+  const out = {};
+  salesRows_(ids_(m)).daily.forEach(function (r) { out[r.date] = (out[r.date] || 0) + r.amt; });
+  try { cache.put(key, JSON.stringify(out), 21600); } catch (e) { /* 기억 없이 */ }
+  return (MEMO_[key] = out);
+}
+
 function goalView_(g, checks, day) {
   const mine = checks.filter(function (c) { return c['목표id'] === g.id; });
   const target = num_(g['목표수치']);
-  const done = mine.reduce(function (s, c) { return s + num_(c['실적']); }, 0);
+  const auto = g['상태'] === '대기' || g['상태'] === '반려' ? '' : autoKind_(g);
+  const sumIn = function (f, t) {
+    if (auto) return autoAmt_(g, auto, f, t);
+    return mine.filter(function (c) { return c['날짜'] >= f && c['날짜'] <= t; }).reduce(function (x, c) { return x + num_(c['실적']); }, 0);
+  };
+  const done = sumIn(g['시작일'], day < g['종료일'] ? day : g['종료일']);
   const total = workdays_(g['시작일'], g['종료일']) || 1;
   const until = day < g['시작일'] ? null : (day > g['종료일'] ? g['종료일'] : day);
   const elapsed = until ? workdays_(g['시작일'], until) : 0;
@@ -906,6 +1083,15 @@ function goalView_(g, checks, day) {
   const ok = mine.filter(function (c) { return c['결과'] === '달성'; }).length;
   const fail = mine.filter(function (c) { return c['결과'] === '실패'; }).length;
   const today = mine.find(function (c) { return c['날짜'] === day; });
+  const mon = addDays_(day, -((dt_(day).getUTCDay() + 6) % 7));
+  const span = function (f, t) {
+    if (f < g['시작일']) f = g['시작일'];
+    if (t > g['종료일']) t = g['종료일'];
+    if (f > t) return null;
+    const got = sumIn(f, t > day ? day : t);
+    const tgt = roundAmt_(target * workdays_(f, t) / total, target);
+    return { from: f, to: t, target: tgt, done: got, rate: tgt ? Math.round(got / tgt * 1000) / 10 : 0 };
+  };
   return {
     id: g.id, email: low_(g['이메일']), who: nameOf_(g['이메일']), period: g['기간'], start: g['시작일'], end: g['종료일'],
     category: g['분류'], title: g['제목'], target: target, unit: g['단위'], plan: g['실행계획'], status: g['상태'],
@@ -915,6 +1101,10 @@ function goalView_(g, checks, day) {
     expected: roundAmt_(expected, target), pace: until ? Math.round((done - expected) * 10) / 10 : 0,
     ok: ok, fail: fail, talkPending: mine.filter(function (c) { return c['결과'] === '실패' && c['소통완료'] !== 'Y'; }).length,
     todayCheck: today ? checkView_(today, g) : null,
+    auto: auto ? AUTO_GOAL_LABEL[auto] : '', autoToday: auto ? sumIn(day, day) : null,
+    // 분기 → 이번 달 몫, 분기·월 → 이번 주 몫 (근무일 비율로 자동 계산)
+    month: g['기간'] === '분기' ? span(monthOf_(day) + '-01', monthEnd_(monthOf_(day))) : null,
+    week: g['기간'] !== '주' ? span(mon, addDays_(mon, 6)) : null,
     active: g['상태'] === '승인' && g['시작일'] <= day && g['종료일'] >= day,
   };
 }
@@ -1055,12 +1245,17 @@ function perf_(me, p) {
     const pmTo = pm + '-' + day <= monthEnd_(pm) ? pm + '-' + day : monthEnd_(pm);
     const hasPrevDaily = data.daily.some(function (r) { return monthOf_(r.date) === pm; });
     const d7 = addDays_(latest, -7);
+    // 주간: 이번 주 월요일~최근일 vs 전주 같은 기간
+    const wk = addDays_(latest, -((dt_(latest).getUTCDay() + 6) % 7)), pwk = addDays_(wk, -7), pwTo = addDays_(latest, -7);
     const media = {}, acc = {};
     const trend = {};
     data.daily.forEach(function (r) {
       const k = r.media + '|' + r.id;
-      const a = acc[k] = acc[k] || { media: r.media, id: r.id, name: r.name, mtd: 0, prevMtd: 0, last: 0, avg7: 0 };
-      const md = media[r.media] = media[r.media] || { media: r.media, mtd: 0, prevMtd: 0, last: 0, avg7: 0 };
+      const a = acc[k] = acc[k] || { media: r.media, id: r.id, name: r.name, mtd: 0, prevMtd: 0, last: 0, avg7: 0, same: 0, wtd: 0, prevWtd: 0 };
+      const md = media[r.media] = media[r.media] || { media: r.media, mtd: 0, prevMtd: 0, last: 0, avg7: 0, same: 0, wtd: 0, prevWtd: 0 };
+      if (r.date === d7) { a.same += r.amt; md.same += r.amt; }
+      if (r.date >= wk && r.date <= latest) { a.wtd += r.amt; md.wtd += r.amt; }
+      if (r.date >= pwk && r.date <= pwTo) { a.prevWtd += r.amt; md.prevWtd += r.amt; }
       if (monthOf_(r.date) === cm && r.date <= latest) { a.mtd += r.amt; md.mtd += r.amt; }
       if (r.date >= pm + '-01' && r.date <= pmTo) { a.prevMtd += r.amt; md.prevMtd += r.amt; }
       if (r.date === latest) { a.last += r.amt; md.last += r.amt; }
@@ -1082,13 +1277,30 @@ function perf_(me, p) {
     out.daily = {
       latest: latest, month: cm, prevMonth: pm, prevTo: pmTo, hasPrev: hasPrevDaily,
       mtd: sum(mediaList, 'mtd'), prevMtd: sum(mediaList, 'prevMtd'), last: sum(mediaList, 'last'), avg7: sum(mediaList, 'avg7'),
+      sameDay: d7, same: sum(mediaList, 'same'), hasSame: data.daily.some(function (r) { return r.date === d7; }),
+      weekFrom: wk, prevWeekFrom: pwk, prevWeekTo: pwTo, wtd: sum(mediaList, 'wtd'), prevWtd: sum(mediaList, 'prevWtd'),
+      hasPrevWeek: data.daily.some(function (r) { return r.date <= pwTo && r.date >= pwk; }),
       media: mediaList,
       accounts: accounts.sort(function (a, b) { return (b.mtd - b.prevMtd) - (a.mtd - a.prevMtd); }),
       alerts: accounts.filter(function (a) { return a.status; }).sort(function (a, b) { return b.avg7 - a.avg7; }),
       trend: trendList,
     };
   }
-  out.ahi = ahi_(monthMatrix_(data), names, data.daily, s);
+  const mat = monthMatrix_(data);
+  const nowM = out.daily ? out.daily.month : Object.keys(mat).sort().pop();
+  const months = [-3, -2, -1, 0].map(function (n) { return addMonths_(nowM, n); });
+  const mm = {};
+  months.forEach(function (m, i) {
+    Object.keys(mat[m] || {}).forEach(function (k) {
+      const md = k.split('|')[0];
+      (mm[md] = mm[md] || [0, 0, 0, 0])[i] += mat[m][k];
+    });
+  });
+  out.months = {
+    months: months, has: months.map(function (m) { return !!mat[m]; }),
+    media: Object.keys(mm).map(function (k) { return { media: k, amts: mm[k] }; }).sort(function (a, b) { return b.amts[3] - a.amts[3] || b.amts[2] - a.amts[2]; }),
+  };
+  out.ahi = ahi_(mat, names, data.daily, s);
   return out;
 }
 
@@ -1210,6 +1422,13 @@ function alerts_(code) {
     morningHour: num_(s['아침알림시각'] || 9), board: s['보드주소'] || ScriptApp.getService().getUrl(),
     unread: unread, todo: todo_(m),
   };
+  // 영업노트 연락 알림: 오늘 연락할 가망건(시각 포함)과 오늘 할일
+  const b = todayBundle_(m);
+  // 기존 '내 할 일' 앱이 이미 연락 알림을 주므로 기본은 끔(겹치지 않게). 설정 탭 '영업노트알림' = 켜기 이면 알리미도 알림
+  out.calls = s['영업노트알림'] === '켜기' ? b.calls : [];
+  out.tasks = b.tasks.map(function (t) { return { id: t.id, kind: t.kind, title: t.title, time: t.time }; });
+  out.now = now_();
+  useMark_(m.email, '알리미');
   if (m.role === 'lead') {
     out.pending = rows_('목표').filter(function (g) { return g['상태'] === '대기'; }).length;
     out.talk = rows_('일일체크').filter(function (c) { return c['결과'] === '실패' && c['소통완료'] !== 'Y'; }).length;
@@ -1219,29 +1438,612 @@ function alerts_(code) {
   return out;
 }
 
+/* ───────────────────────── 영업노트 · 할일 · 오늘 · 이용 기록 ───────────────────────── */
+
+/* 영업노트는 기존 '영업노트' 앱(영업노트_DB 시트)에서 저장하고, 원보드는 읽어서 보여주기만 합니다. */
+const NOTE_OPEN = ['신규', '연락중', '제안발송', '미팅'];
+const NOTE_GRADES = ['상', '중', '하'];
+const TASK_KINDS = ['관리', '영업'];
+const TASK_REPEATS = ['없음', '매일', '평일', '매주', '매월'];
+const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+/** 'yyyy-MM-dd HH:mm' 로 맞춤. 날짜만 오면 오전 10시, 알 수 없으면 '' */
+function dtText_(v) {
+  const s = String(v || '').trim().replace('T', ' ').slice(0, 16);
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(s)) return s;
+  if (isDate_(s.slice(0, 10)) && s.length === 10) return s + ' 10:00';
+  return '';
+}
+function short_(s, n) { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n) + '…' : s; }
+
+/** 영업노트_DB 위치: 설정 탭 '영업노트DB'(주소 또는 ID) → 없으면 드라이브에서 '영업노트_DB' 시트를 찾아 기억 */
+function noteDbId_() {
+  const set = settings_()['영업노트DB'];
+  if (set) return set.replace(/.*\/d\//, '').replace(/[\/?#].*$/, '').trim();
+  const props = PropertiesService.getScriptProperties();
+  const saved = props.getProperty('NOTE_DB');
+  if (saved) return saved;
+  const it = DriveApp.getFilesByName('영업노트_DB');
+  let best = null;
+  while (it.hasNext()) {
+    const f = it.next();
+    if (f.getMimeType() !== 'application/vnd.google-apps.spreadsheet') continue;
+    if (!best || f.getLastUpdated() > best.getLastUpdated()) best = f;
+  }
+  if (!best) return '';
+  props.setProperty('NOTE_DB', best.getId());
+  return best.getId();
+}
+
+/** 영업노트_DB 의 가망건·연락이력. 2분 동안 기억해서 매번 다른 시트를 열지 않습니다. */
+function noteDb_() {
+  if (MEMO_.__note) return MEMO_.__note;
+  const cache = CacheService.getScriptCache();
+  let txt = null;
+  try { txt = cache.get('noteDb'); } catch (e) { txt = null; }
+  if (txt) return (MEMO_.__note = JSON.parse(txt));
+  const out = { leads: [], logs: [], error: '' };
+  try {
+    const id = noteDbId_();
+    if (!id) throw new Error("영업노트_DB 시트를 찾지 못했어요. 시트 '설정' 탭에 키 '영업노트DB', 값에 그 시트 주소를 넣어 주세요.");
+    const ss = SpreadsheetApp.openById(id);
+    out.leads = tableRows_(ss.getSheetByName('가망건'));
+    out.logs = tableRows_(ss.getSheetByName('연락이력'));
+  } catch (e) {
+    out.error = String(e && e.message || e);
+  }
+  MEMO_.__note = out;
+  if (!out.error) { try { cache.put('noteDb', JSON.stringify(out), 120); } catch (e) { /* 너무 크면 기억 없이 */ } }
+  return out;
+}
+
+function noteTime_(v) {
+  const m = String(v || '').match(/(\d{1,2}):(\d{2})(?!.*\d{1,2}:\d{2})/);
+  return m ? ('0' + m[1]).slice(-2) + ':' + m[2] : '';
+}
+
+function noteView_(r, day, nowS) {
+  const d = String(r['다음연락일'] || '').slice(0, 10), t = noteTime_(r['연락시간']);
+  const status = r['상태'] || '신규';
+  const open = NOTE_OPEN.indexOf(status) >= 0;
+  const next = isDate_(d) ? d + (t ? ' ' + t : '') : '';
+  const end = next.length === 10 ? next + ' 23:59' : next;
+  return {
+    id: String(r['ID']), email: low_(r['영업자이메일']), who: r['영업자'] || nameOf_(r['영업자이메일']),
+    company: r['업체명'], person: r['담당자'], phone: r['연락처'], mail: r['이메일'], industry: r['업종'],
+    grade: NOTE_GRADES.indexOf(r['가망도']) >= 0 ? r['가망도'] : '미정', status: status, next: next, memo: r['메모'],
+    lastContact: String(r['최근연락일'] || '').slice(0, 10), created: String(r['등록일시'] || '').slice(0, 16),
+    updated: String(r['수정일시'] || '').slice(0, 16), open: open,
+    due: open && !!next && next.slice(0, 10) <= day, overdue: open && !!next && end < nowS,
+  };
+}
+
+function noteLeads_(emails) {
+  const day = today_(), nowS = now_();
+  return noteDb_().leads.filter(function (r) { return r['ID'] && emails.indexOf(low_(r['영업자이메일'])) >= 0; })
+    .map(function (r) { return noteView_(r, day, nowS); });
+}
+
+function noteLogs_(emails) {
+  return noteDb_().logs.filter(function (c) { return emails.indexOf(low_(c['영업자이메일'])) >= 0; }).map(noteLogView_);
+}
+
+function noteLogView_(c) {
+  const d = String(c['다음연락일'] || '').slice(0, 10), t = noteTime_(c['연락시간']);
+  return { leadId: String(c['가망건ID']), at: String(c['일시'] || '').slice(0, 16), company: c['업체명'], result: c['방식'],
+    memo: c['내용'], next: isDate_(d) ? d + (t ? ' ' + t : '') : '', by: c['영업자'] };
+}
+
+/** 할일이 그 날짜에 해야 하는 날인지 */
+function occurs_(t, day) {
+  if (t['상태'] === '보관') return false;
+  const start = String(t['시작일'] || '').slice(0, 10);
+  if (start && day < start) return false;
+  const rep = t['반복'] || '없음', w = dt_(day).getUTCDay();
+  if (rep === '매일') return true;
+  if (rep === '평일') return w > 0 && w < 6;
+  if (rep === '매주') return String(t['반복값'] || '').split(',').indexOf(WEEKDAYS[w]) >= 0;
+  if (rep === '매월') {
+    const want = Number(t['반복값']) || 1, last = Number(monthEnd_(monthOf_(day)).slice(8));
+    return Number(day.slice(8)) === Math.min(want, last);
+  }
+  return String(t['기한']) === day;
+}
+
+function taskView_(t, done, day) {
+  const rep = t['반복'] || '없음';
+  const mine = done.filter(function (d) { return d['할일id'] === t.id; });
+  const doneEver = mine.length > 0;
+  const doneToday = mine.some(function (d) { return d['날짜'] === day; });
+  const once = rep === '없음';
+  const today = once ? (!doneEver && String(t['기한'] || '') <= day && !!t['기한']) || (doneEver && mine.some(function (d) { return d['날짜'] === day; }))
+    : occurs_(t, day);
+  return {
+    id: t.id, email: low_(t['이메일']), who: nameOf_(t['이메일']), kind: t['분류'], title: t['제목'], memo: t['메모'],
+    repeat: rep, repeatValue: t['반복값'], due: t['기한'], time: t['시간'], archived: t['상태'] === '보관',
+    today: today, done: once ? doneEver : doneToday, overdue: once && !doneEver && !!t['기한'] && t['기한'] < day,
+    lastDone: mine.map(function (d) { return d['날짜']; }).sort().pop() || '',
+  };
+}
+
+/** 기간 안에 해야 했던 할일 횟수와 완료 횟수 */
+function taskRate_(tasks, done, email, from, to) {
+  let need = 0, ok = 0;
+  tasks.filter(function (t) { return low_(t['이메일']) === email; }).forEach(function (t) {
+    const mine = done.filter(function (d) { return d['할일id'] === t.id; });
+    if ((t['반복'] || '없음') === '없음') {
+      if (t['기한'] && t['기한'] >= from && t['기한'] <= to) { need++; if (mine.length) ok++; }
+      return;
+    }
+    for (let d = from; d <= to; d = addDays_(d, 1)) {
+      if (!occurs_(t, d)) continue;
+      need++;
+      if (mine.some(function (x) { return x['날짜'] === d; })) ok++;
+    }
+  });
+  return { need: need, ok: ok, rate: need ? Math.round(ok / need * 1000) / 10 : null };
+}
+
+/** 오늘 묶음: 오늘(또는 밀린) 연락할 가망건 + 오늘 할일 + 오늘 목표 */
+function todayBundle_(m) {
+  const day = today_();
+  const calls = noteLeads_([m.email]).filter(function (l) { return l.due; }).map(function (l) {
+    return { id: l.id, company: l.company, at: l.next, memo: short_(l.memo, 60), phone: l.phone, grade: l.grade, overdue: l.overdue };
+  }).sort(function (a, b) { return a.at < b.at ? -1 : 1; });
+  const done = rows_('할일완료');
+  const tasks = rows_('할일').filter(function (t) { return low_(t['이메일']) === m.email; })
+    .map(function (t) { return taskView_(t, done, day); })
+    .filter(function (t) { return t.today && !t.done && !t.archived; });
+  return { calls: calls, tasks: tasks, goals: todo_(m) };
+}
+
+/* ── 이용 기록: 스크립트 저장소에 하루치를 모았다가, 다음 날 첫 요청 때 '이용기록' 시트에 한 번에 씀 ── */
+const USAGE_TAB_ = {
+  bootstrap: '접속', perf: '실적', goalList: '액션플랜', leadList: '영업노트', taskList: '할일', noticeList: '공지', solutions: '솔루션',
+  guideList: '가이드', calendar: '캘린더', teamStats: '팀현황',
+};
+
+function useMark_(email, key) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const day = today_(), k = 'U|' + day + '|' + email, t = now_().slice(11);
+    const o = JSON.parse(props.getProperty(k) || '{}');
+    if (key === '알리미') o.al = t;
+    else { if (!o.f) o.f = t; o.l = t; }
+    o[key] = (o[key] || 0) + 1;
+    props.setProperty(k, JSON.stringify(o));
+    flushUsage_(props, day);
+  } catch (e) { /* 기록 실패는 화면 동작에 영향 주지 않음 */ }
+}
+
+function flushUsage_(props, day) {
+  if (props.getProperty('U|flushed') === day) return;
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(0)) return;
+  try {
+    if (props.getProperty('U|flushed') === day) return;
+    const all = props.getProperties(), rows = [];
+    Object.keys(all).forEach(function (k) {
+      const p = k.split('|');
+      if (p[0] === 'U' && p.length === 3 && p[1] < day) { rows.push([p[1], p[2], all[k]]); props.deleteProperty(k); }
+    });
+    if (rows.length) appendRows_('이용기록', rows);
+    props.setProperty('U|flushed', day);
+  } finally { lock.releaseLock(); }
+}
+
+/** 여러 줄을 한 번에 추가 */
+function appendRows_(name, rows) {
+  forget_(name);
+  const sh = sheet_(name);
+  const start = sh.getLastRow() + 1;
+  sh.getRange(start, 1, rows.length, rows[0].length).setNumberFormat('@').setValues(rows);
+}
+
+/** 이용 기록 읽기: 시트(지난 날) + 저장소(오늘) → {email: {날짜: 기록}} */
+function usageRows_(from, to) {
+  const out = {};
+  const put = function (day, email, o) { (out[low_(email)] = out[low_(email)] || {})[day] = o; };
+  rows_('이용기록').forEach(function (r) {
+    const d = String(r['날짜']).slice(0, 10);
+    if (d >= from && d <= to) { try { put(d, r['이메일'], JSON.parse(r['기록'])); } catch (e) { /* 깨진 줄 무시 */ } }
+  });
+  const all = PropertiesService.getScriptProperties().getProperties();
+  Object.keys(all).forEach(function (k) {
+    const p = k.split('|');
+    if (p[0] === 'U' && p.length === 3 && p[1] >= from && p[1] <= to) { try { put(p[1], p[2], JSON.parse(all[k])); } catch (e) { /* 무시 */ } }
+  });
+  return out;
+}
+
+function usageSummary_(byDay) {
+  const days = Object.keys(byDay || {}).sort();
+  const sum = { days: 0, opens: 0, tabs: {}, popups: 0, downloads: 0, last: '', alerter: '' };
+  days.forEach(function (d) {
+    const o = byDay[d];
+    if (o['접속'] || o.f) sum.days++;
+    sum.opens += o['접속'] || 0;
+    Object.keys(USAGE_TAB_).forEach(function (a) { const k = USAGE_TAB_[a]; if (k !== '접속' && o[k]) sum.tabs[k] = (sum.tabs[k] || 0) + o[k]; });
+    sum.popups += o['공지팝업'] || 0;
+    sum.downloads += o['다운로드'] || 0;
+    if (o.l) sum.last = d + ' ' + o.l;
+    if (o.al) sum.alerter = d + ' ' + o.al;
+  });
+  return sum;
+}
+
+/** 공지 확인까지 걸린 평균 시간(분): 그 달에 올라온 남의 공지 기준 */
+function noticeDelay_(email, name, month) {
+  const notices = rows_('공지').filter(function (n) { return monthOf_(n['작성일']) === month; });
+  const acks = rows_('공지확인');
+  const mins = [];
+  notices.forEach(function (n) {
+    const a = acks.find(function (x) { return x['공지id'] === n.id && low_(x['이메일']) === email; });
+    if (!a || n['작성자'] === name) return; // 본인이 쓴 공지는 제외
+    const diff = (new Date(String(a['확인시각']).replace(' ', 'T') + ':00+09:00') - new Date(String(n['작성일']).replace(' ', 'T') + ':00+09:00')) / 60000;
+    if (diff >= 0 && diff < 60 * 24 * 31) mins.push(diff);
+  });
+  return mins.length ? Math.round(mins.reduce(function (s, x) { return s + x; }, 0) / mins.length) : null;
+}
+
+/** 영업노트 한 달 요약 */
+function salesSummary_(email, from, to) {
+  const leads = noteLeads_([email]);
+  const calls = noteLogs_([email]).filter(function (c) { const d = c.at.slice(0, 10); return d >= from && d <= to; });
+  return {
+    open: leads.filter(function (l) { return l.open; }).length,
+    added: leads.filter(function (l) { const d = l.created.slice(0, 10); return d >= from && d <= to; }).length,
+    contracts: leads.filter(function (l) { const d = l.updated.slice(0, 10); return l.status === '계약' && d >= from && d <= to; }).length,
+    calls: calls.length,
+    overdue: leads.filter(function (l) { return l.overdue; }).length,
+  };
+}
+
+const SALES_ACTIONS = {
+  /** 영업노트_DB 의 내 가망건(팀장은 전체·팀원 선택). 저장·수정은 기존 영업노트 앱에서 합니다. */
+  leadList: function (me, p) {
+    const emails = scopeEmails_(me, p.email);
+    const db = noteDb_();
+    return { leads: noteLeads_(emails), error: db.error, app: settings_()['영업노트주소'] || '' };
+  },
+
+  leadHistory: function (me, p) {
+    const r = noteDb_().leads.find(function (x) { return String(x['ID']) === String(p.id); });
+    if (!r) throw new Error('가망건을 찾을 수 없습니다.');
+    if (!isLead_(me) && low_(r['영업자이메일']) !== me.email) throw new Error('본인 가망건만 볼 수 있습니다.');
+    return noteDb_().logs.filter(function (c) { return String(c['가망건ID']) === String(p.id); }).map(noteLogView_)
+      .sort(function (a, b) { return a.at < b.at ? 1 : -1; });
+  },
+
+  taskList: function (me, p) {
+    const emails = scopeEmails_(me, p.email);
+    const day = today_();
+    const done = rows_('할일완료');
+    return rows_('할일').filter(function (t) { return emails.indexOf(low_(t['이메일'])) >= 0 && t['상태'] !== '보관'; })
+      .map(function (t) { return taskView_(t, done, day); })
+      .sort(function (a, b) { return (b.today - a.today) || (a.done - b.done) || ((a.time || '99') < (b.time || '99') ? -1 : 1); });
+  },
+
+  taskSave: function (me, p) {
+    const rep = TASK_REPEATS.indexOf(p.repeat) >= 0 ? p.repeat : '없음';
+    const rec = {
+      '분류': TASK_KINDS.indexOf(p.kind) >= 0 ? p.kind : '관리', '제목': text_(p.title, 200), '메모': text_(p.memo, 2000),
+      '반복': rep, '반복값': rep === '매주' ? text_(p.repeatValue, 20) : rep === '매월' ? String(Math.min(31, Math.max(1, num_(p.repeatValue) || 1))) : '',
+      '기한': rep === '없음' ? (isDate_(p.due) ? p.due : today_()) : '', '시간': /^\d{2}:\d{2}$/.test(p.time || '') ? p.time : '',
+    };
+    if (!rec['제목']) throw new Error('할일을 입력하세요.');
+    if (rep === '매주' && !rec['반복값']) throw new Error('반복할 요일을 고르세요.');
+    return locked_(function () {
+      if (p.id) {
+        const t = rows_('할일').find(function (x) { return x.id === p.id; });
+        if (!t) throw new Error('할일을 찾을 수 없습니다.');
+        if (!isLead_(me) && low_(t['이메일']) !== me.email) throw new Error('본인 할일만 고칠 수 있습니다.');
+        update_('할일', 'id', p.id, rec);
+        return p.id;
+      }
+      rec.id = uid_(); rec['이메일'] = isLead_(me) && p.email ? low_(p.email) : me.email;
+      rec['시작일'] = today_(); rec['상태'] = '사용'; rec['작성일'] = now_();
+      insert_('할일', rec);
+      return rec.id;
+    });
+  },
+
+  /** 삭제 대신 보관: 지난 완료 기록(완료율)은 남깁니다 */
+  taskDelete: function (me, p) {
+    return locked_(function () {
+      const t = rows_('할일').find(function (x) { return x.id === p.id; });
+      if (!t) return true;
+      if (!isLead_(me) && low_(t['이메일']) !== me.email) throw new Error('본인 할일만 지울 수 있습니다.');
+      update_('할일', 'id', p.id, { '상태': '보관' });
+      return true;
+    });
+  },
+
+  taskDone: function (me, p) {
+    const day = isDate_(p.date) ? p.date : today_();
+    return locked_(function () {
+      const t = rows_('할일').find(function (x) { return x.id === p.id; });
+      if (!t) throw new Error('할일을 찾을 수 없습니다.');
+      if (low_(t['이메일']) !== me.email) throw new Error('본인 할일만 체크할 수 있습니다.');
+      remove_('할일완료', function (d) { return d['할일id'] === t.id && d['날짜'] === day; });
+      if (p.done !== false) insert_('할일완료', { id: uid_(), '할일id': t.id, '이메일': me.email, '날짜': day, '완료시각': now_() });
+      return true;
+    });
+  },
+
+  /** 기존 '내 할 일' 앱(todos.json)에서 가져오기. 화면에서 읽은 목록을 한 번에 씁니다. 같은 제목·기한은 건너뜀 */
+  taskImport: function (me, p) {
+    const items = (p.items || []).slice(0, 500);
+    return locked_(function () {
+      const have = {};
+      rows_('할일').forEach(function (t) { if (low_(t['이메일']) === me.email && t['상태'] !== '보관') have[t['제목'] + '|' + (t['기한'] || '')] = 1; });
+      const recs = [];
+      items.forEach(function (x) {
+        const rep = TASK_REPEATS.indexOf(x.repeat) >= 0 ? x.repeat : '없음';
+        const rec = {
+          id: uid_(), '이메일': me.email, '분류': TASK_KINDS.indexOf(x.kind) >= 0 ? x.kind : '관리', '제목': text_(x.title, 200),
+          '메모': text_(x.memo, 2000), '반복': rep,
+          '반복값': rep === '매주' ? text_(x.repeatValue, 20) : rep === '매월' ? String(Math.min(31, Math.max(1, num_(x.repeatValue) || 1))) : '',
+          '기한': rep === '없음' ? (isDate_(x.due) ? x.due : today_()) : '', '시간': /^\d{2}:\d{2}$/.test(x.time || '') ? x.time : '',
+          '시작일': today_(), '상태': '사용', '작성일': now_(),
+        };
+        if (!rec['제목'] || (rep === '매주' && !rec['반복값'])) return;
+        const key = rec['제목'] + '|' + rec['기한'];
+        if (have[key]) return;
+        have[key] = 1;
+        recs.push(rec);
+      });
+      insertMany_('할일', recs);
+      return { added: recs.length, skipped: items.length - recs.length };
+    });
+  },
+
+  today: function (me) { return todayBundle_(me); },
+
+  /** 화면에서만 알 수 있는 이용 기록(공지 팝업, 솔루션 다운로드) */
+  track: function (me, p) {
+    const k = { popup: '공지팝업', download: '다운로드' }[p.kind];
+    if (k) useMark_(me.email, k);
+    return true;
+  },
+
+  /** 팀장: 팀원별 이용 현황 */
+  usageStats: function (me, p) {
+    needLead_(me);
+    const month = /^\d{4}-\d{2}$/.test(p.month || '') ? p.month : monthOf_(today_());
+    const from = month + '-01', to = monthEnd_(month) < today_() ? monthEnd_(month) : today_();
+    const use = usageRows_(from, to);
+    const tasks = rows_('할일'), done = rows_('할일완료');
+    const workdays = workdays_(from, to);
+    return {
+      month: month, workdays: workdays,
+      members: members_().map(function (m) {
+        const u = usageSummary_(use[m.email]);
+        return {
+          email: m.email, name: m.name, role: m.role, usage: u,
+          noticeDelay: noticeDelay_(m.email, m.name, month), tasks: taskRate_(tasks, done, m.email, from, to),
+          sales: salesSummary_(m.email, from, to),
+        };
+      }),
+    };
+  },
+};
+Object.keys(SALES_ACTIONS).forEach(function (k) { ACTIONS[k] = SALES_ACTIONS[k]; });
+
+
+/* ───────────────────────── 오늘 점검 (6팀 일일점검 흡수) ─────────────────────────
+ * 일일점검 결과(네이버 SA 점검)와 그 화면 틀(dashboard.html), 인트라 점검을 드라이브 파일로 보관합니다.
+ * 시트 칸(5만 자)보다 커서 파일로 둡니다. 파일 ID는 스크립트 저장소에 기억합니다.
+ */
+function blobWrite_(key, text) {
+  const props = PropertiesService.getScriptProperties();
+  const id = props.getProperty('F|' + key);
+  let f = null;
+  if (id) { try { f = DriveApp.getFileById(id); } catch (e) { f = null; } }
+  if (f) f.setContent(text);
+  else {
+    f = DriveApp.createFile('원보드_' + key + '.json', text, 'application/json');
+    props.setProperty('F|' + key, f.getId());
+  }
+}
+
+function blobRead_(key) {
+  const id = PropertiesService.getScriptProperties().getProperty('F|' + key);
+  if (!id) return '';
+  try { return DriveApp.getFileById(id).getBlob().getDataAsString('UTF-8'); } catch (e) { return ''; }
+}
+
+/** 팀원 화면: 일일점검의 '팀원별 파일'과 같은 방식으로 그 팀원 계정만 남김 */
+function personalSa_(data, names) {
+  const has = function (owners) { return (owners || []).some(function (o) { return names.indexOf(o) >= 0; }); };
+  const accs = (data.accounts || []).filter(function (a) { return has(a.owners); });
+  const me = names.find(function (n) { return accs.some(function (a) { return (a.owners || []).indexOf(n) >= 0; }); }) || names[0];
+  const out = {};
+  Object.keys(data).forEach(function (k) { out[k] = data[k]; });
+  out.personal = me; out.errors = []; out.accounts = accs;
+  out.disconnected = (data.disconnected || []).filter(function (d) { return has(d.owners); });
+  if (data.gfa) { out.gfa = {}; Object.keys(data.gfa).forEach(function (k) { out.gfa[k] = data.gfa[k]; }); out.gfa.rows = (data.gfa.rows || []).filter(function (r) { return names.indexOf(r.owner) >= 0; }); }
+  if (data.mpai) { out.mpai = {}; Object.keys(data.mpai).forEach(function (k) { out.mpai[k] = data.mpai[k]; }); out.mpai.scopes = (data.mpai.scopes || []).filter(function (s) { return names.indexOf(s.owner) >= 0; }); }
+  if (data.saGoals && data.saGoals[me]) out.saGoal = data.saGoals[me]; else delete out.saGoal;
+  return out;
+}
+
+ACTIONS.checkView = function (me, p) {
+  let names = null;
+  if (!isLead_(me)) names = [me.manager, me.name];
+  else if (p.email) {
+    const m = members_().find(function (x) { return x.email === low_(p.email); });
+    if (m) names = [m.manager, m.name];
+  }
+  const intra = JSON.parse(blobRead_('intra') || 'null');
+  const pick = function (list) { return (list || []).filter(function (r) { return !names || names.indexOf(String(r['담당자'] || '').trim()) >= 0; }); };
+  const intraOut = intra ? { date: intra.date, transfers: pick(intra.transfers), missing: pick(intra.missing), fees: pick(intra.fees) } : null;
+  const raw = blobRead_('sa'), tpl = blobRead_('sadash');
+  if (!raw || !tpl) return { empty: true, intra: intraOut };
+  let data = JSON.parse(raw);
+  if (names) data = personalSa_(data, names.filter(String));
+  return { empty: false, template: tpl, data: data, intra: intraOut, updatedAt: settings_()['마지막SA수집'] || '' };
+};
+USAGE_TAB_.checkView = '오늘점검';
+
+
 /* ───────────────────────── 가이드 초안 ───────────────────────── */
 
-function seedGuides_() {
-  const T = '※ 팀장 검수 전 초안입니다. 실제 메뉴 이름과 절차를 확인한 뒤 고쳐주세요.';
-  const rows = [
-    ['네이버 검색광고', '맵핑 방법', '광고주 계정을 우리 관리 계정에 연결하기',
-      T + '\n- 광고주 광고 계정 번호(customerId)를 받는다\n- 우리 매니저 계정에서 광고주 계정 관리 권한을 요청한다\n- 광고주가 승인했는지 확인한다\n- 인트라넷·MP AI에 광고주 정보(담당자, 연락처, 사업자번호)를 입력한다\n- 다음 날 MP AI에 매출이 잡히는지 확인한다',
-      'https://searchad.naver.com', 10],
-    ['네이버 검색광고', '세팅 방법', '파워링크 기본 세팅 점검표',
-      T + '\n- 캠페인: 목적별로 나누기(브랜드 / 일반 / 경쟁)\n- 일 예산과 노출 기간 확인\n- 그룹: 키워드 성격별 분리, 기본 입찰가 설정\n- 키워드: 대표·세부·시즌 키워드, 제외 키워드 등록\n- 소재: 그룹당 2개 이상, 확장 소재 등록\n- 전환 추적(프리미엄 로그분석) 설치 여부 확인', '', 20],
-    ['네이버 쇼핑검색광고', '세팅 방법', '쇼핑검색광고 기본 세팅 점검표',
-      T + '\n- 쇼핑몰(스마트스토어) 연동 상태 확인\n- 상품 그룹: 주력·시즌·저효율 상품 분리\n- 상품별 입찰가와 노출 상태 확인\n- 제외 검색어 정기 점검(월 1회 이상)', '', 30],
-    ['네이버 브랜드검색', '세팅 방법', '브랜드검색 집행 전 확인',
-      T + '\n- 2026-06-01 개편: 템플릿이 PC 3종·모바일 4종으로 줄었고 소재는 최대 8개까지 등록\n- 성별 소재를 쓰더라도 기본 소재는 반드시 등록\n- 템플릿별 이미지 규격은 광고주센터 제작가이드 원문으로 확인(추정 수치로 제작 금지)', '', 40],
-    ['네이버 GFA', '세팅 방법', 'GFA 이미지 소재 규격(주요)',
-      T + '\n- 모바일 메인(이미지형) 1250×560, JPG/PNG 50~250KB\n- 피드 가로 1200×628, JPG 500KB 이하\n- 피드 정사각 1200×1200, JPG 800KB 이하\n- 피드 세로 1200×1800, JPG 1200KB 이하 · 흰/검/회색 단색 배경 금지 · 글자 면적 20% 초과 시 집행 불가\n- 출처: 네이버 이미지형 DA 소재 제작가이드(2025-04-08 개정)', '', 50],
-    ['네이버 검색광고', '문의 경로', '네이버 광고 고객센터',
-      T + '\n- 네이버 광고 고객센터 전화·채팅 상담(운영 시간 확인 필요)\n- 검수 반려, 결제·환불, 계정 권한 문제는 고객센터로\n- 우리 회사 네이버 담당자(대행사 전담 매니저) 연락처를 여기에 적어두세요',
-      'https://ads.naver.com/help', 60],
-    ['네이버 GFA', '문의 경로', 'GFA 문의',
-      T + '\n- GFA 문의 창구와 운영 시간을 여기에 적어주세요\n- 소재 반려 시 반려 사유 캡처를 함께 남기기', '', 70],
-  ];
-  rows.forEach(function (r) {
-    insert_('가이드', { id: uid_(), '매체': r[0], '구분': r[1], '제목': r[2], '내용': r[3], '링크': r[4], '순서': r[5], '수정일': today_() });
+/**
+ * 드라이브의 '원보드_매체가이드' 시트(사내 교육 자료라 공개 코드에 넣지 않음)를 '가이드' 탭으로 옮깁니다.
+ * 같은 매체·제목이 이미 있으면 건너뛰고, 대체되는 네이버 맵핑 초안은 지웁니다. 드라이브 검색은 하루 한 번만 하고,
+ * 원본 시트가 바뀌었을 때만(새 가이드를 추가하면) 새 줄을 옮깁니다.
+ */
+/** 예전에 만든 시트에 새 칸(SCHEMA에 추가된 칸)이 없으면 맨 오른쪽에 제목만 붙입니다 */
+function ensureCols_(name) {
+  const sh = sheet_(name);
+  const head = sh.getRange(1, 1, 1, Math.max(1, sh.getLastColumn())).getValues()[0];
+  const miss = (SCHEMA[name] || []).filter(function (h) { return head.indexOf(h) < 0; });
+  if (!miss.length) return;
+  forget_(name);
+  sh.getRange(1, head.length + 1, 1, miss.length).setValues([miss]).setFontWeight('bold');
+}
+
+function guideImport_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('GUIDE_SRC') === today_()) return;
+  props.setProperty('GUIDE_SRC', today_());
+  try {
+    const it = DriveApp.getFilesByName('원보드_매체가이드');
+    if (!it.hasNext()) return;
+    const file = it.next();
+    const ver = file.getId() + '|' + file.getLastUpdated().getTime();
+    if (props.getProperty('GUIDE_SRC_VER') === ver) return;
+    const src = tableRows_(SpreadsheetApp.openById(file.getId()).getSheets()[0]);
+    if (!src.length) return;
+    locked_(function () {
+      ensureCols_('가이드');
+      forget_('가이드');
+      const sh = sheet_('가이드'), vals = sh.getDataRange().getValues(), head = vals[0];
+      const col = function (h) { return head.indexOf(h); };
+      const key = function (m, t) { return String(m) + '|' + String(t); };
+      const srcOf = {};
+      src.forEach(function (g) { if (g['제목']) srcOf[key(g['매체'], g['제목'])] = g; });
+      // 자료 없이 만든 초안(팀장 검수 전)은 모두 지웁니다
+      const isDraft = function (r) { return String(r[col('내용')]).indexOf('※ 팀장 검수 전 초안') === 0; };
+      const seen = {};
+      const body = vals.slice(1).filter(function (r) { return r.some(function (c) { return c !== ''; }) && !isDraft(r); }).map(function (r) {
+        const k = key(r[col('매체')], r[col('제목')]), g = srcOf[k];
+        seen[k] = 1;
+        if (!g) return r;
+        // 원본이 더 최근에 고쳐졌으면 내용을 원본으로 바꿉니다(보드에서 고친 게 더 최근이면 그대로 둠)
+        if (String(cell_(g['수정일'])) > String(cell_(r[col('수정일')]))) {
+          ['구분', '내용', '링크', '순서', '이미지'].forEach(function (h) { if (col(h) >= 0 && g[h] !== undefined) r[col(h)] = safe_(g[h]); });
+          r[col('수정일')] = cell_(g['수정일']);
+        } else if (g['이미지'] && !r[col('이미지')]) {
+          r[col('이미지')] = g['이미지'];
+        }
+        return r;
+      });
+      src.forEach(function (g) {
+        const k = key(g['매체'], g['제목']);
+        if (!g['제목'] || seen[k]) return;
+        seen[k] = 1;
+        const rec = { id: uid_(), '매체': g['매체'], '구분': g['구분'] || '맵핑 방법', '제목': g['제목'], '내용': g['내용'], '링크': g['링크'] || '',
+          '순서': g['순서'] || 50, '수정일': cell_(g['수정일']) || today_(), '이미지': g['이미지'] || '' };
+        body.push(head.map(function (h) { return safe_(rec[h]); }));
+      });
+      // 한 번에 다시 씁니다(줄이 줄었으면 남는 줄은 비움)
+      const n = Math.max(vals.length - 1, body.length);
+      const out = body.concat([]);
+      while (out.length < n) out.push(head.map(function () { return ''; }));
+      if (n) sh.getRange(2, 1, n, head.length).setValues(out);
+      forget_('가이드');
+    });
+    props.setProperty('GUIDE_SRC_VER', ver);
+  } catch (e) { /* 다음 날 다시 시도 */ }
+}
+
+
+/* ───────────────────────── 정시 자동 실행 (GitHub 예약 대신) ─────────────────────────
+ * GitHub 무료 예약 실행은 몇 시간씩 밀립니다(실측 9시간). 그래서 원보드가 10분마다 깨어나
+ * 설정 탭 '자동실행'의 시각이 되면 GitHub에 "지금 실행"(workflow_dispatch)을 요청합니다.
+ * 필요한 것: 설정 탭 '깃허브토큰'(Actions 읽기·쓰기 권한만 있는 토큰).
+ */
+const KICK_WF = { '오늘점검': 'board-sa.yml', '인트라넷': 'board-sync.yml' };
+
+/** 팀장이 보드를 열 때 한 번: 새 설정 줄 추가 + 10분 예약 만들기 */
+function ensureKick_() {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    if (props.getProperty('KICK_READY') === '2') return;
+    // 설정 탭에 없는 기본 설정만 한 번에 추가(setup 을 다시 돌리지 않아도 되게)
+    const have = rows_('설정').map(function (r) { return r['키']; });
+    const add = DEFAULT_SETTINGS.filter(function (d) { return have.indexOf(d[0]) < 0; })
+      .map(function (d) { return { '키': d[0], '값': d[1], '설명': d[2] }; });
+    if (add.length) insertMany_('설정', add);
+    if (!ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'kickRunner'; })) {
+      ScriptApp.newTrigger('kickRunner').timeBased().everyMinutes(10).create();
+    }
+    props.setProperty('KICK_READY', '2');
+  } catch (e) { /* 다음에 다시 */ }
+}
+
+/** '오늘점검 09:35 평일 공지' 같은 줄을 읽습니다 */
+function kickSlots_(text) {
+  return String(text || '').split(/[,\n]/).map(function (x) {
+    const m = x.trim().match(/^(\S+)\s+(\d{1,2}):(\d{2})\s*(매일|평일)?\s*(공지)?/);
+    if (!m || !KICK_WF[m[1]]) return null;
+    return { name: m[1], wf: KICK_WF[m[1]], at: ('0' + m[2]).slice(-2) + ':' + m[3], weekday: m[4] === '평일', notify: !!m[5] };
+  }).filter(Boolean);
+}
+
+/** 10분마다 실행(예약). 시각이 지났고 오늘 아직 안 보낸 것만 GitHub에 실행 요청 */
+function kickRunner() {
+  MEMO_ = {};
+  // 예약(팀장 권한)으로만 돌게: 화면에서 팀원이 부르면 무시
+  const em = low_(Session.getActiveUser().getEmail());
+  if (em && !members_().some(function (m) { return m.email === em && m.role === 'lead'; })) return;
+  const s = settings_();
+  if (!s['깃허브토큰']) return;
+  const props = PropertiesService.getScriptProperties();
+  const day = today_(), hm = now_().slice(11), w = dt_(day).getUTCDay();
+  kickSlots_(s['자동실행']).forEach(function (k) {
+    if (k.weekday && (w === 0 || w === 6)) return;
+    const key = 'K|' + day + '|' + k.name + '|' + k.at;
+    // 정한 시각부터 1시간 안에만(보드가 오래 멈췄다 깨어나도 한꺼번에 몰아 보내지 않게)
+    const done = props.getProperty(key) || '';
+    // 보냈으면 끝, 실패는 10분 간격으로 3번까지 다시 시도
+    if (hm < k.at || hm > addMin_(k.at, 60) || done === 'ok' || Number(done.replace('fail', '') || 0) >= 3) return;
+    const r = kick_(s, k);
+    props.setProperty(key, r.ok ? 'ok' : 'fail' + (Number(done.replace('fail', '') || 0) + 1));
+    props.setProperty('KICK_LAST', now_() + ' ' + k.name + ' ' + k.at + (r.ok ? ' 요청함' : ' 실패: ' + r.error));
   });
+  // 지난 기록 정리(3일 지난 것)
+  const old = addDays_(day, -3);
+  Object.keys(props.getProperties()).forEach(function (k) { if (k.indexOf('K|') === 0 && k.slice(2, 12) < old) props.deleteProperty(k); });
+}
+
+function addMin_(hm, n) {
+  const t = Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3)) + n;
+  return ('0' + Math.min(23, Math.floor(t / 60))).slice(-2) + ':' + ('0' + (t >= 1440 ? 59 : t % 60)).slice(-2);
+}
+
+/** GitHub 에 workflow_dispatch 요청 */
+function kick_(s, k) {
+  const repo = s['깃허브저장소'] || 'tnsghd7439-jpg/-';
+  const head = { Authorization: 'Bearer ' + s['깃허브토큰'], Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+  try {
+    const props = PropertiesService.getScriptProperties();
+    let ref = props.getProperty('KICK_REF');
+    if (!ref) {
+      const info = UrlFetchApp.fetch('https://api.github.com/repos/' + repo, { headers: head, muteHttpExceptions: true });
+      if (info.getResponseCode() !== 200) return { ok: false, error: '저장소를 읽지 못함(' + info.getResponseCode() + ') — 토큰 권한을 확인하세요' };
+      ref = JSON.parse(info.getContentText()).default_branch;
+      props.setProperty('KICK_REF', ref);
+    }
+    const body = { ref: ref };
+    if (k.wf === 'board-sa.yml') body.inputs = { notify: k.notify ? 'true' : 'false' };
+    const r = UrlFetchApp.fetch('https://api.github.com/repos/' + repo + '/actions/workflows/' + k.wf + '/dispatches', {
+      method: 'post', contentType: 'application/json', headers: head, payload: JSON.stringify(body), muteHttpExceptions: true });
+    if (r.getResponseCode() === 204) return { ok: true };
+    return { ok: false, error: 'GitHub 응답 ' + r.getResponseCode() };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message || e).slice(0, 120) };
+  }
 }

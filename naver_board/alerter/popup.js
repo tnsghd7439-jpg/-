@@ -10,13 +10,16 @@ function render(d, at) {
   let h = `<b>${esc(d.name)}</b>님<br>`;
   h += d.unread.length ? `확인 안 한 공지 <b>${d.unread.length}건</b><ul>${d.unread.map((n) => `<li>${n.important ? '[중요] ' : ''}${esc(n.title)}</li>`).join('')}</ul>` : '확인 안 한 공지가 없어요.<br>';
   h += todo.length ? `오늘 체크할 목표 <b>${todo.length}개</b><ul>${todo.map((t) => `<li>${esc(t.title)} · 오늘 ${esc(t.daily)}${esc(t.unit)}</li>`).join('')}</ul>` : '오늘 목표 체크를 모두 마쳤어요.';
+  const calls = d.calls || [], tasks = d.tasks || [];
+  if (calls.length) h += `<br>📞 오늘 연락 <b>${calls.length}곳</b><ul>${calls.slice(0, 5).map((c) => `<li>${esc(c.at.slice(11))} ${esc(c.company)}</li>`).join('')}</ul>`;
+  if (tasks.length) h += `✅ 오늘 할일 <b>${tasks.length}개</b><ul>${tasks.slice(0, 5).map((t) => `<li>${esc(t.title)}</li>`).join('')}</ul>`;
   if (d.role === 'lead') h += `<br>승인 대기 <b>${d.pending || 0}</b> · 소통 필요 실패 <b>${d.talk || 0}</b>`;
   s.innerHTML = h;
   if (d.role === 'lead') {
     $('syncBox').style.display = 'block';
     chrome.storage.local.get('syncStatus', ({ syncStatus: x }) => {
       $('syncMsg').textContent = !x ? `매일 ${d.syncHour || 11}시 이후 자동으로 가져와요.`
-        : x.ok ? `마지막 성공 ${new Date(x.at).toLocaleString('ko-KR')} · 일별 ${x.daily}행, 월별 ${x.monthly}행, 매체 공지 ${x.notices ?? '-'}건`
+        : x.ok ? `마지막 성공 ${new Date(x.at).toLocaleString('ko-KR')} · 일별 ${x.daily}행, 월별 ${x.monthly}행, 매체 공지 ${typeof x.notices === "number" ? x.notices + "건" : (x.notices ?? "-")}`
           : `실패: ${x.error}`;
     });
   }
@@ -41,7 +44,7 @@ $('save').onclick = () => {
 function sync(backfill) {
   $('syncMsg').textContent = backfill ? '최근 62일·7개월을 가져오는 중이에요. 몇 분 걸릴 수 있어요…' : '가져오는 중…';
   chrome.runtime.sendMessage({ type: 'sync', backfill }, (x) => {
-    $('syncMsg').textContent = x && x.ok ? `완료 · 일별 ${x.daily}행, 월별 ${x.monthly}행, 매체 공지 ${x.notices ?? '-'}건` : `실패: ${x ? x.error : '알 수 없는 오류'}`;
+    $('syncMsg').textContent = x && x.ok ? `완료 · 일별 ${x.daily}행, 월별 ${x.monthly}행, 매체 공지 ${typeof x.notices === "number" ? x.notices + "건" : (x.notices ?? "-")}` : `실패: ${x ? x.error : '알 수 없는 오류'}`;
   });
 }
 $('sync').onclick = () => sync(false);

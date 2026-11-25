@@ -32,7 +32,8 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from collect import CHROMIUM, DEPT, KST, Intra, add_months, login, month_start, sales_range, ymd  # noqa: E402
+from collect import (CHROMIUM, DEPT, KST, Intra, add_months, collect_fee_requests, collect_missing_info,  # noqa: E402
+                     collect_transfers, login, month_start, sales_range, ymd)
 
 PAGE_LIMIT = 2000
 
@@ -99,6 +100,19 @@ async def collect_calendar(api, fr: date, to: date):
     return [x for x in out if x["시작일"]]
 
 
+async def collect_newbiz(api, fr: date, to: date):
+    """신규/이관 관리(승인일자 기준) → 원보드 목표 '신규 계약' 실적 자동 집계용"""
+    rows = await api.post("/mng/job/transfer_action.php", {
+        "submitType": "select", "sh_date_fr": ymd(fr), "sh_date_to": ymd(to),
+        "sh_all_yn": "N", "sh_dept_code": DEPT, "num_per_page": str(PAGE_LIMIT), "currPage": "1"})
+    if len(rows) >= PAGE_LIMIT:
+        print(f"경고: 신규/이관 조회 결과가 {PAGE_LIMIT}건에 닿았습니다.")
+    return [{"날짜": ymd8(r.get("trns_date")), "구분": r.get("trns_gbn_nm") or "", "상태": r.get("trns_stat_nm") or "",
+             "매체": r.get("media_nm") or "", "광고주ID": r.get("customer_id") or "", "광고주명": r.get("customer_nm") or r.get("cust_nm") or "",
+             "마케터": r.get("mkt_nm") or "", "마케터ID": r.get("mkt_cd") or "", "전월매출": int(r.get("pre_month_amt") or 0)}
+            for r in rows if r.get("trns_date")]
+
+
 async def collect(days: int, months: int):
     today = datetime.now(KST).date()
     day_list = [today - timedelta(days=i) for i in range(1, days + 1)]
@@ -106,7 +120,8 @@ async def collect(days: int, months: int):
     async with async_playwright() as p:
         exe = CHROMIUM if Path(CHROMIUM).exists() else None
         browser = await p.chromium.launch(executable_path=exe)
-        api = Intra(await login(browser))
+        ctx = await login(browser)
+        api = Intra(ctx)
         daily = []
         for d in day_list:
             daily += rows_of(await sales_range(api, d, d), "날짜", ymd(d))
@@ -118,11 +133,28 @@ async def collect(days: int, months: int):
             if end < m:
                 continue
             monthly += rows_of(await sales_range(api, m, end), "월", m.strftime("%Y-%m"))
+        # 목표 '신규 계약' 자동 집계용 신규/이관 (이번 분기 + 지난 분기를 덮도록 7개월)
+        nb_from = add_months(month_start(today), -6)
+        try:
+            newbiz = {"from": ymd(nb_from), "to": ymd(today), "rows": await collect_newbiz(api, nb_from, today)}
+        except Exception as e:  # noqa: BLE001
+            newbiz, _ = None, print("신규/이관 수집 실패:", str(e)[:200])
+        # 6팀 일일점검의 인트라 점검 3가지 → 원보드 '오늘 점검' 탭 (실패해도 매출 동기화는 계속)
+        checks = {"date": ymd(today)}
+        for key, job in (("transfers", lambda: collect_transfers(api, today)),
+                         ("missing", lambda: collect_missing_info(ctx, today)),
+                         ("fees", lambda: collect_fee_requests(api, today))):
+            try:
+                checks[key] = await job()
+            except Exception as e:  # noqa: BLE001
+                checks[key + "Error"] = str(e)[:200]
         await browser.close()
     return {
         "daily": {"dates": [ymd(d) for d in day_list], "rows": daily},
         "monthly": {"months": [m.strftime("%Y-%m") for m in month_list], "rows": monthly},
         "schedules": {"from": ymd(cal_from), "to": ymd(cal_to), "rows": calendar},
+        "intraChecks": checks,
+        **({"newbiz": newbiz} if newbiz else {}),
     }
 
 
@@ -147,7 +179,8 @@ def main():
     days, months = (62, 7) if a.backfill else (3, 2)
     payload = asyncio.run(collect(days, months))
     print(f"수집: 일별 {len(payload['daily']['rows'])}행({days}일), 월별 {len(payload['monthly']['rows'])}행({months}개월), "
-          f"근태·외근 {len(payload['schedules']['rows'])}건")
+          f"근태·외근 {len(payload['schedules']['rows'])}건, 신규/이관 {len((payload.get('newbiz') or {}).get('rows', []))}건, 인트라 점검 " +
+          ", ".join(f"{k} {len(v)}건" for k, v in payload["intraChecks"].items() if isinstance(v, list)))
     if not a.dry_run:
         send(payload)
 
