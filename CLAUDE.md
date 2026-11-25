@@ -29,6 +29,15 @@
 - 사용자가 Claude in Chrome을 쓰면, 붙여넣을 지시문을 코드블록 하나로 준다. PC 폴더 작업(알리미 파일 교체)과 확장 아이콘 클릭은 Claude in Chrome이 못 한다.
 - 내가 확인할 수 있는 것은 직접 확인한다(드라이브 연결, 인트라넷 계정, GitHub Actions 실행·로그). 사용자에게 확인을 떠넘기지 않는다.
 - 같은 확인 요청을 반복하지 않는다.
+- **사용자에게 무언가를 하라고 할 때는 항상 바로 열리는 링크를 같이 준다**(사용자 지시, 모든 세션 공통). "어디서 하는지"를 말로만 설명하지 않는다.
+  자주 쓰는 링크:
+  - 저장소: https://github.com/tnsghd7439-jpg/-  (기본 브랜치 `claude/intranet-weekly-data-collection-dbpzld`)
+  - Code.gs: https://github.com/tnsghd7439-jpg/-/blob/claude/intranet-weekly-data-collection-dbpzld/naver_board/Code.gs
+  - Index.html: https://github.com/tnsghd7439-jpg/-/blob/claude/intranet-weekly-data-collection-dbpzld/naver_board/Index.html
+  - Secrets: https://github.com/tnsghd7439-jpg/-/settings/secrets/actions
+  - Actions 실행 기록: https://github.com/tnsghd7439-jpg/-/actions
+  - 토큰 만들기: https://github.com/settings/personal-access-tokens/new
+  - PR은 만들 때마다 링크를 준다. 앱스 스크립트 편집기·원보드 시트 주소는 사용자에게 한 번 받아 여기에 적는다(아직 없음).
 
 ### 3. 데이터 기준 (확인 완료, 다시 묻지 않는다)
 - 매출 출처: MP AI 우선(팀장 알리미가 수집). MP AI에 없는 11번가·카카오·에이블리만 인트라넷 보충(GitHub Actions `board-sync`).
