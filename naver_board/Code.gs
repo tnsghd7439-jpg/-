@@ -1913,30 +1913,43 @@ function guideImport_() {
     if (!src.length) return;
     locked_(function () {
       ensureCols_('가이드');
-      const have = {};
-      rows_('가이드').forEach(function (g) { have[g['매체'] + '|' + g['제목']] = 1; });
-      // 이미 있는 가이드도 원본에 화면 캡처가 생겼으면 '이미지' 칸만 한 번에 채웁니다
-      const imgOf = {};
-      src.forEach(function (g) { if (g['이미지']) imgOf[g['매체'] + '|' + g['제목']] = g['이미지']; });
+      forget_('가이드');
       const sh = sheet_('가이드'), vals = sh.getDataRange().getValues(), head = vals[0];
-      const ci = head.indexOf('이미지'), mi = head.indexOf('매체'), ti = head.indexOf('제목');
-      let changed = false;
-      const col = vals.slice(1).map(function (r) {
-        const want = imgOf[r[mi] + '|' + r[ti]];
-        if (want && String(r[ci]) !== want) { changed = true; return [want]; }
-        return [r[ci]];
+      const col = function (h) { return head.indexOf(h); };
+      const key = function (m, t) { return String(m) + '|' + String(t); };
+      const srcOf = {};
+      src.forEach(function (g) { if (g['제목']) srcOf[key(g['매체'], g['제목'])] = g; });
+      // 원본의 '대체' 칸에 적힌 초안(팀장 검수 전)은 새 가이드로 바꿉니다
+      const old = ['광고주 계정을 우리 관리 계정에 연결하기'].concat(src.map(function (g) { return g['대체']; }).filter(String));
+      const isDraft = function (r) { return old.indexOf(String(r[col('제목')])) >= 0 && String(r[col('내용')]).indexOf('※ 팀장 검수 전 초안') === 0; };
+      const seen = {};
+      const body = vals.slice(1).filter(function (r) { return r.some(function (c) { return c !== ''; }) && !isDraft(r); }).map(function (r) {
+        const k = key(r[col('매체')], r[col('제목')]), g = srcOf[k];
+        seen[k] = 1;
+        if (!g) return r;
+        // 원본이 더 최근에 고쳐졌으면 내용을 원본으로 바꿉니다(보드에서 고친 게 더 최근이면 그대로 둠)
+        if (String(cell_(g['수정일'])) > String(cell_(r[col('수정일')]))) {
+          ['구분', '내용', '링크', '순서', '이미지'].forEach(function (h) { if (col(h) >= 0 && g[h] !== undefined) r[col(h)] = safe_(g[h]); });
+          r[col('수정일')] = cell_(g['수정일']);
+        } else if (g['이미지'] && !r[col('이미지')]) {
+          r[col('이미지')] = g['이미지'];
+        }
+        return r;
       });
-      if (changed && col.length) { sh.getRange(2, ci + 1, col.length, 1).setValues(col); forget_('가이드'); }
-      const add = src.filter(function (g) { return g['제목'] && !have[g['매체'] + '|' + g['제목']]; }).map(function (g) {
-        return { id: uid_(), '매체': g['매체'], '구분': g['구분'] || '맵핑 방법', '제목': g['제목'], '내용': g['내용'], '링크': g['링크'] || '',
-          '순서': g['순서'] || 50, '수정일': today_(), '이미지': g['이미지'] || '' };
+      src.forEach(function (g) {
+        const k = key(g['매체'], g['제목']);
+        if (!g['제목'] || seen[k]) return;
+        seen[k] = 1;
+        const rec = { id: uid_(), '매체': g['매체'], '구분': g['구분'] || '맵핑 방법', '제목': g['제목'], '내용': g['내용'], '링크': g['링크'] || '',
+          '순서': g['순서'] || 50, '수정일': cell_(g['수정일']) || today_(), '이미지': g['이미지'] || '' };
+        body.push(head.map(function (h) { return safe_(rec[h]); }));
       });
-      if (add.length) {
-        // 원본의 '대체' 칸에 적힌 초안(팀장 검수 전)은 새 가이드로 바꿉니다
-        const old = ['광고주 계정을 우리 관리 계정에 연결하기'].concat(src.map(function (g) { return g['대체']; }).filter(String));
-        remove_('가이드', function (g) { return old.indexOf(g['제목']) >= 0 && String(g['내용']).indexOf('※ 팀장 검수 전 초안') === 0; });
-        insertMany_('가이드', add);
-      }
+      // 한 번에 다시 씁니다(줄이 줄었으면 남는 줄은 비움)
+      const n = Math.max(vals.length - 1, body.length);
+      const out = body.concat([]);
+      while (out.length < n) out.push(head.map(function () { return ''; }));
+      if (n) sh.getRange(2, 1, n, head.length).setValues(out);
+      forget_('가이드');
     });
     props.setProperty('GUIDE_SRC_VER', ver);
   } catch (e) { /* 다음 날 다시 시도 */ }
