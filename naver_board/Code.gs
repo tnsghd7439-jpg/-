@@ -1878,16 +1878,20 @@ USAGE_TAB_.checkView = '오늘점검';
 
 /**
  * 드라이브의 '원보드_매체가이드' 시트(사내 교육 자료라 공개 코드에 넣지 않음)를 '가이드' 탭으로 옮깁니다.
- * 같은 매체·제목이 이미 있으면 건너뛰고, 대체되는 네이버 맵핑 초안은 지웁니다. 드라이브 검색은 하루 한 번만 합니다.
+ * 같은 매체·제목이 이미 있으면 건너뛰고, 대체되는 네이버 맵핑 초안은 지웁니다. 드라이브 검색은 하루 한 번만 하고,
+ * 원본 시트가 바뀌었을 때만(새 가이드를 추가하면) 새 줄을 옮깁니다.
  */
 function guideImport_() {
   const props = PropertiesService.getScriptProperties();
-  if (props.getProperty('GUIDE_SRC') === 'done' || props.getProperty('GUIDE_SRC') === today_()) return;
+  if (props.getProperty('GUIDE_SRC') === today_()) return;
   props.setProperty('GUIDE_SRC', today_());
   try {
     const it = DriveApp.getFilesByName('원보드_매체가이드');
     if (!it.hasNext()) return;
-    const src = tableRows_(SpreadsheetApp.openById(it.next().getId()).getSheets()[0]);
+    const file = it.next();
+    const ver = file.getId() + '|' + file.getLastUpdated().getTime();
+    if (props.getProperty('GUIDE_SRC_VER') === ver) return;
+    const src = tableRows_(SpreadsheetApp.openById(file.getId()).getSheets()[0]);
     if (!src.length) return;
     locked_(function () {
       const have = {};
@@ -1901,7 +1905,7 @@ function guideImport_() {
         insertMany_('가이드', add);
       }
     });
-    props.setProperty('GUIDE_SRC', 'done');
+    props.setProperty('GUIDE_SRC_VER', ver);
   } catch (e) { /* 다음 날 다시 시도 */ }
 }
 
