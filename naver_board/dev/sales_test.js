@@ -30,6 +30,14 @@ const { chromium } = require('playwright');
     out.calendar = run(A, 'calendar', { month: today_().slice(0, 7) }).data.calls.map(c => c.date.slice(8) + ' ' + c.company).join(',');
     const ev = run(L, 'evaluation', { email: A }).data;
     out.eval = JSON.stringify({ salesNote: ev.salesNote, calls: ev.calls.length, tasks: ev.tasks, usageDays: ev.usage.days });
+    { window.__USER = L; MEMO_ = {}; run(L, 'goalSave', { email: A, period: '분기', base: today_(), category: '신규 계약', title: '신규 계약', target: 12, unit: '건', plan: '매일 콜' });
+      run(L, 'goalSave', { email: A, period: '월', base: today_(), category: '광고매출', title: '월 매출', target: 3000, unit: '만원', plan: '증액 제안' });
+      run(L, 'goalList', { email: A }).data.filter(g => g.status === '대기').forEach(g => run(L, 'goalReview', { id: g.id, decision: '승인' }));
+      const gl = run(A, 'goalList', { email: A }).data;
+      const nb = gl.find(g => g.category === '신규 계약' && g.period === '분기'), sl = gl.find(g => g.title === '월 매출');
+      run(A, 'checkSave', { goalId: nb.id, date: today_(), result: '달성', amount: 99 });
+      const after = run(A, 'goalList', { email: A }).data.find(g => g.id === nb.id);
+      out.autoGoal = JSON.stringify({ newbiz: [nb.auto, nb.achieved, nb.month && nb.month.done, nb.week && nb.week.done, nb.autoToday], checkAmt: after.todayCheck.amount, sales: [sl.auto, sl.achieved] }); }
     out.taskPerm = run(C, 'taskDone', { id: run(A, 'taskList').data[0].id }).error;
     window.__USER = A;
     return out;

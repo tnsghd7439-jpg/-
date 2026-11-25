@@ -129,6 +129,7 @@ function doPost(e) {
           function (v) { return v < keep; });
       }
       if (body.monthly) out.monthly = replaceRows_('실적_월별', '월', body.monthly.months || [], norm(body.monthly.rows), source);
+      if (body.daily || body.monthly) PropertiesService.getScriptProperties().setProperty('SALES_VER', String(Date.now()));
       if (body.schedules && viaToken) out.schedules = replaceIntraEvents_(body.schedules);
       if (body.mediaNotices && lead) out.mediaNotices = upsertMediaNotices_(body.mediaNotices);
       if (body.sa && viaToken) {
@@ -138,6 +139,13 @@ function doPost(e) {
         out.sa = { accounts: ((body.sa.data || {}).accounts || []).length };
       }
       if (body.intraChecks && viaToken) { blobWrite_('intra', JSON.stringify(body.intraChecks)); out.intra = true; }
+      if (body.newbiz && viaToken) {
+        const kinds = list_(s['목표_신규구분'] || '신규');
+        const nb = (body.newbiz.rows || []).filter(function (r) { return r['상태'] === '완료' && kinds.indexOf(r['구분']) >= 0; })
+          .map(function (r) { return { '날짜': r['날짜'], '구분': r['구분'], '마케터': r['마케터'] }; });
+        blobWrite_('newbiz', JSON.stringify({ from: body.newbiz.from, to: body.newbiz.to, kinds: kinds, rows: nb }));
+        out.newbiz = nb.length;
+      }
       update_('설정', '키', viaToken ? '마지막인트라넷수집' : '마지막수집', { '값': now_() + (lead ? ' (' + lead.name + ')' : '') });
       return out;
     }));
@@ -729,7 +737,7 @@ const ACTIONS = {
       if (g['상태'] !== '승인') throw new Error('팀장 승인 후에 체크할 수 있습니다.');
       if (date < g['시작일'] || date > g['종료일']) throw new Error('목표 기간 밖의 날짜입니다.');
       const rec = {
-        '결과': result, '실적': num_(p.amount), '메모': text_(p.memo, 1000), '실패사유': result === '실패' ? reason : '',
+        '결과': result, '실적': autoKind_(g) ? autoAmt_(g, autoKind_(g), date, date) : num_(p.amount), '메모': text_(p.memo, 1000), '실패사유': result === '실패' ? reason : '',
         '기록시각': now_(),
       };
       const prev = rows_('일일체크').find(function (c) { return c['목표id'] === g.id && c['날짜'] === date; });
@@ -1000,10 +1008,60 @@ function todo_(me) {
   });
 }
 
+/* ── 목표 실적 자동 집계: '신규 계약' = 인트라넷 신규/이관(승인일자), '광고매출'(단위 원·만원·억) = MP AI 매출 ── */
+const AUTO_GOAL_LABEL = { newbiz: '인트라 신규/이관 자동 집계', sales: 'MP AI 매출 자동 집계' };
+function unitDiv_(u) { return { '원': 1, '천원': 1e3, '만원': 1e4, '백만원': 1e6, '억': 1e8, '억원': 1e8 }[String(u || '').trim()] || 0; }
+function autoKind_(g) {
+  if (g['분류'] === '신규 계약') return 'newbiz';
+  if (g['분류'] === '광고매출' && unitDiv_(g['단위'])) return 'sales';
+  return '';
+}
+function newbiz_() {
+  if (!MEMO_.__nb) {
+    let d = {};
+    try { d = JSON.parse(blobRead_('newbiz') || '{}'); } catch (e) { d = {}; }
+    MEMO_.__nb = d.rows || [];
+  }
+  return MEMO_.__nb;
+}
+/** 자동 집계 실적(기간 f~t). 사람 이름은 팀원 탭의 이름 또는 담당자명과 맞춥니다 */
+function autoAmt_(g, kind, f, t) {
+  const m = members_().find(function (x) { return x.email === low_(g['이메일']); });
+  if (!m) return 0;
+  if (kind === 'newbiz') {
+    const names = [m.name, m.manager].map(low_);
+    return newbiz_().filter(function (r) {
+      return r['날짜'] >= f && r['날짜'] <= t && names.indexOf(low_(r['마케터'])) >= 0;
+    }).length;
+  }
+  const byDay = salesByDay_(m);
+  const sum = Object.keys(byDay).reduce(function (x, d) { return d >= f && d <= t ? x + byDay[d] : x; }, 0);
+  return Math.round(sum / unitDiv_(g['단위']) * 10) / 10;
+}
+
+/** 팀원별 일 매출 합계. 매출이 새로 들어올 때까지(최대 6시간) 기억해 시트를 다시 읽지 않습니다 */
+function salesByDay_(m) {
+  const key = 'sd|' + (PropertiesService.getScriptProperties().getProperty('SALES_VER') || '0') + '|' + m.email;
+  if (MEMO_[key]) return MEMO_[key];
+  const cache = CacheService.getScriptCache();
+  let hit = null;
+  try { hit = cache.get(key); } catch (e) { hit = null; }
+  if (hit) return (MEMO_[key] = JSON.parse(hit));
+  const out = {};
+  salesRows_(ids_(m)).daily.forEach(function (r) { out[r.date] = (out[r.date] || 0) + r.amt; });
+  try { cache.put(key, JSON.stringify(out), 21600); } catch (e) { /* 기억 없이 */ }
+  return (MEMO_[key] = out);
+}
+
 function goalView_(g, checks, day) {
   const mine = checks.filter(function (c) { return c['목표id'] === g.id; });
   const target = num_(g['목표수치']);
-  const done = mine.reduce(function (s, c) { return s + num_(c['실적']); }, 0);
+  const auto = g['상태'] === '대기' || g['상태'] === '반려' ? '' : autoKind_(g);
+  const sumIn = function (f, t) {
+    if (auto) return autoAmt_(g, auto, f, t);
+    return mine.filter(function (c) { return c['날짜'] >= f && c['날짜'] <= t; }).reduce(function (x, c) { return x + num_(c['실적']); }, 0);
+  };
+  const done = sumIn(g['시작일'], day < g['종료일'] ? day : g['종료일']);
   const total = workdays_(g['시작일'], g['종료일']) || 1;
   const until = day < g['시작일'] ? null : (day > g['종료일'] ? g['종료일'] : day);
   const elapsed = until ? workdays_(g['시작일'], until) : 0;
@@ -1016,7 +1074,7 @@ function goalView_(g, checks, day) {
     if (f < g['시작일']) f = g['시작일'];
     if (t > g['종료일']) t = g['종료일'];
     if (f > t) return null;
-    const got = mine.filter(function (c) { return c['날짜'] >= f && c['날짜'] <= t; }).reduce(function (x, c) { return x + num_(c['실적']); }, 0);
+    const got = sumIn(f, t > day ? day : t);
     const tgt = roundAmt_(target * workdays_(f, t) / total, target);
     return { from: f, to: t, target: tgt, done: got, rate: tgt ? Math.round(got / tgt * 1000) / 10 : 0 };
   };
@@ -1029,6 +1087,7 @@ function goalView_(g, checks, day) {
     expected: roundAmt_(expected, target), pace: until ? Math.round((done - expected) * 10) / 10 : 0,
     ok: ok, fail: fail, talkPending: mine.filter(function (c) { return c['결과'] === '실패' && c['소통완료'] !== 'Y'; }).length,
     todayCheck: today ? checkView_(today, g) : null,
+    auto: auto ? AUTO_GOAL_LABEL[auto] : '', autoToday: auto ? sumIn(day, day) : null,
     // 분기 → 이번 달 몫, 분기·월 → 이번 주 몫 (근무일 비율로 자동 계산)
     month: g['기간'] === '분기' ? span(monthOf_(day) + '-01', monthEnd_(monthOf_(day))) : null,
     week: g['기간'] !== '주' ? span(mon, addDays_(mon, 6)) : null,
