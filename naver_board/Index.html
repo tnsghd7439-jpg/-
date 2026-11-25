@@ -1044,12 +1044,13 @@ function viewGuide() {
     window._guides = list;
     var media = []; list.forEach(function (g) { if (media.indexOf(g.media) < 0) media.push(g.media); });
     if (!ST.guideMedia || media.indexOf(ST.guideMedia) < 0) ST.guideMedia = media[0] || '';
-    var h = '<div class="head"><div><h2>매체별 가이드</h2><p>매체마다 맵핑 방법, 세팅 방법, 문의 경로를 정리합니다.</p></div>'
+    var h = '<div class="head"><div><h2>매체별 가이드</h2><p>매체마다 계정 연동(맵핑) 방법을 실제 화면과 함께 정리합니다.</p></div>'
       + (isLead() ? '<button class="btn pri" onclick="guideForm()">가이드 추가</button>' : '') + '</div>';
     if (!media.length) { $('view').innerHTML = h + '<div class="empty"><b>가이드가 없어요</b>' + (isLead() ? '가이드 추가로 첫 매체를 등록하세요.' : '') + '</div>'; return; }
     h += '<div class="guide"><div class="mlist">' + media.map(function (m) { return '<button class="' + (m === ST.guideMedia ? 'on' : '') + '" onclick="ST.guideMedia=\'' + esc(m).replace(/'/g, '') + '\';viewGuide()">' + esc(m) + '</button>'; }).join('') + '</div><div>';
     B.options.guideSections.forEach(function (sec) {
       var items = list.filter(function (g) { return g.media === ST.guideMedia && g.section === sec; });
+      if (!items.length) return; // 자료가 없는 구분(세팅 방법 등)은 보이지 않게
       h += '<div style="margin-bottom:22px"><h3>' + esc(sec) + '</h3>' + (items.length ? items.map(function (g) {
         return '<div class="card"><div class="ct"><span class="t">' + esc(g.title) + '</span><span class="muted small">수정 ' + esc(g.updated) + '</span></div>'
           + '<div class="gbody" id="gb-' + g.id + '" style="margin-top:6px">' + shotMarks(linkify(g.body)) + '</div>'
