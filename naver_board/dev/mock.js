@@ -30,7 +30,12 @@
   const PROPS = (window.__PROPS = window.__PROPS || {});
   window.PropertiesService={ getScriptProperties:()=>({ getProperty:k=>PROPS[k]===undefined?null:PROPS[k], setProperty:(k,v)=>{PROPS[k]=String(v);},
     deleteProperty:k=>{delete PROPS[k];}, getProperties:()=>Object.assign({},PROPS) }) };
-  window.ScriptApp={ getService:()=>({ getUrl:()=>'https://script.google.com/macros/s/TEST/exec' }) };
+  window.__TRIG=window.__TRIG||[]; window.__FETCH=window.__FETCH||[];
+  window.ScriptApp={ getService:()=>({ getUrl:()=>'https://script.google.com/macros/s/TEST/exec' }),
+    getProjectTriggers:()=>window.__TRIG.map(f=>({ getHandlerFunction:()=>f })),
+    newTrigger:(f)=>({ timeBased:()=>({ everyMinutes:()=>({ create:()=>{ window.__TRIG.push(f); } }) }) }) };
+  window.UrlFetchApp={ fetch:(url,o)=>{ window.__FETCH.push({url,o}); const code=window.__FETCH_CODE||(url.indexOf('/dispatches')>0?204:200);
+    return { getResponseCode:()=>code, getContentText:()=>JSON.stringify({default_branch:'main-test'}) }; } };
   window.ContentService={ MimeType:{JSON:'json'}, createTextOutput:t=>({ text:t, setMimeType(){ return this; } }) };
   function F(name,days,size){ const d=new Date(Date.now()-days*864e5); return { getId:()=>name.replace(/\W/g,''), getName:()=>name, getLastUpdated:()=>d, getSize:()=>size, getUrl:()=>'https://drive.google.com/file/d/'+name, getDescription:()=>'' }; }
   function it(a){ let i=0; return { hasNext:()=>i<a.length, next:()=>a[i++] }; }

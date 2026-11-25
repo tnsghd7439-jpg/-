@@ -38,6 +38,10 @@ const DEFAULT_SETTINGS = [
   ['수집토큰', '', '인트라넷 보충 수집기(GitHub Actions)가 보낼 때 쓰는 비밀 문자열. BOARD_TOKEN 과 같은 값'],
   ['마지막인트라넷수집', '', '자동으로 기록됩니다'],
   ['마지막SA수집', '', '오늘 점검(네이버 SA) 마지막 수집. 자동으로 기록됩니다'],
+  ['깃허브토큰', '', 'GitHub에서 만든 실행 전용 토큰(github_pat_로 시작). 넣으면 원보드가 정해진 시각에 오늘 점검·인트라넷 수집을 실행시킵니다'],
+  ['깃허브저장소', 'tnsghd7439-jpg/-', '수집기가 있는 GitHub 저장소(소유자/이름)'],
+  ['자동실행', '오늘점검 06:40 매일, 오늘점검 09:35 평일 공지, 오늘점검 15:15 평일 공지, 인트라넷 11:10 매일',
+    "원보드가 GitHub 수집을 실행시키는 시각(한국시간). '공지'가 붙은 시각은 수집 뒤 구글챗 공지까지(BOARD_NOTIFY=1일 때)"],
   ['매체공지매체', '네이버,지마켓,카카오,11번가', 'MP AI 매체 공지 중 보드에 보여줄 매체(쉼표로 구분). 비우면 전부'],
   ['매체공지확인일', '7', "'조치필요' 매체 공지를 확인 대상으로 삼는 기간(게시 후 며칠). 신청 마감이 남아 있으면 기간이 지나도 대상"],
   ['매체공지팝업매체', '네이버', '이 매체의 공지는 중요도·유형과 관계없이 확인 팝업(1시간 재알림)으로 띄웁니다(최근 게시 또는 신청 마감이 남은 것). 쉼표로 구분'],
@@ -550,6 +554,7 @@ function scopeEmails_(me, email) {
 
 const ACTIONS = {
   bootstrap: function (me) {
+    if (isLead_(me)) ensureKick_();
     const mem = members_();
     return {
       me: { email: me.email, name: me.name, role: me.role, manager: me.manager },
@@ -921,8 +926,9 @@ const ACTIONS = {
     const month = /^\d{4}-\d{2}$/.test(p.month || '') ? p.month : monthOf_(today_());
     const goals = rows_('목표');
     const checks = rows_('일일체크');
+    const kp = PropertiesService.getScriptProperties();
     return {
-      month: month,
+      month: month, kick: { token: !!settings_()['깃허브토큰'], last: kp.getProperty('KICK_LAST') || '' },
       members: members_().map(function (m) {
         const mc = checks.filter(function (c) { return low_(c['이메일']) === m.email && monthOf_(c['날짜']) === month; });
         const ok = mc.filter(function (c) { return c['결과'] === '달성'; }).length;
@@ -1953,3 +1959,91 @@ function guideImport_() {
   } catch (e) { /* 다음 날 다시 시도 */ }
 }
 
+
+/* ───────────────────────── 정시 자동 실행 (GitHub 예약 대신) ─────────────────────────
+ * GitHub 무료 예약 실행은 몇 시간씩 밀립니다(실측 9시간). 그래서 원보드가 10분마다 깨어나
+ * 설정 탭 '자동실행'의 시각이 되면 GitHub에 "지금 실행"(workflow_dispatch)을 요청합니다.
+ * 필요한 것: 설정 탭 '깃허브토큰'(Actions 읽기·쓰기 권한만 있는 토큰).
+ */
+const KICK_WF = { '오늘점검': 'board-sa.yml', '인트라넷': 'board-sync.yml' };
+
+/** 팀장이 보드를 열 때 한 번: 새 설정 줄 추가 + 10분 예약 만들기 */
+function ensureKick_() {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    if (props.getProperty('KICK_READY') === '2') return;
+    // 설정 탭에 없는 기본 설정만 한 번에 추가(setup 을 다시 돌리지 않아도 되게)
+    const have = rows_('설정').map(function (r) { return r['키']; });
+    const add = DEFAULT_SETTINGS.filter(function (d) { return have.indexOf(d[0]) < 0; })
+      .map(function (d) { return { '키': d[0], '값': d[1], '설명': d[2] }; });
+    if (add.length) insertMany_('설정', add);
+    if (!ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'kickRunner'; })) {
+      ScriptApp.newTrigger('kickRunner').timeBased().everyMinutes(10).create();
+    }
+    props.setProperty('KICK_READY', '2');
+  } catch (e) { /* 다음에 다시 */ }
+}
+
+/** '오늘점검 09:35 평일 공지' 같은 줄을 읽습니다 */
+function kickSlots_(text) {
+  return String(text || '').split(/[,\n]/).map(function (x) {
+    const m = x.trim().match(/^(\S+)\s+(\d{1,2}):(\d{2})\s*(매일|평일)?\s*(공지)?/);
+    if (!m || !KICK_WF[m[1]]) return null;
+    return { name: m[1], wf: KICK_WF[m[1]], at: ('0' + m[2]).slice(-2) + ':' + m[3], weekday: m[4] === '평일', notify: !!m[5] };
+  }).filter(Boolean);
+}
+
+/** 10분마다 실행(예약). 시각이 지났고 오늘 아직 안 보낸 것만 GitHub에 실행 요청 */
+function kickRunner() {
+  MEMO_ = {};
+  // 예약(팀장 권한)으로만 돌게: 화면에서 팀원이 부르면 무시
+  const em = low_(Session.getActiveUser().getEmail());
+  if (em && !members_().some(function (m) { return m.email === em && m.role === 'lead'; })) return;
+  const s = settings_();
+  if (!s['깃허브토큰']) return;
+  const props = PropertiesService.getScriptProperties();
+  const day = today_(), hm = now_().slice(11), w = dt_(day).getUTCDay();
+  kickSlots_(s['자동실행']).forEach(function (k) {
+    if (k.weekday && (w === 0 || w === 6)) return;
+    const key = 'K|' + day + '|' + k.name + '|' + k.at;
+    // 정한 시각부터 1시간 안에만(보드가 오래 멈췄다 깨어나도 한꺼번에 몰아 보내지 않게)
+    const done = props.getProperty(key) || '';
+    // 보냈으면 끝, 실패는 10분 간격으로 3번까지 다시 시도
+    if (hm < k.at || hm > addMin_(k.at, 60) || done === 'ok' || Number(done.replace('fail', '') || 0) >= 3) return;
+    const r = kick_(s, k);
+    props.setProperty(key, r.ok ? 'ok' : 'fail' + (Number(done.replace('fail', '') || 0) + 1));
+    props.setProperty('KICK_LAST', now_() + ' ' + k.name + ' ' + k.at + (r.ok ? ' 요청함' : ' 실패: ' + r.error));
+  });
+  // 지난 기록 정리(3일 지난 것)
+  const old = addDays_(day, -3);
+  Object.keys(props.getProperties()).forEach(function (k) { if (k.indexOf('K|') === 0 && k.slice(2, 12) < old) props.deleteProperty(k); });
+}
+
+function addMin_(hm, n) {
+  const t = Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3)) + n;
+  return ('0' + Math.min(23, Math.floor(t / 60))).slice(-2) + ':' + ('0' + (t >= 1440 ? 59 : t % 60)).slice(-2);
+}
+
+/** GitHub 에 workflow_dispatch 요청 */
+function kick_(s, k) {
+  const repo = s['깃허브저장소'] || 'tnsghd7439-jpg/-';
+  const head = { Authorization: 'Bearer ' + s['깃허브토큰'], Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+  try {
+    const props = PropertiesService.getScriptProperties();
+    let ref = props.getProperty('KICK_REF');
+    if (!ref) {
+      const info = UrlFetchApp.fetch('https://api.github.com/repos/' + repo, { headers: head, muteHttpExceptions: true });
+      if (info.getResponseCode() !== 200) return { ok: false, error: '저장소를 읽지 못함(' + info.getResponseCode() + ') — 토큰 권한을 확인하세요' };
+      ref = JSON.parse(info.getContentText()).default_branch;
+      props.setProperty('KICK_REF', ref);
+    }
+    const body = { ref: ref };
+    if (k.wf === 'board-sa.yml') body.inputs = { notify: k.notify ? 'true' : 'false' };
+    const r = UrlFetchApp.fetch('https://api.github.com/repos/' + repo + '/actions/workflows/' + k.wf + '/dispatches', {
+      method: 'post', contentType: 'application/json', headers: head, payload: JSON.stringify(body), muteHttpExceptions: true });
+    if (r.getResponseCode() === 204) return { ok: true };
+    return { ok: false, error: 'GitHub 응답 ' + r.getResponseCode() };
+  } catch (e) {
+    return { ok: false, error: String(e && e.message || e).slice(0, 120) };
+  }
+}

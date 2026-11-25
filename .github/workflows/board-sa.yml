@@ -4,12 +4,20 @@
 #   (선택) NAVER_GFA_URL — GFA 시트, NAVER_GCHAT_WEBHOOK + 저장소 변수 BOARD_NOTIFY=1 — 구글챗 공지를 원보드 링크로 보냄
 # 공개 저장소의 실행 기록은 누구나 볼 수 있으므로, 스크립트는 건수만 출력합니다.
 name: board-sa
+# 실행 시각: 원보드(앱스 스크립트)가 설정 탭 '자동실행' 시각에 workflow_dispatch 로 실행시킵니다(06:40·09:35·15:15).
+# GitHub 예약 실행은 몇 시간씩 밀려서(실측 9시간) 아래 예약은 원보드 요청이 안 될 때를 위한 예비이며, 공지는 보내지 않습니다.
 on:
   schedule:
-    - cron: "40 21 * * *"   # UTC 21:40 = 한국 06:40 (오늘 점검 수집)
-    - cron: "40 0 * * 1-5"  # UTC 00:40 = 한국 09:40 (평일 오전 공지 전 갱신)
-    - cron: "20 6 * * 1-5"  # UTC 06:20 = 한국 15:20 (평일 오후 공지 전 갱신)
+    - cron: "40 21 * * *"   # 예비: UTC 21:40 = 한국 06:40
   workflow_dispatch:
+    inputs:
+      notify:
+        description: "수집 뒤 구글챗 공지 보내기(BOARD_NOTIFY=1 일 때)"
+        type: boolean
+        default: false
+concurrency:
+  group: board-sa
+  cancel-in-progress: false
 jobs:
   sa:
     runs-on: ubuntu-latest
@@ -36,8 +44,8 @@ jobs:
         run: python naver_dash/collect.py --no-notify > /dev/null
       - name: 원보드로 보내기
         run: python naver_dash/board_push.py push
-      - name: 구글챗 공지 (BOARD_NOTIFY=1 일 때만)
-        if: vars.BOARD_NOTIFY == '1' && github.event.schedule != '40 21 * * *'
+      - name: 구글챗 공지 (원보드가 공지 시각에 요청했고 BOARD_NOTIFY=1 일 때만)
+        if: vars.BOARD_NOTIFY == '1' && github.event_name == 'workflow_dispatch' && inputs.notify
         env:
           NAVER_GCHAT_WEBHOOK: ${{ secrets.NAVER_GCHAT_WEBHOOK }}
           BOARD_LINK: ${{ vars.BOARD_LINK }}

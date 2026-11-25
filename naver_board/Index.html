@@ -1206,6 +1206,7 @@ function viewAdmin() {
     var d = r[0], u = r[1];
     var h = '<div class="head"><div><h2>팀 현황</h2><p>팀장만 보는 화면입니다. 달성과 실패가 어디에 몰리는지 보고 팀원별로 관리 방식을 정하세요.</p></div>'
       + '<div class="row"><input type="month" style="width:auto" value="' + month + '" onchange="ST.adminMonth=this.value;viewAdmin()"></div></div>'
+      + (d.kick ? '<p class="small ' + (d.kick.token ? 'muted' : 'down') + '" style="margin:-6px 0 12px">자동 수집 실행: ' + (d.kick.token ? (d.kick.last ? '마지막 ' + esc(d.kick.last) : '토큰 연결됨, 다음 시각에 실행') : '설정 탭에 깃허브토큰을 넣으면 정해진 시각에 오늘 점검·인트라넷 수집이 실행됩니다') + '</p>' : '')
       + '<div class="scroll"><table class="tbl"><tr><th>팀원</th><th class="r">달성</th><th class="r">실패</th><th class="r">달성 비율</th><th class="r">소통 대기</th><th class="r">승인 대기</th><th class="r">진행 목표</th><th class="r">미확인 공지</th><th>마지막 체크</th><th>알리미</th><th></th></tr>'
       + d.members.map(function (m) {
         var hot = m.rate !== null && m.rate < 60;

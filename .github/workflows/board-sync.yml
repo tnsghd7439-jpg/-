@@ -4,15 +4,20 @@
 # 필요한 저장소 Secrets: MP_ID, MP_PW, BOARD_URL, BOARD_TOKEN
 # 공개 저장소의 실행 기록은 누구나 볼 수 있으므로, 스크립트는 건수만 출력합니다.
 name: board-sync
+# 실행 시각: 원보드(앱스 스크립트)가 설정 탭 '자동실행' 시각(11:10)에 workflow_dispatch 로 실행시킵니다.
+# GitHub 예약 실행은 몇 시간씩 밀려서(실측 9시간) 아래 예약은 원보드 요청이 안 될 때를 위한 예비입니다.
 on:
   schedule:
-    - cron: "10 2 * * *"   # UTC 02:10 = 한국 11:10 (인트라넷 전일 매출 집계 이후)
+    - cron: "10 2 * * *"   # 예비: UTC 02:10 = 한국 11:10
   workflow_dispatch:
     inputs:
       backfill:
         description: "처음 한 번: 최근 62일 + 7개월 이력 채우기"
         type: boolean
         default: false
+concurrency:
+  group: board-sync
+  cancel-in-progress: false
 jobs:
   sync:
     runs-on: ubuntu-latest
