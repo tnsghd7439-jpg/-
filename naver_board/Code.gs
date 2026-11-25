@@ -17,7 +17,7 @@ const SCHEMA = {
   '일일체크': ['id', '목표id', '이메일', '날짜', '결과', '실적', '메모', '실패사유', '소통완료', '소통메모',
               '소통시각', '기록시각'],
   '일정': ['id', '유형', '제목', '시작일', '종료일', '시간', '대상', '작성자', '메모'],
-  '가이드': ['id', '매체', '구분', '제목', '내용', '링크', '순서', '수정일'],
+  '가이드': ['id', '매체', '구분', '제목', '내용', '링크', '순서', '수정일', '이미지'],
   '매체공지': ['id', '매체', '제목', '요약', '영업포인트', '링크', '게시일', '중요도', '유형', '상품', '신청시작', '마감일',
               '행사시작', '행사종료', '기간', '수집일'],
   '할일': ['id', '이메일', '분류', '제목', '메모', '반복', '반복값', '기한', '시간', '시작일', '상태', '작성일'],
@@ -881,9 +881,17 @@ const ACTIONS = {
     return rows_('가이드').map(function (g) {
       return {
         id: g.id, media: g['매체'], section: g['구분'], title: g['제목'], body: g['내용'], link: g['링크'],
-        order: num_(g['순서']), updated: g['수정일'],
+        order: num_(g['순서']), updated: g['수정일'], images: Number(String(g['이미지'] || '').split('|')[1]) || 0,
       };
     }).sort(function (a, b) { return a.order - b.order; });
+  },
+
+  /** 가이드 화면 캡처: 가이드 줄의 '이미지' 칸(드라이브 파일ID|장수)에 적힌 파일만 읽습니다 */
+  guideImages: function (me, p) {
+    const g = rows_('가이드').find(function (x) { return x.id === p.id; });
+    const fid = g ? String(g['이미지'] || '').split('|')[0] : '';
+    if (!fid) return { items: [] };
+    return JSON.parse(DriveApp.getFileById(fid).getBlob().getDataAsString('UTF-8'));
   },
 
   guideSave: function (me, p) {
@@ -1881,6 +1889,16 @@ USAGE_TAB_.checkView = '오늘점검';
  * 같은 매체·제목이 이미 있으면 건너뛰고, 대체되는 네이버 맵핑 초안은 지웁니다. 드라이브 검색은 하루 한 번만 하고,
  * 원본 시트가 바뀌었을 때만(새 가이드를 추가하면) 새 줄을 옮깁니다.
  */
+/** 예전에 만든 시트에 새 칸(SCHEMA에 추가된 칸)이 없으면 맨 오른쪽에 제목만 붙입니다 */
+function ensureCols_(name) {
+  const sh = sheet_(name);
+  const head = sh.getRange(1, 1, 1, Math.max(1, sh.getLastColumn())).getValues()[0];
+  const miss = (SCHEMA[name] || []).filter(function (h) { return head.indexOf(h) < 0; });
+  if (!miss.length) return;
+  forget_(name);
+  sh.getRange(1, head.length + 1, 1, miss.length).setValues([miss]).setFontWeight('bold');
+}
+
 function guideImport_() {
   const props = PropertiesService.getScriptProperties();
   if (props.getProperty('GUIDE_SRC') === today_()) return;
@@ -1894,11 +1912,24 @@ function guideImport_() {
     const src = tableRows_(SpreadsheetApp.openById(file.getId()).getSheets()[0]);
     if (!src.length) return;
     locked_(function () {
+      ensureCols_('가이드');
       const have = {};
       rows_('가이드').forEach(function (g) { have[g['매체'] + '|' + g['제목']] = 1; });
+      // 이미 있는 가이드도 원본에 화면 캡처가 생겼으면 '이미지' 칸만 한 번에 채웁니다
+      const imgOf = {};
+      src.forEach(function (g) { if (g['이미지']) imgOf[g['매체'] + '|' + g['제목']] = g['이미지']; });
+      const sh = sheet_('가이드'), vals = sh.getDataRange().getValues(), head = vals[0];
+      const ci = head.indexOf('이미지'), mi = head.indexOf('매체'), ti = head.indexOf('제목');
+      let changed = false;
+      const col = vals.slice(1).map(function (r) {
+        const want = imgOf[r[mi] + '|' + r[ti]];
+        if (want && String(r[ci]) !== want) { changed = true; return [want]; }
+        return [r[ci]];
+      });
+      if (changed && col.length) { sh.getRange(2, ci + 1, col.length, 1).setValues(col); forget_('가이드'); }
       const add = src.filter(function (g) { return g['제목'] && !have[g['매체'] + '|' + g['제목']]; }).map(function (g) {
         return { id: uid_(), '매체': g['매체'], '구분': g['구분'] || '맵핑 방법', '제목': g['제목'], '내용': g['내용'], '링크': g['링크'] || '',
-          '순서': g['순서'] || 50, '수정일': today_() };
+          '순서': g['순서'] || 50, '수정일': today_(), '이미지': g['이미지'] || '' };
       });
       if (add.length) {
         // 원본의 '대체' 칸에 적힌 초안(팀장 검수 전)은 새 가이드로 바꿉니다

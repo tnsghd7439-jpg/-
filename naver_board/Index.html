@@ -135,6 +135,8 @@
   .ev.연락{background:#e2f0ff;color:#1d5fa8}
   .todo-row{border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:6px;font-size:14px;gap:8px}
   .todo-row.late{border-color:var(--bad);background:var(--badbg)}
+  .shot{margin:0 0 18px}.shot figcaption{font-size:13px;line-height:1.6;margin-bottom:6px}.shot .tip{color:var(--warn);margin-top:2px}
+  .shot img{width:100%;border:1px solid var(--line);border-radius:8px;display:block}
   .lead-row{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
   .lead-row:first-of-type{border-top:none}
   .lead-row .lb{flex:1;min-width:0}
@@ -241,7 +243,7 @@ function isLead() { return B && B.me.role === 'lead'; }
 function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
 function toast(msg, err) { var t = $('toast'); t.textContent = msg; t.className = 'toast' + (err ? ' err' : ''); t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(function () { t.style.display = 'none'; }, err ? 5000 : 2200); }
 function fail(e) { toast(e && e.message ? e.message : String(e), true); }
-function openModal(html) { $('mbody').innerHTML = html; $('modal').hidden = false; var f = $('mbody').querySelector('input,select,textarea,button'); if (f) f.focus(); }
+function openModal(html, wide) { $('modal').querySelector('.sheet').style.maxWidth = wide ? '980px' : ''; $('mbody').innerHTML = html; $('modal').hidden = false; var f = $('mbody').querySelector('input,select,textarea,button'); if (f) f.focus(); }
 function closeModal() { $('modal').hidden = true; $('mbody').innerHTML = ''; }
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('modal').hidden) closeModal(); });
 function val(id) { var el = $(id); return el ? el.value : ''; }
@@ -1048,11 +1050,25 @@ function viewGuide() {
       var items = list.filter(function (g) { return g.media === ST.guideMedia && g.section === sec; });
       h += '<div style="margin-bottom:22px"><h3>' + esc(sec) + '</h3>' + (items.length ? items.map(function (g) {
         return '<div class="card"><div class="ct"><span class="t">' + esc(g.title) + '</span><span class="muted small">수정 ' + esc(g.updated) + '</span></div>'
-          + '<div class="gbody" style="margin-top:6px">' + linkify(g.body) + '</div>' + (g.link ? '<div style="margin-top:8px"><a class="btn sm" href="' + esc(g.link) + '" target="_blank" rel="noopener">관련 페이지 열기</a></div>' : '')
+          + '<div class="gbody" style="margin-top:6px">' + linkify(g.body) + '</div>'
+          + (g.images ? '<div style="margin-top:10px"><button class="btn ok sm" onclick="guideShots(\'' + g.id + '\')">📷 실제 화면 보기 (' + g.images + '장)</button></div>' : '') + (g.link ? '<div style="margin-top:8px"><a class="btn sm" href="' + esc(g.link) + '" target="_blank" rel="noopener">관련 페이지 열기</a></div>' : '')
           + (isLead() ? '<div class="row" style="margin-top:8px"><button class="btn ghost sm" onclick="guideForm(\'' + g.id + '\')">수정</button><button class="btn ghost sm" onclick="guideDel(\'' + g.id + '\')">삭제</button></div>' : '') + '</div>';
       }).join('') : '<p class="muted small">아직 없어요.</p>') + '</div>';
     });
     $('view').innerHTML = h + '</div></div>';
+  }).catch(fail);
+}
+/** 가이드 화면 캡처: 누를 때만 불러옵니다(처음 화면을 느리게 하지 않게) */
+function guideShots(id) {
+  var g = window._guides.find(function (x) { return x.id === id; }) || {};
+  openModal('<h3>' + esc(g.title || '') + ' · 실제 화면</h3><div id="shots" class="muted small" style="margin-top:10px">화면을 불러오는 중… (' + (g.images || '') + '장)</div>', true);
+  call('guideImages', { id: id }).then(function (d) {
+    var items = d.items || [];
+    $('shots').className = '';
+    $('shots').innerHTML = items.length ? items.map(function (it, i) {
+      return '<figure class="shot"><figcaption><b>' + (i + 1) + '. ' + esc(it.cap) + '</b>' + (it.text ? '<div>' + esc(it.text) + '</div>' : '') + (it.tip ? '<div class="tip">💡 ' + esc(it.tip) + '</div>' : '') + '</figcaption>'
+        + '<a href="' + it.src + '" target="_blank" rel="noopener" title="크게 보기"><img src="' + it.src + '" alt="' + esc(it.cap) + '" loading="lazy"></a></figure>';
+    }).join('') : '<p class="muted small">화면이 없어요.</p>';
   }).catch(fail);
 }
 function guideForm(id) {
