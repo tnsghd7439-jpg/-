@@ -93,11 +93,24 @@
     const A='a@mymp.co.kr', T=today_(), N=now_();
     const R=(u,a,p)=>{ window.__USER=u; const r=JSON.parse(api(a,p)); if(!r.ok) throw new Error(a+': '+r.error); return r.data; };
     const hhmm=(m)=>{ const d=new Date(Date.now()+9*3600e3+m*60000); return d.toISOString().slice(11,16); };
-    const l1=R(A,'leadSave',{company:'바른김치',media:'네이버',person:'김대표',phone:'010-1111-2222',status:'첫 통화',next:T+' '+hhmm(-30),memo:'SA 직접 운영, 비용 부담 얘기함'});
-    const l2=R(A,'leadSave',{company:'달빛캔들',media:'지마켓',status:'점검권한 대기',next:T+' '+hhmm(120)});
-    R(A,'leadSave',{company:'숲속농원',media:'네이버',status:'제안',next:addDays_(T,2)+' 10:00'});
-    const l4=R(A,'leadSave',{company:'푸른수산',media:'쿠팡',status:'첫 통화',next:T+' 09:00'});
-    R(A,'leadLog',{id:l4,result:'계약',memo:'월 300만 시작'});
+    // 기존 영업노트 앱의 시트(영업노트_DB)를 흉내: 가망건·연락이력
+    const mk=(name,rows)=>{ const sh=new SpreadsheetApp.__Sheet('NOTE:'+name); sh.d=rows; window.__SHEETS['NOTE:'+name]=sh; };
+    const H=['ID','등록일시','영업자이메일','영업자','업체명','담당자','연락처','이메일','업종','가망도','상태','다음연락일','연락시간','메모','최근연락일','수정일시'];
+    const D=(n)=>addDays_(T,n);
+    const L=(id,co,g,st,nd,nt,memo,who)=>[id,D(-10)+' 10:00:00',who||A,who?'다른사람':'가나',co,'김대표','010-1111-2222','',  '식품',g,st,nd,nt,memo||'',D(-3),D(-1)+' 12:00:00'];
+    mk('가망건',[H,
+      L('N1','바른김치','상','연락중',T,hhmm(-30),'SA 직접 운영, 비용 부담 얘기함'),
+      L('N2','달빛캔들','상','제안발송',D(-3),'14:00','제안서 회신 대기'),
+      L('N3','숲속농원','중','신규',D(2),'10:00'),
+      L('N4','푸른수산','중','연락중',D(-1),''),
+      L('N5','하늘꽃집','하','미팅',D(5),'15:00'),
+      L('N6','해든빵집','하','신규','',''),
+      L('N7','계약된곳','상','계약',D(-5),'10:00'),
+      L('N8','남의업체','상','연락중',T,'09:00','', 'c@mymp.co.kr')]);
+    mk('연락이력',[['ID','가망건ID','업체명','일시','영업자이메일','영업자','방식','내용','다음연락일','연락시간'],
+      ['H1','N1','바른김치',D(-3)+' 11:00:00',A,'가나','통화','첫 통화',T,'10:00'],
+      ['H2','N2','달빛캔들',T+' 09:10:00',A,'가나','이메일','제안서 발송','','']]);
+    const l1='N1'; if (window.__CACHE) delete window.__CACHE.noteDb; MEMO_ = {};
     window.__L1=l1;
     R(A,'taskSave',{kind:'관리',title:'비즈머니 잔액 확인',repeat:'매일',time:'09:30'});
     R(A,'taskSave',{kind:'영업',title:'신규 DB 20곳 통화',repeat:'평일'});

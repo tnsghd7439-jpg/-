@@ -20,8 +20,6 @@ const SCHEMA = {
   '가이드': ['id', '매체', '구분', '제목', '내용', '링크', '순서', '수정일'],
   '매체공지': ['id', '매체', '제목', '요약', '영업포인트', '링크', '게시일', '중요도', '유형', '상품', '신청시작', '마감일',
               '행사시작', '행사종료', '기간', '수집일'],
-  '가망건': ['id', '이메일', '업체명', '스토어주소', '매체', '담당자', '연락처', '상태', '메모', '다음연락', '등록일', '수정일', '계약일'],
-  '통화기록': ['id', '가망건id', '이메일', '시각', '결과', '메모', '다음연락', '기록자'],
   '할일': ['id', '이메일', '분류', '제목', '메모', '반복', '반복값', '기한', '시간', '시작일', '상태', '작성일'],
   '할일완료': ['id', '할일id', '이메일', '날짜', '완료시각'],
   '이용기록': ['날짜', '이메일', '기록'],
@@ -67,6 +65,7 @@ const TABS = [
   { id: 'check', name: '오늘 점검' },
   { id: 'plan', name: '개인별 액션플랜' },
   { id: 'sales', name: '영업노트' },
+  { id: 'task', name: '할일' },
   { id: 'notice', name: '공지사항' },
   { id: 'solution', name: '솔루션' },
   { id: 'guide', name: '매체별 가이드' },
@@ -385,8 +384,11 @@ function rows_(name) {
   return MEMO_[name].map(function (o) { const c = {}; for (const k in o) c[k] = o[k]; return c; });
 }
 
-function readRows_(name) {
-  const vals = sheet_(name).getDataRange().getValues();
+function readRows_(name) { return tableRows_(sheet_(name)); }
+
+function tableRows_(sh) {
+  if (!sh) return [];
+  const vals = sh.getDataRange().getValues();
   const head = vals.shift() || [];
   return vals.filter(function (r) { return r.some(function (c) { return c !== ''; }); }).map(function (r) {
     const o = {};
@@ -406,6 +408,17 @@ function insert_(name, obj) {
   const sh = sheet_(name);
   const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
   sh.appendRow(head.map(function (h) { return safe_(obj[h]); }));
+}
+
+/** 여러 줄을 한 번에 씁니다(반복문 안에서 appendRow 하지 않게) */
+function insertMany_(name, objs) {
+  if (!objs.length) return 0;
+  forget_(name);
+  const sh = sheet_(name);
+  const head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
+  sh.getRange(sh.getLastRow() + 1, 1, objs.length, head.length)
+    .setValues(objs.map(function (o) { return head.map(function (h) { return safe_(o[h]); }); }));
+  return objs.length;
 }
 
 function update_(name, key, id, patch) {
@@ -539,7 +552,7 @@ const ACTIONS = {
       options: {
         noticeTypes: NOTICE_TYPES, goalPeriods: GOAL_PERIODS, goalCategories: GOAL_CATEGORIES,
         eventTypes: EVENT_TYPES, guideSections: GUIDE_SECTIONS,
-        leadStates: LEAD_STATES, callResults: CALL_RESULTS, taskKinds: TASK_KINDS, taskRepeats: TASK_REPEATS, weekdays: WEEKDAYS,
+        noteGrades: NOTE_GRADES, taskKinds: TASK_KINDS, taskRepeats: TASK_REPEATS, weekdays: WEEKDAYS,
       },
       badges: badges_(me),
     };
@@ -790,10 +803,10 @@ const ACTIONS = {
     const mediaDeadlines = mediaNotices_().filter(function (n) {
       return n['마감일'] >= from && n['마감일'] <= to && n['마감일'] >= today_() && (n['중요도'] === '조치필요' || n['중요도'] === '영업기회');
     }).map(function (n) { return { date: n['마감일'], media: n['매체'], title: n['제목'], impact: n['중요도'], url: n['링크'] }; });
-    const calls = rows_('가망건').filter(function (r) {
-      const d = String(r['다음연락'] || '').slice(0, 10);
-      return d >= from && d <= to && LEAD_OPEN.indexOf(r['상태']) >= 0 && emails.indexOf(low_(r['이메일'])) >= 0;
-    }).map(function (r) { return { id: r.id, date: String(r['다음연락']).slice(0, 10), time: String(r['다음연락']).slice(11, 16), company: r['업체명'], who: nameOf_(r['이메일']) }; });
+    const calls = noteLeads_(emails).filter(function (l) {
+      const d = l.next.slice(0, 10);
+      return l.open && d >= from && d <= to;
+    }).map(function (l) { return { id: l.id, date: l.next.slice(0, 10), time: l.next.slice(11, 16), company: l.company, who: l.who }; });
     return { month: month, events: events, checks: checks, deadlines: deadlines, mediaDeadlines: mediaDeadlines, calls: calls };
   },
 
@@ -932,13 +945,8 @@ const ACTIONS = {
     }).map(function (c) { return checkView_(c, goals.find(function (g) { return g.id === c['목표id']; }) || {}); })
       .sort(function (a, b) { return a.date < b.date ? -1 : 1; });
     const sales = monthSales_(ids_(member), month);
-    const leads = rows_('가망건').filter(function (r) { return low_(r['이메일']) === email; });
-    const calls = rows_('통화기록').filter(function (c) {
-      const d = String(c['시각']).slice(0, 10); return low_(c['이메일']) === email && d >= from && d <= to;
-    }).map(function (c) {
-      const l = leads.find(function (r) { return r.id === c['가망건id']; }) || {};
-      return { at: c['시각'], company: l['업체명'] || '', result: c['결과'], memo: c['메모'], next: c['다음연락'] };
-    }).sort(function (a, b) { return a.at < b.at ? -1 : 1; });
+    const calls = noteLogs_([email]).filter(function (c) { const d = c.at.slice(0, 10); return d >= from && d <= to; })
+      .sort(function (a, b) { return a.at < b.at ? -1 : 1; });
     return {
       member: { name: member.name, email: member.email, manager: member.manager },
       month: month, generatedAt: now_(), goals: goalRows, checks: monthChecks, sales: sales,
@@ -1309,7 +1317,8 @@ function alerts_(code) {
   };
   // 영업노트 연락 알림: 오늘 연락할 가망건(시각 포함)과 오늘 할일
   const b = todayBundle_(m);
-  out.calls = b.calls;
+  // 기존 '내 할 일' 앱이 이미 연락 알림을 주므로 기본은 끔(겹치지 않게). 설정 탭 '영업노트알림' = 켜기 이면 알리미도 알림
+  out.calls = s['영업노트알림'] === '켜기' ? b.calls : [];
   out.tasks = b.tasks.map(function (t) { return { id: t.id, kind: t.kind, title: t.title, time: t.time }; });
   out.now = now_();
   useMark_(m.email, '알리미');
@@ -1324,11 +1333,9 @@ function alerts_(code) {
 
 /* ───────────────────────── 영업노트 · 할일 · 오늘 · 이용 기록 ───────────────────────── */
 
-const LEAD_STATES = ['첫 통화', '점검권한 대기', '제안', '계약', '보류', '실패'];
-const LEAD_OPEN = ['첫 통화', '점검권한 대기', '제안'];
-const CALL_RESULTS = ['통화함', '부재', '콜백 요청', '제안 발송', '점검권한 받음', '계약', '보류', '실패'];
-/** 통화 결과를 고르면 상태를 이렇게 바꿉니다(직접 고르면 그게 우선) */
-const RESULT_STATE = { '점검권한 받음': '점검권한 대기', '제안 발송': '제안', '계약': '계약', '보류': '보류', '실패': '실패' };
+/* 영업노트는 기존 '영업노트' 앱(영업노트_DB 시트)에서 저장하고, 원보드는 읽어서 보여주기만 합니다. */
+const NOTE_OPEN = ['신규', '연락중', '제안발송', '미팅'];
+const NOTE_GRADES = ['상', '중', '하'];
 const TASK_KINDS = ['관리', '영업'];
 const TASK_REPEATS = ['없음', '매일', '평일', '매주', '매월'];
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -1342,23 +1349,82 @@ function dtText_(v) {
 }
 function short_(s, n) { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n) + '…' : s; }
 
-/** 가망건 한 건: 담당 마케터 본인 또는 팀장만 */
-function leadOwned_(me, id) {
-  const r = rows_('가망건').find(function (x) { return x.id === id; });
-  if (!r) throw new Error('가망건을 찾을 수 없습니다.');
-  if (!isLead_(me) && low_(r['이메일']) !== me.email) throw new Error('본인 가망건만 볼 수 있습니다.');
-  return r;
+/** 영업노트_DB 위치: 설정 탭 '영업노트DB'(주소 또는 ID) → 없으면 드라이브에서 '영업노트_DB' 시트를 찾아 기억 */
+function noteDbId_() {
+  const set = settings_()['영업노트DB'];
+  if (set) return set.replace(/.*\/d\//, '').replace(/[\/?#].*$/, '').trim();
+  const props = PropertiesService.getScriptProperties();
+  const saved = props.getProperty('NOTE_DB');
+  if (saved) return saved;
+  const it = DriveApp.getFilesByName('영업노트_DB');
+  let best = null;
+  while (it.hasNext()) {
+    const f = it.next();
+    if (f.getMimeType() !== 'application/vnd.google-apps.spreadsheet') continue;
+    if (!best || f.getLastUpdated() > best.getLastUpdated()) best = f;
+  }
+  if (!best) return '';
+  props.setProperty('NOTE_DB', best.getId());
+  return best.getId();
 }
 
-function leadView_(r, day, nowS) {
-  const next = String(r['다음연락'] || '');
-  const open = LEAD_OPEN.indexOf(r['상태']) >= 0;
+/** 영업노트_DB 의 가망건·연락이력. 2분 동안 기억해서 매번 다른 시트를 열지 않습니다. */
+function noteDb_() {
+  if (MEMO_.__note) return MEMO_.__note;
+  const cache = CacheService.getScriptCache();
+  let txt = null;
+  try { txt = cache.get('noteDb'); } catch (e) { txt = null; }
+  if (txt) return (MEMO_.__note = JSON.parse(txt));
+  const out = { leads: [], logs: [], error: '' };
+  try {
+    const id = noteDbId_();
+    if (!id) throw new Error("영업노트_DB 시트를 찾지 못했어요. 시트 '설정' 탭에 키 '영업노트DB', 값에 그 시트 주소를 넣어 주세요.");
+    const ss = SpreadsheetApp.openById(id);
+    out.leads = tableRows_(ss.getSheetByName('가망건'));
+    out.logs = tableRows_(ss.getSheetByName('연락이력'));
+  } catch (e) {
+    out.error = String(e && e.message || e);
+  }
+  MEMO_.__note = out;
+  if (!out.error) { try { cache.put('noteDb', JSON.stringify(out), 120); } catch (e) { /* 너무 크면 기억 없이 */ } }
+  return out;
+}
+
+function noteTime_(v) {
+  const m = String(v || '').match(/(\d{1,2}):(\d{2})(?!.*\d{1,2}:\d{2})/);
+  return m ? ('0' + m[1]).slice(-2) + ':' + m[2] : '';
+}
+
+function noteView_(r, day, nowS) {
+  const d = String(r['다음연락일'] || '').slice(0, 10), t = noteTime_(r['연락시간']);
+  const status = r['상태'] || '신규';
+  const open = NOTE_OPEN.indexOf(status) >= 0;
+  const next = isDate_(d) ? d + (t ? ' ' + t : '') : '';
+  const end = next.length === 10 ? next + ' 23:59' : next;
   return {
-    id: r.id, email: low_(r['이메일']), who: nameOf_(r['이메일']), company: r['업체명'], store: r['스토어주소'],
-    media: r['매체'], person: r['담당자'], phone: r['연락처'], status: r['상태'], memo: r['메모'], next: next,
-    created: r['등록일'], updated: r['수정일'], contractAt: r['계약일'], open: open,
-    due: open && !!next && next.slice(0, 10) <= day, overdue: open && !!next && next < nowS,
+    id: String(r['ID']), email: low_(r['영업자이메일']), who: r['영업자'] || nameOf_(r['영업자이메일']),
+    company: r['업체명'], person: r['담당자'], phone: r['연락처'], mail: r['이메일'], industry: r['업종'],
+    grade: NOTE_GRADES.indexOf(r['가망도']) >= 0 ? r['가망도'] : '미정', status: status, next: next, memo: r['메모'],
+    lastContact: String(r['최근연락일'] || '').slice(0, 10), created: String(r['등록일시'] || '').slice(0, 16),
+    updated: String(r['수정일시'] || '').slice(0, 16), open: open,
+    due: open && !!next && next.slice(0, 10) <= day, overdue: open && !!next && end < nowS,
   };
+}
+
+function noteLeads_(emails) {
+  const day = today_(), nowS = now_();
+  return noteDb_().leads.filter(function (r) { return r['ID'] && emails.indexOf(low_(r['영업자이메일'])) >= 0; })
+    .map(function (r) { return noteView_(r, day, nowS); });
+}
+
+function noteLogs_(emails) {
+  return noteDb_().logs.filter(function (c) { return emails.indexOf(low_(c['영업자이메일'])) >= 0; }).map(noteLogView_);
+}
+
+function noteLogView_(c) {
+  const d = String(c['다음연락일'] || '').slice(0, 10), t = noteTime_(c['연락시간']);
+  return { leadId: String(c['가망건ID']), at: String(c['일시'] || '').slice(0, 16), company: c['업체명'], result: c['방식'],
+    memo: c['내용'], next: isDate_(d) ? d + (t ? ' ' + t : '') : '', by: c['영업자'] };
 }
 
 /** 할일이 그 날짜에 해야 하는 날인지 */
@@ -1413,12 +1479,9 @@ function taskRate_(tasks, done, email, from, to) {
 
 /** 오늘 묶음: 오늘(또는 밀린) 연락할 가망건 + 오늘 할일 + 오늘 목표 */
 function todayBundle_(m) {
-  const day = today_(), nowS = now_();
-  const calls = rows_('가망건').filter(function (r) {
-    return low_(r['이메일']) === m.email && LEAD_OPEN.indexOf(r['상태']) >= 0 && r['다음연락'] && String(r['다음연락']).slice(0, 10) <= day;
-  }).map(function (r) {
-    return { id: r.id, company: r['업체명'], at: String(r['다음연락']), memo: short_(r['메모'], 60), phone: r['연락처'],
-      overdue: String(r['다음연락']) < nowS };
+  const day = today_();
+  const calls = noteLeads_([m.email]).filter(function (l) { return l.due; }).map(function (l) {
+    return { id: l.id, company: l.company, at: l.next, memo: short_(l.memo, 60), phone: l.phone, grade: l.grade, overdue: l.overdue };
   }).sort(function (a, b) { return a.at < b.at ? -1 : 1; });
   const done = rows_('할일완료');
   const tasks = rows_('할일').filter(function (t) { return low_(t['이메일']) === m.email; })
@@ -1429,7 +1492,7 @@ function todayBundle_(m) {
 
 /* ── 이용 기록: 스크립트 저장소에 하루치를 모았다가, 다음 날 첫 요청 때 '이용기록' 시트에 한 번에 씀 ── */
 const USAGE_TAB_ = {
-  bootstrap: '접속', perf: '실적', goalList: '액션플랜', leadList: '영업노트', noticeList: '공지', solutions: '솔루션',
+  bootstrap: '접속', perf: '실적', goalList: '액션플랜', leadList: '영업노트', taskList: '할일', noticeList: '공지', solutions: '솔루션',
   guideList: '가이드', calendar: '캘린더', teamStats: '팀현황',
 };
 
@@ -1518,85 +1581,31 @@ function noticeDelay_(email, name, month) {
 
 /** 영업노트 한 달 요약 */
 function salesSummary_(email, from, to) {
-  const leads = rows_('가망건').filter(function (r) { return low_(r['이메일']) === email; });
-  const calls = rows_('통화기록').filter(function (c) { return low_(c['이메일']) === email && String(c['시각']).slice(0, 10) >= from && String(c['시각']).slice(0, 10) <= to; });
-  const nowS = now_();
+  const leads = noteLeads_([email]);
+  const calls = noteLogs_([email]).filter(function (c) { const d = c.at.slice(0, 10); return d >= from && d <= to; });
   return {
-    open: leads.filter(function (r) { return LEAD_OPEN.indexOf(r['상태']) >= 0; }).length,
-    added: leads.filter(function (r) { const d = String(r['등록일']).slice(0, 10); return d >= from && d <= to; }).length,
-    contracts: leads.filter(function (r) { const d = String(r['계약일']).slice(0, 10); return r['상태'] === '계약' && d >= from && d <= to; }).length,
+    open: leads.filter(function (l) { return l.open; }).length,
+    added: leads.filter(function (l) { const d = l.created.slice(0, 10); return d >= from && d <= to; }).length,
+    contracts: leads.filter(function (l) { const d = l.updated.slice(0, 10); return l.status === '계약' && d >= from && d <= to; }).length,
     calls: calls.length,
-    overdue: leads.filter(function (r) { return LEAD_OPEN.indexOf(r['상태']) >= 0 && r['다음연락'] && String(r['다음연락']) < nowS; }).length,
+    overdue: leads.filter(function (l) { return l.overdue; }).length,
   };
 }
 
 const SALES_ACTIONS = {
+  /** 영업노트_DB 의 내 가망건(팀장은 전체·팀원 선택). 저장·수정은 기존 영업노트 앱에서 합니다. */
   leadList: function (me, p) {
     const emails = scopeEmails_(me, p.email);
-    const day = today_(), nowS = now_();
-    return rows_('가망건').filter(function (r) { return emails.indexOf(low_(r['이메일'])) >= 0; })
-      .map(function (r) { return leadView_(r, day, nowS); })
-      .sort(function (a, b) {
-        if (a.open !== b.open) return a.open ? -1 : 1;
-        if (a.open && (a.next || 'z') !== (b.next || 'z')) return (a.next || 'z') < (b.next || 'z') ? -1 : 1;
-        return a.updated < b.updated ? 1 : -1;
-      });
-  },
-
-  leadSave: function (me, p) {
-    const rec = {
-      '업체명': text_(p.company, 100), '스토어주소': text_(p.store, 500), '매체': text_(p.media, 40),
-      '담당자': text_(p.person, 40), '연락처': text_(p.phone, 40), '메모': text_(p.memo, 3000),
-      '상태': LEAD_STATES.indexOf(p.status) >= 0 ? p.status : '첫 통화', '다음연락': dtText_(p.next), '수정일': now_(),
-    };
-    if (!rec['업체명']) throw new Error('업체명을 입력하세요.');
-    return locked_(function () {
-      if (p.id) {
-        const r = leadOwned_(me, p.id);
-        if (rec['상태'] === '계약' && r['상태'] !== '계약') rec['계약일'] = now_();
-        update_('가망건', 'id', p.id, rec);
-        return p.id;
-      }
-      rec.id = uid_(); rec['이메일'] = isLead_(me) && p.email ? low_(p.email) : me.email; rec['등록일'] = now_();
-      if (rec['상태'] === '계약') rec['계약일'] = now_();
-      insert_('가망건', rec);
-      return rec.id;
-    });
-  },
-
-  /** 통화 결과 기록 → 상태·다음 연락 갱신 (알리미가 다음 알림을 다시 잡음) */
-  leadLog: function (me, p) {
-    const result = CALL_RESULTS.indexOf(p.result) >= 0 ? p.result : '통화함';
-    return locked_(function () {
-      const r = leadOwned_(me, p.id);
-      const status = LEAD_STATES.indexOf(p.status) >= 0 ? p.status : (RESULT_STATE[result] || r['상태']);
-      const next = LEAD_OPEN.indexOf(status) >= 0 ? dtText_(p.next) : '';
-      insert_('통화기록', {
-        id: uid_(), '가망건id': r.id, '이메일': low_(r['이메일']), '시각': now_(), '결과': result,
-        '메모': text_(p.memo, 3000), '다음연락': next, '기록자': me.name,
-      });
-      const patch = { '상태': status, '다음연락': next, '수정일': now_() };
-      if (text_(p.memo)) patch['메모'] = text_(p.memo, 3000);
-      if (status === '계약' && r['상태'] !== '계약') patch['계약일'] = now_();
-      update_('가망건', 'id', r.id, patch);
-      return { status: status, next: next };
-    });
+    const db = noteDb_();
+    return { leads: noteLeads_(emails), error: db.error, app: settings_()['영업노트주소'] || '' };
   },
 
   leadHistory: function (me, p) {
-    const r = leadOwned_(me, p.id);
-    return rows_('통화기록').filter(function (c) { return c['가망건id'] === r.id; })
-      .map(function (c) { return { at: c['시각'], result: c['결과'], memo: c['메모'], next: c['다음연락'], by: c['기록자'] }; })
+    const r = noteDb_().leads.find(function (x) { return String(x['ID']) === String(p.id); });
+    if (!r) throw new Error('가망건을 찾을 수 없습니다.');
+    if (!isLead_(me) && low_(r['영업자이메일']) !== me.email) throw new Error('본인 가망건만 볼 수 있습니다.');
+    return noteDb_().logs.filter(function (c) { return String(c['가망건ID']) === String(p.id); }).map(noteLogView_)
       .sort(function (a, b) { return a.at < b.at ? 1 : -1; });
-  },
-
-  leadDelete: function (me, p) {
-    return locked_(function () {
-      const r = leadOwned_(me, p.id);
-      remove_('가망건', function (x) { return x.id === r.id; });
-      remove_('통화기록', function (x) { return x['가망건id'] === r.id; });
-      return true;
-    });
   },
 
   taskList: function (me, p) {
@@ -1652,6 +1661,33 @@ const SALES_ACTIONS = {
       remove_('할일완료', function (d) { return d['할일id'] === t.id && d['날짜'] === day; });
       if (p.done !== false) insert_('할일완료', { id: uid_(), '할일id': t.id, '이메일': me.email, '날짜': day, '완료시각': now_() });
       return true;
+    });
+  },
+
+  /** 기존 '내 할 일' 앱(todos.json)에서 가져오기. 화면에서 읽은 목록을 한 번에 씁니다. 같은 제목·기한은 건너뜀 */
+  taskImport: function (me, p) {
+    const items = (p.items || []).slice(0, 500);
+    return locked_(function () {
+      const have = {};
+      rows_('할일').forEach(function (t) { if (low_(t['이메일']) === me.email && t['상태'] !== '보관') have[t['제목'] + '|' + (t['기한'] || '')] = 1; });
+      const recs = [];
+      items.forEach(function (x) {
+        const rep = TASK_REPEATS.indexOf(x.repeat) >= 0 ? x.repeat : '없음';
+        const rec = {
+          id: uid_(), '이메일': me.email, '분류': TASK_KINDS.indexOf(x.kind) >= 0 ? x.kind : '관리', '제목': text_(x.title, 200),
+          '메모': text_(x.memo, 2000), '반복': rep,
+          '반복값': rep === '매주' ? text_(x.repeatValue, 20) : rep === '매월' ? String(Math.min(31, Math.max(1, num_(x.repeatValue) || 1))) : '',
+          '기한': rep === '없음' ? (isDate_(x.due) ? x.due : today_()) : '', '시간': /^\d{2}:\d{2}$/.test(x.time || '') ? x.time : '',
+          '시작일': today_(), '상태': '사용', '작성일': now_(),
+        };
+        if (!rec['제목'] || (rep === '매주' && !rec['반복값'])) return;
+        const key = rec['제목'] + '|' + rec['기한'];
+        if (have[key]) return;
+        have[key] = 1;
+        recs.push(rec);
+      });
+      insertMany_('할일', recs);
+      return { added: recs.length, skipped: items.length - recs.length };
     });
   },
 

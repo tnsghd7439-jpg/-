@@ -16,7 +16,11 @@
   Sheet.prototype.appendRow=function(row){ window.__CALLS=(window.__CALLS||0)+1; this.trim(); this.d.push(row.map(v=>typeof v==='string'&&v[0]==="'"?v.slice(1):v)); };
   Sheet.prototype.deleteRow=function(i){ window.__CALLS=(window.__CALLS||0)+1; this.d.splice(i-1,1); };
   Sheet.prototype.setFrozenRows=function(){};
-  window.SpreadsheetApp={ getActive:()=>({ getSheetByName:n=>store[n]||null, insertSheet:n=>(store[n]=new Sheet(n)) }) };
+  window.SpreadsheetApp={ getActive:()=>({ getSheetByName:n=>store[n]||null, insertSheet:n=>(store[n]=new Sheet(n)) }),
+    // 다른 스프레드시트(영업노트_DB): 'NOTE:시트이름' 으로 보관
+    openById:id=>({ getSheetByName:n=>store['NOTE:'+n]||null }), __Sheet:Sheet };
+  const CACHE=(window.__CACHE=window.__CACHE||{});
+  window.CacheService={ getScriptCache:()=>({ get:k=>CACHE[k]===undefined?null:CACHE[k], put:(k,v)=>{CACHE[k]=v;}, remove:k=>{delete CACHE[k];} }) };
   function kst(d){ return new Date(d.getTime()+9*3600e3); }
   const p2=n=>('0'+n).slice(-2);
   window.Utilities={ formatDate:(d,tz,f)=>{ const k=kst(window.__NOW?new Date(window.__NOW):d===undefined?new Date():d); const k2=kst(d); const x=k2; return f.replace('yyyy',x.getUTCFullYear()).replace('MM',p2(x.getUTCMonth()+1)).replace('dd',p2(x.getUTCDate())).replace('HH',p2(x.getUTCHours())).replace('mm',p2(x.getUTCMinutes())).replace(/^H$/,String(x.getUTCHours())); },
@@ -34,7 +38,7 @@
   const mkFile = (id) => ({ getId: () => id, setContent: (t) => { FILES[id] = t; }, getBlob: () => ({ getDataAsString: () => FILES[id] }) });
   window.DriveApp_files = { createFile: (n, t) => { const id = 'f' + (++fid); FILES[id] = t; return mkFile(id); },
     getFileById: (id) => { if (!(id in FILES)) throw new Error('no file'); return mkFile(id); } };
-  window.DriveApp={ createFile: (...a) => window.DriveApp_files.createFile(...a), getFileById: (id) => window.DriveApp_files.getFileById(id), getFolderById:()=>({ getUrl:()=>'https://drive.google.com/drive/folders/X',
+  window.DriveApp={ getFilesByName:(n)=>it(n==='영업노트_DB'?[{ getId:()=>'NOTEDB', getMimeType:()=>'application/vnd.google-apps.spreadsheet', getLastUpdated:()=>new Date() }]:[]), createFile: (...a) => window.DriveApp_files.createFile(...a), getFileById: (id) => window.DriveApp_files.getFileById(id), getFolderById:()=>({ getUrl:()=>'https://drive.google.com/drive/folders/X',
     getFiles:()=>it([F('키워드추출기_v1.2.zip',30,120000),F('키워드추출기_v1.3.zip',2,130000),F('6팀 일일점검 가이드.pdf',10,800000)]),
     getFolders:()=>it([{ getName:()=>'스마트스토어 진단 확장', getFiles:()=>it([F('smartstore-audit-1.0.zip',40,50000),F('smartstore-audit-1.1.zip',5,52000)]) }]) }) };
   // google.script.run 흉내: 실제 Code.gs 의 함수를 비동기로 호출

@@ -135,6 +135,14 @@
   .ev.연락{background:#e2f0ff;color:#1d5fa8}
   .todo-row{border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:6px;font-size:14px;gap:8px}
   .todo-row.late{border-color:var(--bad);background:var(--badbg)}
+  .lead-row{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}
+  .lead-row:first-of-type{border-top:none}
+  .lead-row .lb{flex:1;min-width:0}
+  .lead-row .when{min-width:96px;text-align:right;font-size:13px}
+  .lead-row.late .when b{color:var(--bad)}
+  .lead-row.flash{background:#fff7e6}
+  .grade{display:inline-block;width:24px;height:24px;border-radius:6px;text-align:center;line-height:24px;font-weight:700;font-size:13px;color:#fff;background:#94a3b8}
+  .grade.g상{background:var(--bad)}.grade.g중{background:var(--warn)}.grade.g하{background:var(--blue)}
   .task{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line)}
   .task:first-of-type{border-top:none}
   .task input{margin-top:4px;width:18px;height:18px;accent-color:var(--g600)}
@@ -216,7 +224,7 @@
 /* ───────── 공통 ───────── */
 var B = null;            // bootstrap 데이터
 var CUR = null;          // 현재 탭
-var ST = { planWho: '', calMonth: '', calWho: '', calDay: '', perfWho: '', guideMedia: '', noticeFilter: '전체' };
+var ST = { taskWho: '', salesGrade: '전체', salesDue: '전체', salesOpen: true, planWho: '', calMonth: '', calWho: '', calDay: '', perfWho: '', guideMedia: '', noticeFilter: '전체' };
 var HOUR = 60 * 60 * 1000;
 
 function call(action, payload) {
@@ -267,7 +275,7 @@ function start() {
     drawTabs();
     google.script.url.getLocation(function (loc) {
       var want = loc.parameter && loc.parameter.tab;
-      if (loc.parameter && loc.parameter.lead) { ST.openLead = loc.parameter.lead; want = 'sales'; }
+      if (loc.parameter && loc.parameter.lead) { ST.openLead = loc.parameter.lead; ST.salesOpen = false; want = 'sales'; }
       var first = (want && B.tabs.some(function (t) { return t.id === want; })) ? want : (store('ob-tab') || B.tabs[0].id);
       if (!B.tabs.some(function (t) { return t.id === first; })) first = B.tabs[0].id;
       go(first);
@@ -281,7 +289,7 @@ function start() {
 
 function drawTabs() {
   var b = B.badges || {};
-  var cnt = { notice: b.unread, plan: (isLead() ? (b.pending || 0) + (b.talk || 0) : 0) + (b.todo || 0), sales: b.calls };
+  var cnt = { notice: b.unread, plan: isLead() ? (b.pending || 0) + (b.talk || 0) : 0, task: b.todo || 0, sales: b.calls };
   $('tabs').innerHTML = B.tabs.map(function (t) {
     var n = cnt[t.id];
     return '<button class="tab' + (t.id === CUR ? ' on' : '') + (t.lead ? ' lead' : '') + '" onclick="go(\'' + t.id + '\')"' + (t.lead ? ' title="팀장만 보이는 탭"' : '') + '>'
@@ -292,7 +300,7 @@ function drawTabs() {
 function go(id) {
   CUR = id; store('ob-tab', id); drawTabs();
   $('view').innerHTML = '<div class="loading">불러오는 중…</div>';
-  ({ perf: viewPerf, check: viewCheck, plan: viewPlan, sales: viewSales, notice: viewNotice, solution: viewSolution, guide: viewGuide, calendar: viewCalendar, admin: viewAdmin }[id] || viewPlan)();
+  ({ perf: viewPerf, check: viewCheck, plan: viewPlan, sales: viewSales, task: viewTask, notice: viewNotice, solution: viewSolution, guide: viewGuide, calendar: viewCalendar, admin: viewAdmin }[id] || viewPlan)();
 }
 function refreshBadges() { return call('badges').then(function (b) { B.badges = b; drawTabs(); return b; }); }
 
@@ -310,15 +318,15 @@ function todayPopup() {
     var goals = t.goals.filter(function (g) { return !g.checked; });
     if ((!t.calls.length && !t.tasks.length && !goals.length) || !$('modal').hidden) return;
     openModal('<h3>오늘은 이것부터 해요</h3><p class="muted small" style="margin:4px 0 12px">' + esc(B.today) + ' · 끝낸 것은 체크해 주세요.</p>'
-      + todayBody(t, goals) + '<div class="actions"><button class="btn ghost" onclick="closeModal();go(\'sales\')">영업노트</button><button class="btn pri" onclick="closeModal();go(\'plan\')">액션플랜 열기</button></div>');
+      + todayBody(t, goals) + '<div class="actions"><button class="btn ghost" onclick="closeModal();go(\'sales\')">영업노트</button><button class="btn ghost" onclick="closeModal();go(\'plan\')">액션플랜</button><button class="btn pri" onclick="closeModal();go(\'task\')">할일 열기</button></div>');
   }).catch(function () {});
 }
 function todayBody(t, goals) {
   var h = '';
   if (t.calls.length) h += '<h3 class="small" style="margin:6px 0">📞 오늘 연락할 곳 ' + t.calls.length + '곳</h3>' + t.calls.map(function (c) {
-    return '<div class="todo-row' + (c.overdue ? ' late' : '') + '"><b>' + esc(c.at.slice(11, 16)) + '</b> ' + esc(c.company)
+    return '<div class="todo-row' + (c.overdue ? ' late' : '') + '"><b>' + esc(c.at.slice(11, 16) || '시간 미정') + '</b> ' + esc(c.company)
       + (c.overdue ? ' <span class="tag bad">지남</span>' : '') + (c.memo ? '<div class="muted small">' + esc(c.memo) + '</div>' : '')
-      + '<div class="row" style="margin-top:4px"><button class="btn ok sm" onclick="closeModal();openLead(\'' + c.id + '\')">통화 결과 적기</button>'
+      + '<div class="row" style="margin-top:4px"><button class="btn ok sm" onclick="closeModal();openLead(\'' + c.id + '\')">영업노트에서 보기</button>'
       + (c.phone ? '<a class="btn ghost sm" href="tel:' + esc(c.phone) + '">' + esc(c.phone) + '</a>' : '') + '</div></div>';
   }).join('');
   if (t.tasks.length) h += '<h3 class="small" style="margin:12px 0 6px">✅ 오늘 할일 ' + t.tasks.length + '개</h3>' + t.tasks.map(function (x) {
@@ -378,118 +386,174 @@ function repUI() {
 function taskSave(id) {
   var r = val('k_rep');
   var rv = r === '매주' ? [].slice.call(document.querySelectorAll('.k_wd:checked')).map(function (x) { return x.value; }).join(',') : r === '매월' ? val('k_md') : '';
-  call('taskSave', { id: id, email: ST.planWho || '', kind: val('k_kind'), title: val('k_title'), memo: val('k_memo'), repeat: r, repeatValue: rv, due: val('k_date'), time: val('k_time') })
-    .then(function () { closeModal(); toast('저장했어요'); viewPlan(); refreshBadges(); }).catch(fail);
+  call('taskSave', { id: id, email: ST.taskWho || '', kind: val('k_kind'), title: val('k_title'), memo: val('k_memo'), repeat: r, repeatValue: rv, due: val('k_date'), time: val('k_time') })
+    .then(function () { closeModal(); toast('저장했어요'); reTask(); refreshBadges(); }).catch(fail);
 }
-function taskDel(id) { if (!confirm('이 할일을 지울까요? 지난 완료 기록은 남습니다.')) return; call('taskDelete', { id: id }).then(function () { closeModal(); toast('지웠어요'); viewPlan(); refreshBadges(); }).catch(fail); }
+function taskDel(id) { if (!confirm('이 할일을 지울까요? 지난 완료 기록은 남습니다.')) return; call('taskDelete', { id: id }).then(function () { closeModal(); toast('지웠어요'); reTask(); refreshBadges(); }).catch(fail); }
+function reTask() { if (CUR === 'task') viewTask(); else if (CUR === 'plan') viewPlan(); }
 function taskDone(id, done, inPopup) {
-  call('taskDone', { id: id, done: done }).then(function () { toast(done ? '완료!' : '취소했어요'); refreshBadges(); if (!inPopup && CUR === 'plan') viewPlan(); }).catch(fail);
+  call('taskDone', { id: id, done: done }).then(function () { toast(done ? '완료!' : '취소했어요'); refreshBadges(); if (!inPopup) reTask(); }).catch(fail);
 }
 
-/* ───────── 영업노트 ───────── */
-function openLead(id) { ST.openLead = id; if (CUR === 'sales') logForm(id); else go('sales'); }
+/* ───────── 영업노트 (기존 영업노트 앱의 가망건을 읽어서 보여줌) ───────── */
+function openLead(id) { ST.openLead = id; ST.salesGrade = '전체'; ST.salesDue = '전체'; ST.salesOpen = false; go('sales'); }
 function viewSales() {
   var who = isLead() ? ST.salesWho : '';
-  call('leadList', { email: who }).then(function (list) {
-    window._leads = list;
-    var f = ST.salesFilter || '진행 중', q = (ST.salesQ || '').trim();
-    var due = list.filter(function (l) { return l.due; }), late = list.filter(function (l) { return l.overdue; });
-    var month = B.today.slice(0, 7);
-    var won = list.filter(function (l) { return l.status === '계약' && String(l.contractAt).slice(0, 7) === month; }).length;
+  call('leadList', { email: who }).then(function (r) {
+    var list = r.leads; window._leads = list;
+    var q = (ST.salesQ || '').trim(), g = ST.salesGrade, dueF = ST.salesDue;
+    var open = list.filter(function (l) { return l.open; });
+    var late = open.filter(function (l) { return l.overdue; }), today = open.filter(function (l) { return l.due && !l.overdue; });
     var shown = list.filter(function (l) {
-      var okF = f === '전체' || (f === '진행 중' ? l.open : f === '오늘 연락' ? l.due : f === '보류·실패' ? (l.status === '보류' || l.status === '실패') : l.status === f);
-      var okQ = !q || (l.company + ' ' + (l.person || '') + ' ' + (l.phone || '') + ' ' + (l.memo || '')).indexOf(q) >= 0;
-      return okF && okQ;
+      if (ST.salesOpen && !l.open) return false;
+      if (dueF === '기한 지남' && !l.overdue) return false;
+      if (dueF === '기한 안 지남' && (l.overdue || !l.next)) return false;
+      if (dueF === '연락일 없음' && l.next) return false;
+      return !q || [l.company, l.person, l.phone, l.memo, l.industry].join(' ').indexOf(q) >= 0;
     });
-    var stages = ['첫 통화', '점검권한 대기', '제안', '계약'];
-    var h = '<div class="head"><div><h2>영업노트</h2><p>영업하면서 만난 가망건을 저장하고, 다음 연락 시각이 되면 알리미가 알려줍니다.</p></div>'
-      + '<button class="btn pri" onclick="leadForm()">가망건 추가</button></div>'
+    var h = '<div class="head"><div><h2>영업노트</h2><p>영업노트 앱에 저장한 내 가망건을 가망도(상·중·하)별로, 기한 지난 것부터 보여줍니다. 저장·수정은 영업노트 앱에서 해요.</p></div>'
+      + (r.app ? '<a class="btn pri" href="' + esc(r.app) + '" target="_blank" rel="noopener">영업노트 열기</a>' : '') + '</div>'
+      + (r.error ? '<div class="empty"><b>영업노트를 읽지 못했어요</b>' + esc(r.error) + '</div>' : '')
       + (isLead() ? '<div class="row" style="margin-bottom:10px"><span class="small muted">팀원 선택</span><select style="width:auto" onchange="ST.salesWho=this.value;viewSales()">' + memberOpts(who, true) + '</select></div>' : '')
-      + '<div class="stats" style="margin-bottom:14px"><div class="stat"><div class="l">오늘 연락할 곳</div><div class="v" style="color:' + (due.length ? 'var(--warn)' : 'var(--g900)') + '">' + due.length + '곳</div><div class="d ' + (late.length ? 'down' : 'muted') + '">' + (late.length ? '시간 지난 곳 ' + late.length + '곳' : '밀린 연락 없음') + '</div></div>'
-      + '<div class="stat"><div class="l">진행 중</div><div class="v">' + list.filter(function (l) { return l.open; }).length + '곳</div><div class="d muted">' + stages.slice(0, 3).map(function (s) { return s + ' ' + list.filter(function (l) { return l.status === s; }).length; }).join(' · ') + '</div></div>'
-      + '<div class="stat"><div class="l">이번 달 계약</div><div class="v">' + won + '건</div><div class="d muted">전체 계약 ' + list.filter(function (l) { return l.status === '계약'; }).length + '건</div></div></div>'
-      + '<div class="row" style="justify-content:space-between;margin-bottom:12px"><div class="chips">' + ['진행 중', '오늘 연락', '계약', '보류·실패', '전체'].map(function (c) {
-        return '<button class="chip' + (c === f ? ' on' : '') + '" onclick="ST.salesFilter=\'' + c + '\';viewSales()">' + c + '</button>';
-      }).join('') + '</div><input type="text" style="width:220px" placeholder="업체명·연락처·메모 찾기" value="' + esc(q) + '" oninput="ST.salesQ=this.value;clearTimeout(window._sq);window._sq=setTimeout(viewSales,350)"></div>'
-      + (shown.length ? '<div class="cols">' + shown.map(leadCard).join('') + '</div>'
-        : '<div class="empty"><b>' + (list.length ? '해당하는 가망건이 없어요' : '아직 가망건이 없어요') + '</b>' + (list.length ? '' : '통화한 업체를 가망건 추가로 저장하고, 다음 연락 시각을 정해두세요.') + '</div>');
+      + '<div class="stats" style="margin-bottom:14px">'
+      + '<div class="stat"><div class="l">기한 지난 연락</div><div class="v" style="color:' + (late.length ? 'var(--bad)' : 'var(--g900)') + '">' + late.length + '곳</div><div class="d muted">' + noteGrades().map(function (x) { return x + ' ' + late.filter(function (l) { return l.grade === x; }).length; }).join(' · ') + '</div></div>'
+      + '<div class="stat"><div class="l">오늘 연락</div><div class="v" style="color:' + (today.length ? 'var(--warn)' : 'var(--g900)') + '">' + today.length + '곳</div><div class="d muted">' + noteGrades().map(function (x) { return x + ' ' + today.filter(function (l) { return l.grade === x; }).length; }).join(' · ') + '</div></div>'
+      + '<div class="stat"><div class="l">진행 중 가망건</div><div class="v">' + open.length + '곳</div><div class="d muted">' + noteGrades().map(function (x) { return x + ' ' + open.filter(function (l) { return l.grade === x; }).length; }).join(' · ') + '</div></div></div>'
+      + '<div class="row" style="justify-content:space-between;margin-bottom:12px;gap:8px"><div class="chips">'
+      + ['전체'].concat(noteGrades()).map(function (c) { return '<button class="chip' + (c === g ? ' on' : '') + '" onclick="ST.salesGrade=\'' + c + '\';viewSales()">' + (c === '전체' ? '상·중·하 전체' : '가망도 ' + c) + '</button>'; }).join('')
+      + '</div><div class="chips">' + ['전체', '기한 지남', '기한 안 지남', '연락일 없음'].map(function (c) { return '<button class="chip' + (c === dueF ? ' on' : '') + '" onclick="ST.salesDue=\'' + c + '\';viewSales()">' + c + '</button>'; }).join('') + '</div></div>'
+      + '<div class="row" style="justify-content:space-between;margin-bottom:12px"><label class="small"><input type="checkbox"' + (ST.salesOpen ? ' checked' : '') + ' onchange="ST.salesOpen=this.checked;viewSales()"> 진행 중만 (계약·보류·종료 빼기)</label>'
+      + '<input type="text" style="width:220px" placeholder="업체명·연락처·메모 찾기" value="' + esc(q) + '" oninput="ST.salesQ=this.value;clearTimeout(window._sq);window._sq=setTimeout(viewSales,350)"></div>';
+    var groups = (g === '전체' ? noteGrades().concat(['미정']) : [g]).map(function (x) {
+      return { grade: x, items: shown.filter(function (l) { return l.grade === x; }).sort(leadOrder) };
+    }).filter(function (x) { return x.items.length || g !== '전체' || x.grade !== '미정'; });
+    h += groups.map(function (x) {
+      return '<div class="card"><div class="ct"><span class="grade g' + x.grade + '">' + (x.grade === '미정' ? '-' : x.grade) + '</span><span class="t">가망도 ' + x.grade + '</span><span class="muted small">' + x.items.length + '곳'
+        + (x.items.filter(function (l) { return l.overdue; }).length ? ' · <span class="down">기한 지남 ' + x.items.filter(function (l) { return l.overdue; }).length + '</span>' : '') + '</span></div>'
+        + (x.items.length ? x.items.map(leadRow).join('') : '<p class="muted small">해당하는 가망건이 없어요.</p>') + '</div>';
+    }).join('');
+    if (!list.length && !r.error) h += '<div class="empty"><b>아직 가망건이 없어요</b>영업노트 앱에서 가망건을 저장하면 여기에 바로 보여요(최대 2분).</div>';
     $('view').innerHTML = h;
-    if (ST.openLead) { var id = ST.openLead; ST.openLead = ''; if (list.some(function (l) { return l.id === id; })) logForm(id); }
+    if (ST.openLead) {
+      var id = ST.openLead; ST.openLead = '';
+      var el = document.getElementById('lead-' + id);
+      if (el) { el.classList.add('flash'); el.scrollIntoView({ block: 'center' }); }
+    }
   }).catch(fail);
 }
-function leadCard(l) {
-  var tag = { '첫 통화': 'gray', '점검권한 대기': 'blue', '제안': 'warn', '계약': '', '보류': 'gray', '실패': 'bad' }[l.status];
-  var nextTxt = !l.open ? '' : !l.next ? '<span class="down">다음 연락일 없음</span>'
-    : (l.overdue ? '<b class="down">' : l.due ? '<b style="color:var(--warn)">' : '<b>') + md(l.next) + ' ' + l.next.slice(11, 16) + '</b>' + (l.overdue ? ' 지남' : l.due ? ' 오늘' : '');
-  return '<div class="card' + (l.overdue ? ' hot' : '') + '"><div class="ct"><span class="tag ' + tag + '">' + esc(l.status) + '</span>' + (l.media ? '<span class="tag gray">' + esc(l.media) + '</span>' : '')
-    + '<span class="t">' + esc(l.company) + '</span>' + (isLead() ? '<span class="muted small">' + esc(l.who) + '</span>' : '') + '</div>'
-    + (l.open ? '<div class="meta">다음 연락 ' + nextTxt + '</div>' : '<div class="meta">' + (l.contractAt ? '계약 ' + md(l.contractAt) : '수정 ' + md(l.updated)) + '</div>')
-    + ((l.person || l.phone) ? '<div class="small" style="margin-top:4px">' + esc(l.person || '') + (l.phone ? ' · <a href="tel:' + esc(l.phone) + '">' + esc(l.phone) + '</a>' : '') + '</div>' : '')
-    + (l.memo ? '<div class="body small">' + esc(l.memo) + '</div>' : '')
-    + '<div class="row" style="margin-top:10px"><button class="btn ok sm" onclick="logForm(\'' + l.id + '\')">통화 결과 적기</button>'
-    + '<button class="btn ghost sm" onclick="leadForm(\'' + l.id + '\')">수정</button><button class="btn ghost sm" onclick="leadHistory(\'' + l.id + '\')">기록</button>'
-    + (l.store ? '<a class="btn ghost sm" href="' + esc(/^https?:/.test(l.store) ? l.store : 'https://' + l.store) + '" target="_blank" rel="noopener">스토어</a>' : '') + '</div></div>';
+function noteGrades() { return (B.options.noteGrades || ['상', '중', '하']); }
+/** 기한 지난 것(오래된 순) → 기한 안 지난 것(가까운 순) → 연락일 없음 → 끝난 것 */
+function leadOrder(a, b) {
+  var k = function (l) { return !l.open ? 3 : l.overdue ? 0 : l.next ? 1 : 2; };
+  return (k(a) - k(b)) || ((a.next || '9') < (b.next || '9') ? -1 : (a.next || '9') > (b.next || '9') ? 1 : 0) || (a.updated < b.updated ? 1 : -1);
+}
+function dayGap(d) { return Math.round((Date.parse(d.slice(0, 10)) - Date.parse(B.today)) / 864e5); }
+function leadRow(l) {
+  var tag = { '신규': 'gray', '연락중': 'blue', '제안발송': 'warn', '미팅': 'warn', '계약': '', '보류': 'gray', '종료': 'bad' }[l.status];
+  var when = !l.open ? '<span class="muted">' + esc(l.status) + '</span>' : !l.next ? '<span class="muted">연락일 없음</span>'
+    : '<b>' + md(l.next) + (l.next.length > 10 ? ' ' + l.next.slice(11, 16) : '') + '</b><div class="small ' + (l.overdue ? 'down' : 'muted') + '">'
+      + (l.overdue ? (dayGap(l.next) < 0 ? -dayGap(l.next) + '일 지남' : '시간 지남') : dayGap(l.next) === 0 ? '오늘' : 'D-' + dayGap(l.next)) + '</div>';
+  return '<div class="lead-row' + (l.overdue ? ' late' : '') + '" id="lead-' + esc(l.id) + '"><div class="lb"><div><span class="tag ' + (tag || '') + '">' + esc(l.status) + '</span> <b>' + esc(l.company) + '</b>'
+    + (l.industry ? ' <span class="muted small">' + esc(l.industry) + '</span>' : '') + (isLead() ? ' <span class="muted small">· ' + esc(l.who) + '</span>' : '') + '</div>'
+    + ((l.person || l.phone) ? '<div class="small">' + esc(l.person || '') + (l.phone ? ' · <a href="tel:' + esc(l.phone) + '">' + esc(l.phone) + '</a>' : '') + '</div>' : '')
+    + (l.memo ? '<div class="muted small">' + esc(l.memo.length > 120 ? l.memo.slice(0, 120) + '…' : l.memo) + '</div>' : '')
+    + '<div class="small muted">' + (l.lastContact ? '최근 연락 ' + md(l.lastContact) + ' · ' : '') + '<button class="linkbtn small" onclick="leadHistory(\'' + esc(l.id) + '\')">연락 기록</button></div></div>'
+    + '<div class="when">' + when + '</div></div>';
 }
 function leadById(id) { return (window._leads || []).find(function (l) { return l.id === id; }); }
-function nextOpts() {
-  var d = function (n) { return addDays(B.today, n); };
-  return [['내일 10:00', d(1) + ' 10:00'], ['내일 15:00', d(1) + ' 15:00'], ['3일 뒤', d(3) + ' 10:00'], ['1주 뒤', d(7) + ' 10:00'], ['2주 뒤', d(14) + ' 10:00']]
-    .map(function (o) { return '<button type="button" class="chip" onclick="setNext(\'' + o[1] + '\')">' + o[0] + '</button>'; }).join('');
-}
-function setNext(v) { $('l_nd').value = v.slice(0, 10); $('l_nt').value = v.slice(11, 16); }
-function nextVal() { return val('l_nd') ? val('l_nd') + ' ' + (val('l_nt') || '10:00') : ''; }
-function leadForm(id) {
-  var l = id ? leadById(id) : { company: '', store: '', media: '네이버', person: '', phone: '', status: '첫 통화', memo: '', next: addDays(B.today, 1) + ' 10:00' };
-  openModal('<h3>' + (id ? '가망건 수정' : '가망건 추가') + '</h3>'
-    + (isLead() && !id ? '<label class="f" style="margin-top:12px"><span>담당 마케터</span><select id="l_who">' + memberOpts(ST.salesWho || B.me.email, false) + '</select></label>' : '<div style="height:12px"></div>')
-    + '<div class="grid2"><label class="f"><span>업체명</span><input type="text" id="l_co" value="' + esc(l.company) + '"></label>'
-    + '<label class="f"><span>매체</span><input type="text" id="l_md" value="' + esc(l.media) + '" placeholder="네이버, 지마켓, 쿠팡…"></label></div>'
-    + '<label class="f"><span>스토어 주소 (선택)</span><input type="text" id="l_st" value="' + esc(l.store) + '" placeholder="smartstore.naver.com/…"></label>'
-    + '<div class="grid2"><label class="f"><span>담당자</span><input type="text" id="l_ps" value="' + esc(l.person) + '"></label>'
-    + '<label class="f"><span>연락처</span><input type="text" id="l_ph" value="' + esc(l.phone) + '"></label></div>'
-    + '<label class="f"><span>상태</span><select id="l_ss">' + opts(B.options.leadStates, l.status) + '</select></label>'
-    + '<div class="f"><span class="small muted">다음 연락</span><div class="grid2"><input type="date" id="l_nd" value="' + esc((l.next || '').slice(0, 10)) + '"><input type="time" id="l_nt" value="' + esc((l.next || '').slice(11, 16) || '10:00') + '"></div><div class="chips" style="margin-top:6px">' + nextOpts() + '</div></div>'
-    + '<label class="f"><span>메모</span><textarea id="l_mm" placeholder="통화 내용, 광고 현황, 관심사">' + esc(l.memo) + '</textarea></label>'
-    + '<div class="actions">' + (id ? '<button class="btn no" onclick="leadDel(\'' + id + '\')">삭제</button>' : '') + '<button class="btn ghost" onclick="closeModal()">취소</button><button class="btn pri" onclick="leadSave(\'' + (id || '') + '\')">저장</button></div>');
-}
-function leadSave(id) {
-  call('leadSave', { id: id, email: val('l_who'), company: val('l_co'), store: val('l_st'), media: val('l_md'), person: val('l_ps'), phone: val('l_ph'), status: val('l_ss'), next: nextVal(), memo: val('l_mm') })
-    .then(function () { closeModal(); toast('저장했어요. 다음 연락 시각에 알려드릴게요'); viewSales(); refreshBadges(); }).catch(fail);
-}
-function leadDel(id) { if (!confirm('이 가망건과 통화 기록을 모두 지울까요?')) return; call('leadDelete', { id: id }).then(function () { closeModal(); toast('지웠어요'); viewSales(); refreshBadges(); }).catch(fail); }
-function logForm(id) {
-  var l = leadById(id); if (!l) return;
-  openModal('<h3>' + esc(l.company) + ' · 통화 결과</h3>'
-    + '<p class="muted small" style="margin:4px 0 10px">' + esc(l.status) + (l.phone ? ' · <a href="tel:' + esc(l.phone) + '">' + esc(l.phone) + '</a>' : '') + (l.memo ? '<br>지난 메모: ' + esc(l.memo) : '') + '</p>'
-    + '<label class="f"><span>결과</span><select id="g_res" onchange="logUI()">' + opts(B.options.callResults, '통화함') + '</select></label>'
-    + '<label class="f"><span>상태</span><select id="g_st" onchange="logUI()">' + opts(B.options.leadStates, l.status) + '</select></label>'
-    + '<label class="f"><span>통화 메모</span><textarea id="g_mm" placeholder="무슨 이야기를 했는지, 다음에 할 말"></textarea></label>'
-    + '<div class="f" id="g_next"><span class="small muted">다음 연락</span><div class="grid2"><input type="date" id="l_nd" value="' + addDays(B.today, 1) + '"><input type="time" id="l_nt" value="10:00"></div><div class="chips" style="margin-top:6px">' + nextOpts() + '</div></div>'
-    + '<div class="actions"><button class="btn ghost" onclick="closeModal()">취소</button><button class="btn ok" onclick="logSave(\'' + id + '\')">기록하고 다음 알림 예약</button></div>');
-  logUI(true);
-}
-var RESULT_STATE_UI = { '점검권한 받음': '점검권한 대기', '제안 발송': '제안', '계약': '계약', '보류': '보류', '실패': '실패' };
-function logUI(first) {
-  if (!first && document.activeElement === $('g_res') && RESULT_STATE_UI[val('g_res')]) $('g_st').value = RESULT_STATE_UI[val('g_res')];
-  var open = ['첫 통화', '점검권한 대기', '제안'].indexOf(val('g_st')) >= 0;
-  $('g_next').style.display = open ? 'block' : 'none';
-}
-function logSave(id) {
-  call('leadLog', { id: id, result: val('g_res'), status: val('g_st'), memo: val('g_mm'), next: nextVal() })
-    .then(function (r) { closeModal(); toast(r.next ? '기록했어요. ' + md(r.next) + ' ' + r.next.slice(11) + '에 다시 알려드릴게요' : '기록했어요 (' + r.status + ')'); if (CUR === 'sales') viewSales(); refreshBadges(); }).catch(fail);
-}
 function leadHistory(id) {
   var l = leadById(id);
   call('leadHistory', { id: id }).then(function (list) {
-    openModal('<h3>' + esc(l ? l.company : '') + ' · 통화 기록</h3>' + (list.length ? '<div class="scroll" style="margin-top:10px"><table class="tbl"><tr><th>시각</th><th>결과</th><th>메모</th><th>다음 연락</th></tr>' + list.map(function (c) {
-      return '<tr><td>' + esc(md(c.at)) + ' ' + esc(String(c.at).slice(11)) + '</td><td>' + esc(c.result) + '</td><td>' + esc(c.memo) + '</td><td>' + (c.next ? esc(md(c.next)) + ' ' + esc(c.next.slice(11)) : '-') + '</td></tr>';
+    openModal('<h3>' + esc(l ? l.company : '') + ' · 연락 기록</h3>' + (list.length ? '<div class="scroll" style="margin-top:10px"><table class="tbl"><tr><th>일시</th><th>방식</th><th>내용</th><th>다음 연락</th></tr>' + list.map(function (c) {
+      return '<tr><td>' + esc(md(c.at)) + ' ' + esc(String(c.at).slice(11, 16)) + '</td><td>' + esc(c.result) + '</td><td>' + esc(c.memo) + '</td><td>' + (c.next ? esc(md(c.next)) + ' ' + esc(c.next.slice(11)) : '-') + '</td></tr>';
     }).join('') + '</table></div>' : '<p class="muted small" style="margin-top:10px">아직 기록이 없어요.</p>') + '<div class="actions"><button class="btn pri" onclick="closeModal()">닫기</button></div>');
   }).catch(fail);
 }
 
+/* ───────── 할일 탭 (관리 / 영업) + 기존 '내 할 일' 앱에서 가져오기 ───────── */
+function viewTask() {
+  var who = isLead() ? ST.taskWho : B.me.email;
+  var own = !isLead() || !who || who === B.me.email;
+  Promise.all([call('taskList', { email: who }), own ? call('today') : Promise.resolve(null)]).then(function (r) {
+    var tasks = r[0], tday = r[1];
+    window._tasks = tasks;
+    var todayN = tasks.filter(function (t) { return t.today && !t.done && t.email === B.me.email; }).length;
+    var h = '<div class="head"><div><h2>할일</h2><p>관리·영업 할일을 직접 쓰고 체크합니다. 매일·평일·매주·매월 반복도 돼요.</p></div>'
+      + '<div class="row">' + (own ? '<button class="btn ghost" onclick="importForm()">내 할 일 앱에서 가져오기</button>' : '') + '<button class="btn pri" onclick="taskForm()">할일 추가</button></div></div>';
+    if (isLead()) h += '<div class="row" style="margin-bottom:6px"><span class="small muted">팀원 선택</span><select style="width:auto" onchange="ST.taskWho=this.value;viewTask()">' + memberOpts(who, true) + '</select></div>';
+    if (own) h += '<p class="small muted">오늘 남은 할일 <b>' + todayN + '개</b>' + (tday && tday.calls.length ? ' · 오늘 연락할 가망건 <a href="#" onclick="go(\'sales\');return false">' + tday.calls.length + '곳</a>' : '') + '</p>';
+    h += taskSection(tasks, who);
+    $('view').innerHTML = h;
+  }).catch(fail);
+}
+function importForm() {
+  openModal('<h3>내 할 일 앱에서 가져오기</h3>'
+    + '<p class="small" style="margin:8px 0">PC의 \'내 할 일\' 앱에 적어둔 할일을 한 번에 옮깁니다. 완료한 할일과 이미 있는 할일(같은 제목·기한)은 건너뛰어요.</p>'
+    + '<ol class="small" style="margin:0 0 10px 18px;line-height:1.7"><li>아래 <b>파일 선택</b>을 누릅니다.</li><li>파일 창 위쪽 주소칸에 <code>%LOCALAPPDATA%\\Team6Tools\\apps\\marketer-todo</code> 를 붙여넣고 Enter</li><li><b>todos.json</b> 을 고릅니다.</li></ol>'
+    + '<input type="file" id="imp_f" accept=".json,application/json" onchange="importRead(this)"><div id="imp_p" style="margin-top:12px"></div>'
+    + '<div class="actions"><button class="btn ghost" onclick="closeModal()">닫기</button><button class="btn pri" id="imp_go" disabled onclick="importSave()">가져오기</button></div>');
+}
+function importRead(inp) {
+  var f = inp.files && inp.files[0]; if (!f) return;
+  var rd = new FileReader();
+  rd.onload = function () {
+    var r;
+    try { r = parseTodos(JSON.parse(String(rd.result).replace(/^\uFEFF/, ''))); } catch (e) { r = null; }
+    window._imp = r ? r.items : [];
+    $('imp_go').disabled = !window._imp.length;
+    $('imp_p').innerHTML = !r ? '<p class="down small">파일을 읽지 못했어요. todos.json 이 맞는지 확인해 주세요.</p>'
+      : !r.items.length ? '<p class="down small">가져올 할일을 찾지 못했어요(전체 ' + r.total + '개 중 완료 ' + r.done + '개). 이 화면을 캡처해서 팀장에게 보내 주세요.</p>'
+      : '<p class="small">가져올 할일 <b>' + r.items.length + '개</b> (완료 ' + r.done + '개 · 영업노트 연락 ' + r.sales + '개는 제외)</p><div class="scroll" style="max-height:260px"><table class="tbl"><tr><th>분류</th><th>할일</th><th>반복/기한</th><th>시간</th></tr>'
+        + r.items.slice(0, 50).map(function (t) { return '<tr><td>' + esc(t.kind) + '</td><td>' + esc(t.title) + '</td><td>' + esc(t.repeat === '없음' ? (t.due || '오늘') : t.repeat + (t.repeatValue ? ' ' + t.repeatValue : '')) + '</td><td>' + esc(t.time) + '</td></tr>'; }).join('')
+        + '</table></div>' + (r.items.length > 50 ? '<p class="muted small">…외 ' + (r.items.length - 50) + '개</p>' : '');
+  };
+  rd.readAsText(f, 'utf-8');
+}
+function importSave() {
+  $('imp_go').disabled = true;
+  call('taskImport', { items: window._imp || [] }).then(function (r) {
+    closeModal(); toast(r.added + '개 가져왔어요' + (r.skipped ? ' (이미 있는 ' + r.skipped + '개 건너뜀)' : '')); viewTask(); refreshBadges();
+  }).catch(function (e) { $('imp_go').disabled = false; fail(e); });
+}
+/** todos.json 모양을 몰라도 읽히게: 목록을 찾아 흔한 이름의 칸에서 값을 꺼냄 */
+function parseTodos(data) {
+  var arr = Array.isArray(data) ? data : null;
+  if (!arr && data && typeof data === 'object') {
+    ['todos', 'items', 'tasks', 'list', 'data'].some(function (k) { if (Array.isArray(data[k])) { arr = data[k]; return true; } return false; });
+    if (!arr) Object.keys(data).some(function (k) { if (Array.isArray(data[k]) && data[k].length && typeof data[k][0] === 'object') { arr = data[k]; return true; } return false; });
+  }
+  arr = arr || [];
+  var pick = function (o, ks) { for (var i = 0; i < ks.length; i++) { var v = o[ks[i]]; if (v !== undefined && v !== null && v !== '') return v; } return ''; };
+  var out = { items: [], total: arr.length, done: 0, sales: 0 };
+  arr.forEach(function (o) {
+    if (!o || typeof o !== 'object') return;
+    var title = String(pick(o, ['title', 'text', 'content', 'name', 'task', 'todo', '제목', '할일', '내용'])).trim();
+    if (!title) return;
+    var st = String(pick(o, ['status', 'state', '상태'])).toLowerCase();
+    var done = pick(o, ['done', 'completed', 'complete', 'checked', 'isDone', 'finished', '완료']);
+    if (done === true || done === 1 || /^(true|y|yes|1|완료)$/i.test(String(done)) || /done|complete|완료/.test(st)) { out.done++; return; }
+    if (/영업 다음 연락|다음 연락 ·/.test(title) || o.leadId || o.linkKey || o.source === 'sales') { out.sales++; return; }
+    var cat = String(pick(o, ['category', 'kind', 'type', 'group', 'tag', '분류'])).toLowerCase();
+    var rep = String(pick(o, ['repeat', 'recurrence', 'recur', 'routine', 'cycle', '반복'])).toLowerCase();
+    var repeat = /daily|매일|every ?day/.test(rep) ? '매일' : /weekday|평일/.test(rep) ? '평일' : /month|매월/.test(rep) ? '매월' : /week|매주/.test(rep) ? '매주' : '없음';
+    var rv = pick(o, ['repeatValue', 'days', 'weekdays', 'day', '반복값']);
+    if (Array.isArray(rv)) rv = rv.map(function (d) { return typeof d === 'number' ? '일월화수목금토'[d % 7] : String(d).slice(0, 1); }).join(',');
+    rv = String(rv || '');
+    if (repeat === '매주' && !rv) repeat = '없음';
+    var due = String(pick(o, ['due', 'dueDate', 'date', 'deadline', 'day_', '기한', '날짜'])).replace(/\./g, '-').replace(/\//g, '-');
+    var dm = due.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+    var tm = String(pick(o, ['time', 'dueTime', 'alarm', 'remind', '시간']) || (due.match(/\d{1,2}:\d{2}/) || [''])[0]).match(/(\d{1,2}):(\d{2})/);
+    out.items.push({
+      title: title.slice(0, 200), kind: /영업|sales/.test(cat) ? '영업' : '관리', memo: String(pick(o, ['memo', 'note', 'notes', 'description', 'detail', '메모'])).slice(0, 2000),
+      repeat: repeat, repeatValue: rv, due: dm ? dm[1] + '-' + ('0' + dm[2]).slice(-2) + '-' + ('0' + dm[3]).slice(-2) : '', time: tm ? ('0' + tm[1]).slice(-2) + ':' + tm[2] : '',
+    });
+  });
+  return out;
+}
+
 /* ───────── 이용 현황 (팀장) ───────── */
 function usageBlock(u) {
-  var tabs = ['실적', '액션플랜', '영업노트', '공지', '캘린더', '솔루션', '가이드'];
+  var tabs = ['실적', '액션플랜', '영업노트', '할일', '공지', '캘린더', '솔루션', '가이드'];
   return '<div class="sec"><h3>이용 현황 <span class="muted small">' + esc(u.month) + ' · 근무일 ' + u.workdays + '일</span></h3>'
     + '<p class="muted small" style="margin:-6px 0 10px">접속·탭 사용은 자동으로 기록됩니다. 공지 확인 시간은 공지가 올라온 뒤 확인을 누르기까지 걸린 평균입니다.</p>'
     + '<div class="scroll"><table class="tbl"><tr><th>팀원</th><th class="r">접속일</th><th class="r">접속</th><th>마지막 접속</th>' + tabs.map(function (t) { return '<th class="r">' + t + '</th>'; }).join('')
@@ -658,7 +722,7 @@ function noticeDel(id) { if (!confirm('이 공지를 삭제할까요? 확인 기
 function viewPlan() {
   var who = isLead() ? ST.planWho : B.me.email;
   var own = !isLead() || !who || who === B.me.email;
-  var jobs = [call('goalList', { email: who }), call('failureList', { email: who, all: !isLead() }), call('taskList', { email: who }), own ? call('today') : Promise.resolve(null)];
+  var jobs = [call('goalList', { email: who }), call('failureList', { email: who, all: !isLead() }), Promise.resolve([]), own ? call('today') : Promise.resolve(null)];
   Promise.all(jobs).then(function (r) {
     var goals = r[0], fails = r[1], tasks = r[2], tday = r[3];
     window._tasks = tasks;
@@ -670,17 +734,17 @@ function viewPlan() {
     var running = goals.filter(function (g) { return g.status === '승인' && g.end >= B.today; });
     var past = goals.filter(function (g) { return g.status === '완료' || (g.status === '승인' && g.end < B.today); });
     var h = '<div class="head"><div><h2>개인별 액션플랜</h2><p>주·월·분기 목표를 세우고 팀장 승인을 받은 뒤, 매일 달성/실패를 체크합니다.</p></div>'
-      + '<div class="row"><button class="btn ghost" onclick="evalForm()">월별 평가자료 받기</button><button class="btn" onclick="taskForm()">할일 추가</button><button class="btn pri" onclick="goalForm()">목표 추가</button></div></div>';
+      + '<div class="row"><button class="btn ghost" onclick="evalForm()">월별 평가자료 받기</button><button class="btn pri" onclick="goalForm()">목표 추가</button></div></div>';
     if (isLead()) {
       h += '<div class="row" style="margin-bottom:6px"><span class="small muted">팀원 선택</span><select id="planWho" style="width:auto" onchange="ST.planWho=this.value;viewPlan()">' + memberOpts(who, true) + '</select></div>';
     }
     if (tday && (tday.calls.length || today.length)) {
       h += '<div class="sec"><h3>오늘 <span class="muted small">' + esc(B.today) + '</span></h3>'
         + (tday.calls.length ? '<div class="card" style="margin-bottom:10px"><div class="ct" style="justify-content:space-between"><span class="t">📞 오늘 연락할 곳 ' + tday.calls.length + '곳</span><button class="btn sm" onclick="go(\'sales\')">영업노트</button></div>'
-          + tday.calls.map(function (c) { return '<div class="task' + (c.overdue ? ' late' : '') + '"><span class="dotk"></span><div class="tb"><div><b>' + esc(c.at.slice(11)) + '</b> ' + esc(c.company) + (c.overdue ? ' <span class="tag bad">지남</span>' : '') + '</div>' + (c.memo ? '<div class="muted small">' + esc(c.memo) + '</div>' : '') + '</div><button class="btn ok sm" onclick="openLead(\'' + c.id + '\')">결과 적기</button></div>'; }).join('') + '</div>' : '')
+          + tday.calls.map(function (c) { return '<div class="task' + (c.overdue ? ' late' : '') + '"><span class="dotk"></span><div class="tb"><div><b>' + esc(c.at.slice(11) || '시간 미정') + '</b> ' + esc(c.company) + (c.overdue ? ' <span class="tag bad">지남</span>' : '') + '</div>' + (c.memo ? '<div class="muted small">' + esc(c.memo) + '</div>' : '') + '</div><button class="btn ok sm" onclick="openLead(\'' + c.id + '\')">보기</button></div>'; }).join('') + '</div>' : '')
         + (today.length ? '<div class="cols">' + today.map(todayCard).join('') + '</div>' : '') + '</div>';
     }
-    h += taskSection(tasks, who);
+    if (tday && tday.tasks.length) h += '<p class="small" style="margin:-4px 0 0">✅ 오늘 할일 <b>' + tday.tasks.length + '개</b> 남음 · <a href="#" onclick="go(\'task\');return false">할일 탭에서 체크</a></p>';
     if (isLead()) {
       h += '<div class="sec"><h3>승인 기다리는 목표 ' + pending.length + '건</h3>' + (pending.length ? pending.map(goalCard).join('') : '<p class="muted small">기다리는 목표가 없어요.</p>') + '</div>';
       h += '<div class="sec"><h3>소통이 필요한 실패 ' + fails.length + '건</h3><p class="muted small" style="margin:-6px 0 10px">팀원이 적은 사유를 보고 이야기를 나눈 뒤 소통완료를 체크하세요.</p>'

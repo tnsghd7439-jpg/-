@@ -10,11 +10,18 @@ const { chromium } = require('playwright');
     const out = {};
     const t = run(A, 'today').data;
     out.today = JSON.stringify({ calls: t.calls.map(c => c.company + (c.overdue ? '(지남)' : '')).join(','), tasks: t.tasks.map(x => x.title).join(','), goals: t.goals.length });
-    out.leads = run(A, 'leadList').data.map(l => l.company + ':' + l.status + (l.due ? '/오늘' : '')).join(' | ');
-    out.otherCannotSee = run(C, 'leadList').data.length + '건, 남의 가망건 열기=' + run(C, 'leadHistory', { id: window.__L1 }).error;
-    out.leadSeesAll = run(L, 'leadList', {}).data.length;
-    const lg = run(A, 'leadLog', { id: window.__L1, result: '점검권한 받음', memo: '내일 권한 초대 받기로', next: addDays_(today_(), 1) + ' 11:00' }).data;
-    out.afterLog = lg.status + ' / 다음 ' + lg.next + ' / 기록 ' + run(A, 'leadHistory', { id: window.__L1 }).data.length + '건';
+    const ll = run(A, 'leadList').data;
+    out.leads = (ll.error || '오류없음') + ' / ' + ll.leads.map(l => l.grade + ':' + l.company + (l.overdue ? '(지남)' : l.due ? '(오늘)' : '')).join(' | ');
+    out.otherCannotSee = run(C, 'leadList').data.leads.map(l => l.company).join(',') + ', 남의 가망건 기록=' + run(C, 'leadHistory', { id: window.__L1 }).error;
+    out.leadSeesAll = run(L, 'leadList', {}).data.leads.length;
+    out.history = run(A, 'leadHistory', { id: window.__L1 }).data.map(c => c.result + ' ' + c.memo).join(',');
+    const imp = run(A, 'taskImport', { items: parseTodos({ todos: [
+      { text: '광고비 소진 체크', category: '관리', repeat: 'daily', time: '10:00' },
+      { title: '견적 회신', done: true },
+      { title: '[바른김치] 영업 다음 연락 · 11/12 14:00' },
+      { title: '주간 리포트 발송', type: '영업', repeat: 'weekly', days: [1, 3] },
+      { title: '비즈머니 잔액 확인', repeat: '매일' } ] }).items }).data;
+    out.import = JSON.stringify(imp) + ' 할일수=' + run(A, 'taskList').data.length;
     out.flushed = rows_('이용기록').length + '줄 시트로 이동, 저장소 남은 어제 키=' + Object.keys(window.__PROPS).filter(k => k.indexOf('U|' + addDays_(today_(), -1)) === 0).length;
     const us = run(L, 'usageStats', {}).data.members.find(m => m.email === A);
     out.usage = JSON.stringify({ days: us.usage.days, opens: us.usage.opens, tabs: us.usage.tabs, alerter: us.usage.alerter, tasks: us.tasks, sales: us.sales });
@@ -30,7 +37,14 @@ const { chromium } = require('playwright');
   Object.keys(r).forEach(k => log.push(k + ': ' + r[k]));
   // 화면: 영업노트 → 통화 결과 적기 모달, 액션플랜, 오늘 팝업, 팀 현황
   await p.evaluate(() => { closeModal(); go('sales'); }); await p.waitForTimeout(500); await p.screenshot({ path: dir + '/s_sales.png', fullPage: true });
-  await p.evaluate(() => logForm(window._leads[0].id)); await p.waitForTimeout(200); await p.screenshot({ path: dir + '/s_log.png' });
+  const order = await p.evaluate(() => [...document.querySelectorAll('.card')].map(c => (c.querySelector('.t') || {}).textContent + ': ' + [...c.querySelectorAll('.lead-row b')].filter(b => !b.closest('.when')).map(b => b.textContent).join(',')).join(' / '));
+  log.push('화면 순서: ' + order);
+  await p.evaluate(() => { ST.salesDue = '기한 지남'; viewSales(); }); await p.waitForTimeout(400);
+  log.push('기한 지남만: ' + await p.evaluate(() => [...document.querySelectorAll('.lead-row')].length + '건'));
+  await p.evaluate(() => { ST.salesDue = '전체'; openLead('N7'); }); await p.waitForTimeout(500);
+  log.push('바로가기 강조: ' + await p.evaluate(() => (document.querySelector('.lead-row.flash') || {}).id));
+  await p.evaluate(() => { closeModal(); go('task'); }); await p.waitForTimeout(500); await p.screenshot({ path: dir + '/s_task.png', fullPage: true });
+  await p.evaluate(() => importForm()); await p.waitForTimeout(200); await p.screenshot({ path: dir + '/s_import.png' });
   await p.evaluate(() => { closeModal(); go('plan'); }); await p.waitForTimeout(600); await p.screenshot({ path: dir + '/s_plan.png', fullPage: true });
   await p.evaluate(() => todayPopup()); await p.waitForTimeout(400); await p.screenshot({ path: dir + '/s_today.png' });
   const q = await b.newPage({ viewport: { width: 1280, height: 900 } }); q.on('pageerror', e => log.push('PAGEERR(lead) ' + e.message));
@@ -39,7 +53,7 @@ const { chromium } = require('playwright');
   await q.evaluate(() => { ST.calDay = B.today; go('calendar'); }); await q.waitForTimeout(600); await q.screenshot({ path: dir + '/s_cal.png', fullPage: true });
   const m = await b.newPage({ viewport: { width: 390, height: 844 } }); m.on('pageerror', e => log.push('PAGEERR(mobile) ' + e.message));
   await m.goto('file://' + dir + '/board_a.html'); await m.waitForTimeout(900);
-  for (const t of ['sales', 'plan']) { await m.evaluate(t => { closeModal(); go(t); }, t); await m.waitForTimeout(500);
+  for (const t of ['sales', 'task', 'plan']) { await m.evaluate(t => { closeModal(); go(t); }, t); await m.waitForTimeout(500);
     const ov = await m.evaluate(() => document.documentElement.scrollWidth - window.innerWidth); if (ov > 0) log.push('모바일 ' + t + ' 가로 넘침 ' + ov); }
   await m.screenshot({ path: dir + '/s_mobile_plan.png', fullPage: true });
   console.log(log.join('\n')); await b.close();
