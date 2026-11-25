@@ -1901,7 +1901,9 @@ function guideImport_() {
           '순서': g['순서'] || 50, '수정일': today_() };
       });
       if (add.length) {
-        remove_('가이드', function (g) { return g['제목'] === '광고주 계정을 우리 관리 계정에 연결하기' && String(g['내용']).indexOf('※ 팀장 검수 전 초안') === 0; });
+        // 원본의 '대체' 칸에 적힌 초안(팀장 검수 전)은 새 가이드로 바꿉니다
+        const old = ['광고주 계정을 우리 관리 계정에 연결하기'].concat(src.map(function (g) { return g['대체']; }).filter(String));
+        remove_('가이드', function (g) { return old.indexOf(g['제목']) >= 0 && String(g['내용']).indexOf('※ 팀장 검수 전 초안') === 0; });
         insertMany_('가이드', add);
       }
     });
