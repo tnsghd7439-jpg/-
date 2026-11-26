@@ -38,7 +38,10 @@
   - Secrets: https://github.com/tnsghd7439-jpg/-/settings/secrets/actions
   - Actions 실행 기록: https://github.com/tnsghd7439-jpg/-/actions
   - 토큰 만들기: https://github.com/settings/personal-access-tokens/new
-  - PR은 만들 때마다 링크를 준다. 앱스 스크립트 편집기·원보드 시트 주소는 사용자에게 한 번 받아 여기에 적는다(아직 없음).
+  - 앱스 스크립트 편집기: https://script.google.com/home/my → '네이버 전담팀 원보드' (시트에 붙은 스크립트라 드라이브 검색으로 직접 주소를 못 찾음. 사용자가 편집기 주소를 주면 여기 바꿔 적기)
+  - 원보드 시트: https://docs.google.com/spreadsheets/d/14jm4LA64KFsiw8yeTHmcNLUTIC5-ocuAE0T5H-JuY2o/edit
+  - 붙여넣기용 원문: https://raw.githubusercontent.com/tnsghd7439-jpg/-/claude/intranet-weekly-data-collection-dbpzld/naver_board/Code.gs , …/Index.html (blob 링크를 주면 사용자가 편집 화면으로 잘못 들어감 → raw 링크만)
+  - PR은 만들 때마다 링크를 준다. 초안 PR은 Merge 버튼이 안 보이므로 합치라고 할 때는 내가 먼저 초안을 푼다.
 
 ### 3. 데이터 기준 (확인 완료, 다시 묻지 않는다)
 - 매출 출처: MP AI 우선(팀장 알리미가 수집). MP AI에 없는 11번가·카카오·에이블리만 인트라넷 보충(GitHub Actions `board-sync`).
