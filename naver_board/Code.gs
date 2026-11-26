@@ -20,7 +20,7 @@ const SCHEMA = {
   '가이드': ['id', '매체', '구분', '제목', '내용', '링크', '순서', '수정일', '이미지'],
   '매체공지': ['id', '매체', '제목', '요약', '영업포인트', '링크', '게시일', '중요도', '유형', '상품', '신청시작', '마감일',
               '행사시작', '행사종료', '기간', '수집일'],
-  '할일': ['id', '이메일', '분류', '제목', '메모', '반복', '반복값', '기한', '시간', '시작일', '상태', '작성일'],
+  '할일': ['id', '이메일', '분류', '제목', '메모', '반복', '반복값', '기한', '시간', '시작일', '상태', '작성일', '업체'],
   '할일완료': ['id', '할일id', '이메일', '날짜', '완료시각'],
   '이용기록': ['날짜', '이메일', '기록'],
   '실적_일별': ['날짜', '담당자', '매체', '광고주ID', '광고주명', '매출', '출처'],
@@ -1294,6 +1294,9 @@ function perf_(me, p) {
       accounts: accounts.sort(function (a, b) { return (b.mtd - b.prevMtd) - (a.mtd - a.prevMtd); }),
       alerts: accounts.filter(function (a) { return a.status; }).sort(function (a, b) { return b.avg7 - a.avg7; }),
       trend: trendList,
+      // MP AI(팀장 알리미) 매출이 마지막으로 들어온 날. 어제보다 이전이면 화면에 안내
+      mpLatest: data.daily.reduce(function (m, r) { return r.src !== '인트라넷' && r.date > m ? r.date : m; }, ''),
+      yesterday: addDays_(today_(), -1),
     };
   }
   const mat = monthMatrix_(data);
@@ -1569,7 +1572,7 @@ function taskView_(t, done, day) {
   const today = once ? (!doneEver && String(t['기한'] || '') <= day && !!t['기한']) || (doneEver && mine.some(function (d) { return d['날짜'] === day; }))
     : occurs_(t, day);
   return {
-    id: t.id, email: low_(t['이메일']), who: nameOf_(t['이메일']), kind: t['분류'], title: t['제목'], memo: t['메모'],
+    id: t.id, email: low_(t['이메일']), who: nameOf_(t['이메일']), kind: t['분류'], title: t['제목'], company: t['업체'] || '', memo: t['메모'],
     repeat: rep, repeatValue: t['반복값'], due: t['기한'], time: t['시간'], archived: t['상태'] === '보관',
     today: today, done: once ? doneEver : doneToday, overdue: once && !doneEver && !!t['기한'] && t['기한'] < day,
     lastDone: mine.map(function (d) { return d['날짜']; }).sort().pop() || '',
@@ -1737,13 +1740,14 @@ const SALES_ACTIONS = {
   taskSave: function (me, p) {
     const rep = TASK_REPEATS.indexOf(p.repeat) >= 0 ? p.repeat : '없음';
     const rec = {
-      '분류': TASK_KINDS.indexOf(p.kind) >= 0 ? p.kind : '관리', '제목': text_(p.title, 200), '메모': text_(p.memo, 2000),
+      '분류': TASK_KINDS.indexOf(p.kind) >= 0 ? p.kind : '관리', '제목': text_(p.title, 200), '업체': text_(p.company, 60), '메모': text_(p.memo, 2000),
       '반복': rep, '반복값': rep === '매주' ? text_(p.repeatValue, 20) : rep === '매월' ? String(Math.min(31, Math.max(1, num_(p.repeatValue) || 1))) : '',
       '기한': rep === '없음' ? (isDate_(p.due) ? p.due : today_()) : '', '시간': /^\d{2}:\d{2}$/.test(p.time || '') ? p.time : '',
     };
     if (!rec['제목']) throw new Error('할일을 입력하세요.');
     if (rep === '매주' && !rec['반복값']) throw new Error('반복할 요일을 고르세요.');
     return locked_(function () {
+      taskCols_();
       if (p.id) {
         const t = rows_('할일').find(function (x) { return x.id === p.id; });
         if (!t) throw new Error('할일을 찾을 수 없습니다.');
@@ -1785,13 +1789,14 @@ const SALES_ACTIONS = {
   taskImport: function (me, p) {
     const items = (p.items || []).slice(0, 500);
     return locked_(function () {
+      taskCols_();
       const have = {};
-      rows_('할일').forEach(function (t) { if (low_(t['이메일']) === me.email && t['상태'] !== '보관') have[t['제목'] + '|' + (t['기한'] || '')] = 1; });
-      const recs = [];
+      rows_('할일').forEach(function (t) { if (low_(t['이메일']) === me.email && t['상태'] !== '보관') have[t['제목'] + '|' + (t['기한'] || '')] = t; });
+      const recs = [], fill = {};
       items.forEach(function (x) {
         const rep = TASK_REPEATS.indexOf(x.repeat) >= 0 ? x.repeat : '없음';
         const rec = {
-          id: uid_(), '이메일': me.email, '분류': TASK_KINDS.indexOf(x.kind) >= 0 ? x.kind : '관리', '제목': text_(x.title, 200),
+          id: uid_(), '이메일': me.email, '분류': TASK_KINDS.indexOf(x.kind) >= 0 ? x.kind : '관리', '제목': text_(x.title, 200), '업체': text_(x.company, 60),
           '메모': text_(x.memo, 2000), '반복': rep,
           '반복값': rep === '매주' ? text_(x.repeatValue, 20) : rep === '매월' ? String(Math.min(31, Math.max(1, num_(x.repeatValue) || 1))) : '',
           '기한': rep === '없음' ? (isDate_(x.due) ? x.due : today_()) : '', '시간': /^\d{2}:\d{2}$/.test(x.time || '') ? x.time : '',
@@ -1799,12 +1804,16 @@ const SALES_ACTIONS = {
         };
         if (!rec['제목'] || (rep === '매주' && !rec['반복값'])) return;
         const key = rec['제목'] + '|' + rec['기한'];
-        if (have[key]) return;
+        if (have[key]) {  // 이미 가져온 할일: 업체가 비어 있으면 채움(다시 가져오기로 업체명 보충)
+          if (have[key] !== 1 && !have[key]['업체'] && rec['업체']) fill[have[key].id] = rec['업체'];
+          return;
+        }
         have[key] = 1;
         recs.push(rec);
       });
       insertMany_('할일', recs);
-      return { added: recs.length, skipped: items.length - recs.length };
+      const filled = fillCol_('할일', '업체', fill);
+      return { added: recs.length, filled: filled, skipped: items.length - recs.length - filled };
     });
   },
 
@@ -1904,6 +1913,33 @@ USAGE_TAB_.checkView = '오늘점검';
  * 같은 매체·제목이 이미 있으면 건너뛰고, 대체되는 네이버 맵핑 초안은 지웁니다. 드라이브 검색은 하루 한 번만 하고,
  * 원본 시트가 바뀌었을 때만(새 가이드를 추가하면) 새 줄을 옮깁니다.
  */
+/** 할일 시트에 '업체' 칸이 없으면 한 번만 붙임(확인 기록은 ScriptProperties) */
+function taskCols_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('COLS_할일') === '1') return;
+  ensureCols_('할일');
+  props.setProperty('COLS_할일', '1');
+}
+
+/** id → 값 묶음을 한 칸(col)에 한 번에 씀(반복 쓰기 없이 setValues 한 번) */
+function fillCol_(name, col, byId) {
+  const ids = Object.keys(byId);
+  if (!ids.length) return 0;
+  forget_(name);
+  const sh = sheet_(name);
+  const vals = sh.getDataRange().getValues();
+  const k = vals[0].indexOf('id'), c = vals[0].indexOf(col);
+  if (c < 0) return 0;
+  let n = 0;
+  const out = vals.slice(1).map(function (r) {
+    const v = byId[String(cell_(r[k]))];
+    if (v) { n++; return [safe_(v)]; }
+    return [r[c]];
+  });
+  if (out.length) sh.getRange(2, c + 1, out.length, 1).setValues(out);
+  return n;
+}
+
 /** 예전에 만든 시트에 새 칸(SCHEMA에 추가된 칸)이 없으면 맨 오른쪽에 제목만 붙입니다 */
 function ensureCols_(name) {
   const sh = sheet_(name);
