@@ -48,7 +48,7 @@
     getFolders:()=>it([{ getName:()=>'스마트스토어 진단 확장', getFiles:()=>it([F('smartstore-audit-1.0.zip',40,50000),F('smartstore-audit-1.1.zip',5,52000)]) }]) }) };
   // google.script.run 흉내: 실제 Code.gs 의 함수를 비동기로 호출
   function runner(ok,fail){ return new Proxy({}, { get(_,k){ if(k==='withSuccessHandler') return f=>runner(f,fail); if(k==='withFailureHandler') return f=>runner(ok,f);
-    return (...a)=>setTimeout(()=>{ try{ const r=window[k](...a); ok&&ok(r);}catch(e){ console.error(e); fail&&fail(e);} },5); } }); }
+    return (...a)=>{ if(window.__NET&&k==='api') window.__NET.push(a[0]); setTimeout(()=>{ try{ const r=window[k](...a); ok&&ok(r);}catch(e){ console.error(e); fail&&fail(e);} },window.__DELAY||5); }; } }); }
   window.google={ script:{ run:runner(), url:{ getLocation:cb=>cb({parameter:{tab:window.__TAB||''},hash:''}) } } };
 })();
 ;(function(){ window.__CALLS=0; const R=Object.getPrototypeOf(SpreadsheetApp.getActive().insertSheet('__x')); })();

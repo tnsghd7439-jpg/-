@@ -322,7 +322,54 @@ var CUR = null;          // 현재 탭
 var ST = { taskWho: '', salesGrade: '전체', salesDue: '전체', salesOpen: true, planWho: '', calMonth: '', calWho: '', calDay: '', perfWho: '', guideMedia: '', noticeFilter: '전체' };
 var HOUR = 60 * 60 * 1000;
 
+/* 빠른 화면: 읽기 요청은 마지막 결과를 먼저 보여주고(이 PC에 저장), 뒤에서 새로 받아 바뀌었으면 다시 그림.
+   30초 안에 다시 열면 서버에 묻지 않음. 저장·삭제·체크 같은 쓰기 뒤에는 모두 지우고 새로 받음.
+   1 = 이 PC에도 저장(다음에 열 때 바로 보임), 2 = 창을 닫으면 사라짐(연락처가 있는 영업노트) */
+var READS = { bootstrap: 1, perf: 1, checkView: 1, goalList: 1, failureList: 1, taskList: 1, noticeList: 1, mediaNoticeList: 1, calendar: 1, teamStats: 1, usageStats: 1, solutions: 1, guideList: 1, leadList: 2, today: 2 };
+var CACHE = {}, FRESH_MS = 30000, CV = 'oc1:';
+function ckey(a, p) { return a + '|' + JSON.stringify(p || {}); }
+function cget(k) {
+  if (!CACHE[k]) { var s = store(CV + k); if (s) try { CACHE[k] = JSON.parse(s); } catch (e) {} }
+  return CACHE[k];
+}
+function cput(k, a, d) {
+  CACHE[k] = { d: d, at: Date.now() };
+  if (READS[a] !== 1) return;
+  try { var s = JSON.stringify(CACHE[k]); if (s.length < 1500000) localStorage.setItem(CV + k, s); } catch (e) { cclear(); }
+}
+function cclear() {
+  CACHE = {};
+  try { Object.keys(localStorage).forEach(function (k) { if (k.indexOf('oc') === 0 && k.indexOf(':') > 0) localStorage.removeItem(k); }); } catch (e) {}
+}
+var _redraw;
+function freshArrived(a) {
+  if (a === 'bootstrap') return;  // start()가 따로 처리
+  clearTimeout(_redraw);
+  _redraw = setTimeout(function () {
+    var ae = document.activeElement;
+    if (!CUR || CUR === 'more' || ($('modal') && !$('modal').hidden) || (ae && /INPUT|SELECT|TEXTAREA/.test(ae.tagName) && $('view').contains(ae))) return;
+    var y = window.scrollY;
+    ({ perf: viewPerf, check: viewCheck, plan: viewPlan, sales: viewSales, task: viewTask, notice: viewNotice, solution: viewSolution, guide: viewGuide, calendar: viewCalendar, admin: viewAdmin }[CUR] || function () {})();
+    setTimeout(function () { try { window.scrollTo(0, y); } catch (e) {} }, 60);
+  }, 150);
+}
 function call(action, payload) {
+  if (!READS[action]) {
+    var write = /(Save|Delete|Done|Ack|Undo|Talked|Review|Import)$/.test(action);
+    return net(action, payload).then(function (d) { if (write) cclear(); return d; });
+  }
+  var k = ckey(action, payload), c = cget(k);
+  if (c && Date.now() - c.at < FRESH_MS) return Promise.resolve(c.d);
+  var p = net(action, payload).then(function (d) {
+    var changed = !c || JSON.stringify(c.d) !== JSON.stringify(d);
+    cput(k, action, d);
+    if (c && changed) freshArrived(action);
+    return d;
+  });
+  if (c) { p.catch(function () {}); return Promise.resolve(c.d); }
+  return p;
+}
+function net(action, payload) {
   return new Promise(function (res, rej) {
     google.script.run
       .withSuccessHandler(function (t) { var r = JSON.parse(t); r.ok ? res(r.data) : rej(new Error(r.error)); })
@@ -363,11 +410,26 @@ function memberOpts(cur, withAll) { var l = withAll ? [{ v: '', l: '팀원 전�
 
 /* ───────── 시작 ───────── */
 function start() {
-  call('bootstrap').then(function (d) {
+  var bk = ckey('bootstrap'), cached = cget(bk), shown = false;
+  if (cached) { show(cached.d, false); shown = true; }
+  net('bootstrap', {}).then(function (d) {
+    if (cached && cached.d.me && cached.d.me.email !== d.me.email) { cclear(); shown = false; }  // 다른 사람이 같은 PC에서 열면 저장분 버림
+    cput(bk, 'bootstrap', d);
+    if (shown) { var day = B.today; B = d; drawHead(); drawTabs(); nudge(true); if (day !== d.today) { cclear(); cput(bk, 'bootstrap', d); go(CUR); } } else show(d, true);
+  }).catch(function (e) {
+    if (!shown) $('view').innerHTML = '<div class="fatal">' + esc(e.message || e) + '</div>';
+  });
+  setInterval(function () { nudge(false); }, HOUR);
+}
+function drawHead() {
+  var d = B, dd = new Date(d.today + 'T00:00:00Z');
+  $('who').innerHTML = '<span><b>' + esc(d.me.name) + '</b> 님</span><span class="role">' + (isLead() ? '팀장' : '팀원') + '</span>'
+    + '<span>' + esc(d.today.slice(5)) + ' (' + '일월화수목금토'[dd.getUTCDay()] + ')</span>';
+}
+function show(d, live) {
+  {
     B = d;
-    var dd = new Date(d.today + 'T00:00:00Z');
-    $('who').innerHTML = '<span><b>' + esc(d.me.name) + '</b> 님</span><span class="role">' + (isLead() ? '팀장' : '팀원') + '</span>'
-      + '<span>' + esc(d.today.slice(5)) + ' (' + '일월화수목금토'[dd.getUTCDay()] + ')</span>';
+    drawHead();
     $('sidefoot').innerHTML = '<button class="linkbtn" onclick="alertSetup()">알리미 연결</button>';
     drawTabs();
     google.script.url.getLocation(function (loc) {
@@ -376,12 +438,22 @@ function start() {
       var first = (want && B.tabs.some(function (t) { return t.id === want; })) ? want : (store('ob-tab') || B.tabs[0].id);
       if (!B.tabs.some(function (t) { return t.id === first; })) first = B.tabs[0].id;
       go(first);
-      nudge(true);
+      if (live) nudge(true);
+      setTimeout(prefetch, 1500);
     });
-    setInterval(function () { nudge(false); }, HOUR);
-  }).catch(function (e) {
-    $('view').innerHTML = '<div class="fatal">' + esc(e.message || e) + '</div>';
-  });
+  }
+}
+/** 첫 화면이 뜬 뒤, 자주 여는 탭을 하나씩 미리 받아 둠(누르면 바로 보이게) */
+function prefetch() {
+  var L = isLead(), me = B.me.email;  // 각 화면이 보내는 값과 똑같이(같은 열쇠로 저장되게)
+  var list = [['taskList', { email: L ? ST.taskWho : me }], ['perf', { email: L ? ST.perfWho : '' }], ['checkView', { email: L ? ST.checkWho : '' }],
+    ['goalList', { email: L ? ST.planWho : me }], ['failureList', { email: L ? ST.planWho : me, all: !L }], ['today', undefined], ['noticeList', undefined], ['mediaNoticeList', undefined]];
+  (function next(i) {
+    if (i >= list.length) return;
+    var k = ckey(list[i][0], list[i][1]), c = cget(k);
+    if (c && Date.now() - c.at < FRESH_MS) return next(i + 1);
+    call(list[i][0], list[i][1]).then(function () { setTimeout(function () { next(i + 1); }, 300); }, function () { next(i + 1); });
+  })(0);
 }
 
 /* 메뉴: PC 왼쪽 4묶음(오늘·성과·자료·팀장 전용), 모바일 아래 5칸(점검·할일·영업노트·실적·더보기) */

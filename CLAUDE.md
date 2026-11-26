@@ -18,6 +18,7 @@
   node naver_board/dev/act.js naver_board/dev/out     # 실패 사유·소통완료·평가자료·권한·알리미
   node naver_board/dev/sales_test.js naver_board/dev/out  # 영업노트·할일·오늘·이용 기록·권한
   node naver_board/dev/check_test.js naver_board/dev/out <latest.json>  # 오늘 점검(일일점검 화면·바로가기·팀원 필터)
+  node naver_board/dev/cache_test.js naver_board/dev/out  # 빠른 화면: 다시 열기·탭 이동이 저장분으로 바로 뜨는지(요청 1.5초 가정)
   ```
 
 ### 2. 사용자 손을 최소로
@@ -66,6 +67,8 @@
   ③ 매체별 가이드에 "교육·영업 자료" 묶음(드라이브 링크). 통화 건수(녹취 데이터)는 출처 확인 후 결정.
 - 흡수하지 않음: 개별 프로그램(솔루션 탭 연결로 충분), 일회성 작업 도구, 광고주용 결과물 스킬(배너·제안서).
 
+## 속도(2026-11-26): 화면 쪽 저장(Index.html READS/call): 읽기 결과를 이 PC(localStorage, 영업노트·오늘은 창 메모리만)에 두고 먼저 그린 뒤 뒤에서 새로 받아 바뀌면 다시 그림.
+   30초 안 재요청은 서버 안 감, 쓰기(Save·Delete·Done·Ack·Undo·Talked·Review·Import) 뒤 전부 비움, 첫 화면 뒤 자주 쓰는 탭 미리 받기(prefetch). 새 읽기 요청을 만들면 READS에 넣는다.
 ## 디자인 v1(2026-11-26, Claude Design 시안 적용): 토큰은 Index.html :root(--bad/--warn/--ok/--info 3단계+정보, --bg 회색 배경),
    PC 왼쪽 메뉴 4묶음(오늘·성과·자료·팀장 전용, 빨강 배지=오늘 손댈 것) / 900px 이하 아래 탭 5칸(점검·할일·영업노트·실적·더보기),
    640px 이하 표는 cardify()가 data-label 붙여 카드로. 접는 영역 fold(), 지금 할 일 줄 .todo-strip, 모바일 모달=아래 시트.
