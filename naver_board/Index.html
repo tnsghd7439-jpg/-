@@ -250,7 +250,8 @@
   .irow>summary,.irow.none{list-style:none;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:var(--r);margin:0;color:var(--ink);font-size:var(--fs-sm);cursor:pointer}
   .irow>summary::-webkit-details-marker{display:none}
   .irow.warn>summary{background:var(--warn-bg)} .irow.info>summary{background:var(--line2)} .irow.none{cursor:default}
-  .irow .cnt{margin-left:auto;font-weight:800}
+  .irow .cnt{margin-left:auto;font-weight:800;white-space:nowrap;flex:none}
+  .irow>summary>b,.irow.none>b{white-space:nowrap;flex:none}
   .irow.warn .cnt{color:var(--warn)}
   details.kebab{position:relative}
   details.kebab>summary{list-style:none;margin:0;color:var(--ink2)} details.kebab>summary::-webkit-details-marker{display:none}
