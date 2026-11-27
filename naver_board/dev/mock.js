@@ -25,17 +25,18 @@
   const p2=n=>('0'+n).slice(-2);
   window.Utilities={ formatDate:(d,tz,f)=>{ const k=kst(window.__NOW?new Date(window.__NOW):d===undefined?new Date():d); const k2=kst(d); const x=k2; return f.replace('yyyy',x.getUTCFullYear()).replace('MM',p2(x.getUTCMonth()+1)).replace('dd',p2(x.getUTCDate())).replace('HH',p2(x.getUTCHours())).replace('mm',p2(x.getUTCMinutes())).replace(/^H$/,String(x.getUTCHours())); },
     getUuid:()=>([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,c=>(c^Math.random()*16>>c/4).toString(16)) };
-  window.Session={ getActiveUser:()=>({ getEmail:()=>window.__USER }) };
+  window.Session={ getActiveUser:()=>({ getEmail:()=>window.__USER }), getEffectiveUser:()=>({ getEmail:()=>'lead@mymp.co.kr' }) }; window.__MAIL=[]; window.MailApp={ sendEmail:(to,sub,body)=>window.__MAIL.push({to,sub,body}) };
   window.LockService={ getScriptLock:()=>({ waitLock(){}, tryLock(){ return true; }, releaseLock(){} }) };
   const PROPS = (window.__PROPS = window.__PROPS || {});
   window.PropertiesService={ getScriptProperties:()=>({ getProperty:k=>PROPS[k]===undefined?null:PROPS[k], setProperty:(k,v)=>{PROPS[k]=String(v);},
     deleteProperty:k=>{delete PROPS[k];}, getProperties:()=>Object.assign({},PROPS) }) };
   window.__TRIG=window.__TRIG||[]; window.__FETCH=window.__FETCH||[];
-  window.ScriptApp={ getService:()=>({ getUrl:()=>'https://script.google.com/macros/s/TEST/exec' }),
+  window.ScriptApp={ getScriptId:()=>'SID', getOAuthToken:()=>'tok', getService:()=>({ getUrl:()=>'https://script.google.com/macros/s/TEST/exec' }),
     getProjectTriggers:()=>window.__TRIG.map(f=>({ getHandlerFunction:()=>f })),
     newTrigger:(f)=>({ timeBased:()=>({ everyMinutes:()=>({ create:()=>{ window.__TRIG.push(f); } }) }) }) };
   window.UrlFetchApp={ fetch:(url,o)=>{ window.__FETCH.push({url,o}); const code=window.__FETCH_CODE||(url.indexOf('/dispatches')>0?204:200);
-    return { getResponseCode:()=>code, getContentText:()=>JSON.stringify({default_branch:'main-test'}) }; } };
+    if(window.__FETCH_FN){ const x=window.__FETCH_FN(url,o||{}); if(x) return { getResponseCode:()=>x.code||200, getContentText:()=>typeof x.body==='string'?x.body:JSON.stringify(x.body||{}), getHeaders:()=>x.headers||{} }; }
+    return { getResponseCode:()=>code, getContentText:()=>JSON.stringify({default_branch:'main-test'}), getHeaders:()=>({'github-authentication-token-expiration':'2026-12-10 00:00:00 UTC'}) }; } };
   window.ContentService={ MimeType:{JSON:'json'}, createTextOutput:t=>({ text:t, setMimeType(){ return this; } }) };
   function F(name,days,size){ const d=new Date(Date.now()-days*864e5); return { getId:()=>name.replace(/\W/g,''), getName:()=>name, getLastUpdated:()=>d, getSize:()=>size, getUrl:()=>'https://drive.google.com/file/d/'+name, getDescription:()=>'' }; }
   function it(a){ let i=0; return { hasNext:()=>i<a.length, next:()=>a[i++] }; }

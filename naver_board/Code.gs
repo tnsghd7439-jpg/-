@@ -34,6 +34,8 @@ const DEFAULT_SETTINGS = [
   ['VAT포함매체', '', 'MP AI가 공급가액을 주므로 보통 비워둡니다. 넣은 매체(이름 일부만 맞아도 적용)는 1.1로 나눠 저장'],
   ['제외계정', '', '실적에서 뺄 광고주ID (쉼표로 구분). 월간보고 제외 계정과 같게'],
   ['절반반영계정', '', 'MP AI 공유 비율과 별개로 50%만 반영할 광고주ID (쉼표로 구분). 보통 비워둡니다'],
+  ['GFA_SA기준', '10000', 'GFA 액션: 검색광고 최근 7일 하루 평균이 이 금액(원) 이상인데 GFA를 안 쓰는 광고주를 GFA 제안 대상으로 보여줌'],
+  ['GFA_연결', '', 'GFA 액션: 검색광고와 GFA 광고주명이 달라 짝이 안 맞을 때 "검색광고 이름=GFA 이름" 을 쉼표로 이어 적기'],
   ['인트라넷보충매체', '11번가,카카오,에이블리', 'MP AI에 아직 없는 매체만 인트라넷에서 보충. MP AI에 들어오기 시작하면 여기서 지우세요(겹치는 기간은 자동으로 MP AI 우선)'],
   ['수집토큰', '', '인트라넷 보충 수집기(GitHub Actions)가 보낼 때 쓰는 비밀 문자열. BOARD_TOKEN 과 같은 값'],
   ['마지막인트라넷수집', '', '자동으로 기록됩니다'],
@@ -928,7 +930,7 @@ const ACTIONS = {
     const checks = rows_('일일체크');
     const kp = PropertiesService.getScriptProperties();
     return {
-      month: month, kick: { token: !!settings_()['깃허브토큰'], last: kp.getProperty('KICK_LAST') || '' },
+      month: month, kick: { token: !!ghToken_(), last: kp.getProperty('KICK_LAST') || '', exp: kp.getProperty('GH_EXP') || '', upd: kp.getProperty('UPD_LAST') || '', updOn: kp.getProperty('UPD_ON') === '1' },
       members: members_().map(function (m) {
         const mc = checks.filter(function (c) { return low_(c['이메일']) === m.email && monthOf_(c['날짜']) === month; });
         const ok = mc.filter(function (c) { return c['결과'] === '달성'; }).length;
@@ -1169,6 +1171,66 @@ function salesRows_(managers) {
     monthly: clean(rows_('실적_월별'), '월', 7).filter(pick).map(function (r) { return conv(r, '월', 7, 'month'); }),
     migrated: Object.keys(migrated),
   };
+}
+
+/** 광고주명 짝 맞추기용: (주)·주식회사·공백·특수문자 빼고 소문자 */
+function bizKey_(n) {
+  return String(n || '').toLowerCase().replace(/\(주\)|㈜|주식회사|유한회사|농업회사법인|\(유\)/g, '').replace(/[^0-9a-z가-힣]/g, '');
+}
+
+function gfaActions_(me, p) {
+  const data = salesRows_(managersFor_(me, p));
+  const s = settings_();
+  const saMin = num_(s['GFA_SA기준']) || 10000;
+  const link = {};
+  list_(s['GFA_연결']).forEach(function (pair) { const x = pair.split('='); if (x.length === 2) link[bizKey_(x[0])] = bizKey_(x[1]); });
+  const isG = function (m) { return /gfa/i.test(m); }, isS = function (m) { return mediaKey_(m) === '네이버'; };
+  // 기준일: GFA·검색광고 MP AI 데이터가 들어온 마지막 날
+  const latest = data.daily.reduce(function (m, r) { return (isG(r.media) || isS(r.media)) && r.src !== '인트라넷' && r.date > m ? r.date : m; }, '');
+  if (!latest) return { empty: true };
+  const cm = monthOf_(latest), pm = addMonths_(cm, -1);
+  const d3 = addDays_(latest, -2), d10 = addDays_(latest, -9);
+  const who = {};
+  members_().forEach(function (m) { ids_(m).forEach(function (k) { who[low_(k)] = m.name; }); });
+  const acc = {};
+  const get = function (r) {
+    const k = r.media + '|' + r.id;
+    return acc[k] = acc[k] || { media: r.media, id: r.id, name: r.name, owner: who[low_(r.mgr)] || r.mgr, last3: 0, prev7: 0, mtd: 0, prevMonth: 0, lastDay: '' };
+  };
+  data.daily.forEach(function (r) {
+    if (!isG(r.media) && !isS(r.media)) return;
+    const a = get(r);
+    if (r.date > latest) return;
+    if (r.date >= d3) a.last3 += r.amt / 3;
+    else if (r.date >= d10) a.prev7 += r.amt / 7;
+    if (monthOf_(r.date) === cm) a.mtd += r.amt;
+    if (monthOf_(r.date) === pm) a.prevMonth += r.amt;
+    if (r.amt > 0 && r.date > a.lastDay) a.lastDay = r.date;
+  });
+  // 지난달은 월별 시트가 더 정확(일별이 비어 있을 수 있음)
+  const pmBy = {};
+  data.monthly.forEach(function (r) { if (r.month === pm && (isG(r.media) || isS(r.media))) { get(r); pmBy[r.media + '|' + r.id] = (pmBy[r.media + '|' + r.id] || 0) + r.amt; } });
+  Object.keys(pmBy).forEach(function (k) { acc[k].prevMonth = Math.max(acc[k].prevMonth, pmBy[k]); });
+  const all = Object.keys(acc).map(function (k) { const a = acc[k]; a.last3 = Math.round(a.last3); a.prev7 = Math.round(a.prev7); return a; });
+  const gfa = all.filter(function (a) { return isG(a.media); }), sa = all.filter(function (a) { return isS(a.media); });
+  const gfaLive = {};
+  gfa.forEach(function (a) { if (a.mtd > 0 || a.prevMonth > 0) gfaLive[bizKey_(a.name)] = true; });
+  const out = { latest: latest, month: cm, prevMonth: pm, saMin: saMin, propose: [], dormant: [], down: [], up: [] };
+  sa.forEach(function (a) {
+    const k = bizKey_(a.name);
+    if (a.prev7 + a.last3 > 0 && (a.prev7 * 7 + a.last3 * 3) / 10 >= saMin && !gfaLive[link[k] || k]) out.propose.push(a);
+  });
+  gfa.forEach(function (a) {
+    if (a.prevMonth > 0 && a.mtd === 0) { a.kind = '휴면'; out.dormant.push(a); return; }
+    if (a.prev7 >= 5000 && a.last3 === 0) { a.kind = '중단'; out.down.push(a); return; }
+    if (a.prev7 >= 5000 && a.last3 < a.prev7 * 0.8) { a.kind = '감액'; out.down.push(a); return; }
+    if (a.prevMonth === 0 && a.mtd > 0) { a.kind = '라이브 전환'; out.up.push(a); return; }
+    if (a.last3 >= 5000 && a.last3 >= a.prev7 * 1.2) { a.kind = '증액'; out.up.push(a); }
+  });
+  const by = function (f) { return function (x, y) { return y[f] - x[f]; }; };
+  out.propose.sort(function (x, y) { return (y.prev7 + y.last3) - (x.prev7 + x.last3); });
+  out.dormant.sort(by('prevMonth')); out.down.sort(by('prev7')); out.up.sort(by('last3'));
+  return out;
 }
 
 /** 실적의 '담당자'는 MP AI 담당자 이메일(또는 예전 방식의 이름)이라 둘 다로 찾습니다 */
@@ -1714,6 +1776,56 @@ function salesSummary_(email, from, to) {
 
 const SALES_ACTIONS = {
   /** 영업노트_DB 의 내 가망건(팀장은 전체·팀원 선택). 저장·수정은 기존 영업노트 앱에서 합니다. */
+  /** 팀장: 지금 업데이트 확인·적용(자동 업데이트 첫 연결과 문제 확인용) */
+  updateSave: function (me) {
+    needLead_(me);
+    try { return selfUpdate_(true); } catch (e) {
+      const msg = String(e && e.message || e).slice(0, 200);
+      PropertiesService.getScriptProperties().setProperty('UPD_LAST', now_() + ' 실패: ' + msg);
+      return { ok: false, msg: msg };
+    }
+  },
+
+  /** 팀장: 팀원 추가(이미 있으면 이름·담당자명만 고치고 다시 사용) */
+  memberSave: function (me, p) {
+    needLead_(me);
+    const email = low_(p.email).trim(), name = text_(p.name, 30);
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('이메일을 정확히 입력하세요.');
+    if (!name) throw new Error('이름을 입력하세요.');
+    const rec = { '이름': name, '역할': p.role === '팀장' ? '팀장' : '팀원', '담당자명': text_(p.manager, 30) || name, '사용': 'Y' };
+    return locked_(function () {
+      const all = rows_('팀원');
+      if (all.some(function (r) { return low_(r['이메일']) === email; })) { update_('팀원', '이메일', all.filter(function (r) { return low_(r['이메일']) === email; })[0]['이메일'], rec); return 'updated'; }
+      rec['이메일'] = email;
+      insert_('팀원', rec);
+      return 'added';
+    });
+  },
+
+  /** 팀장: 명단에서 빼기(줄은 남기고 사용 N — 지난 기록 보존) */
+  memberDelete: function (me, p) {
+    needLead_(me);
+    const email = low_(p.email);
+    if (email === me.email) throw new Error('본인은 뺄 수 없습니다.');
+    return locked_(function () {
+      const r = rows_('팀원').filter(function (x) { return low_(x['이메일']) === email; })[0];
+      if (r) update_('팀원', '이메일', r['이메일'], { '사용': 'N' });
+      return true;
+    });
+  },
+
+  /** 팀장: 영업노트 앱은 쓰는데 원보드 명단에 없는 사람(팀원 추가 창의 추천) */
+  memberHints: function (me) {
+    needLead_(me);
+    const have = {}, out = {};
+    rows_('팀원').forEach(function (r) { if (r['사용'] !== 'N') have[low_(r['이메일'])] = 1; });
+    noteDb_().leads.forEach(function (r) { const e = low_(r['영업자이메일']); if (e && !have[e]) out[e] = String(r['영업자'] || ''); });
+    return Object.keys(out).map(function (e) { return { email: e, name: out[e] }; });
+  },
+
+  /** 오늘 점검 'GFA 액션': MP AI 매출(네이버·네이버GFA)로 팀원이 할 일을 고름. 새 수집 없음 */
+  gfaActions: function (me, p) { return gfaActions_(me, p); },
+
   leadList: function (me, p) {
     const emails = scopeEmails_(me, p.email);
     const db = noteDb_();
@@ -2046,9 +2158,11 @@ function kickRunner() {
   const em = low_(Session.getActiveUser().getEmail());
   if (em && !members_().some(function (m) { return m.email === em && m.role === 'lead'; })) return;
   const s = settings_();
-  if (!s['깃허브토큰']) return;
   const props = PropertiesService.getScriptProperties();
   const day = today_(), hm = now_().slice(11), w = dt_(day).getUTCDay();
+  try { watch_(props, day, hm, w); } catch (e) { /* 알림 실패가 수집 요청을 막지 않게 */ }
+  if (!ghToken_()) return;
+  try { if (props.getProperty('UPD_ON') === '1') selfUpdate_(false); } catch (e) { props.setProperty('UPD_LAST', now_() + ' 실패: ' + String(e && e.message || e).slice(0, 150)); }
   kickSlots_(s['자동실행']).forEach(function (k) {
     if (k.weekday && (w === 0 || w === 6)) return;
     const key = 'K|' + day + '|' + k.name + '|' + k.at;
@@ -2070,26 +2184,167 @@ function addMin_(hm, n) {
   return ('0' + Math.min(23, Math.floor(t / 60))).slice(-2) + ':' + ('0' + (t >= 1440 ? 59 : t % 60)).slice(-2);
 }
 
+/**
+ * 깃허브 토큰 보관: 설정 탭 '깃허브토큰' 칸에 토큰을 적으면, 다음 예약 실행(10분 안)이나 팀 현황을 열 때
+ * 스크립트 내부 저장소(ScriptProperties)로 옮기고 칸에는 안내 글만 남깁니다. 바꿀 때도 그 칸에 새 토큰을 붙여넣으면 됩니다.
+ */
+function ghToken_() {
+  const props = PropertiesService.getScriptProperties();
+  const cell = String(settings_()['깃허브토큰'] || '').trim();
+  if (/^(github_pat_|ghp_)\S{20,}$/.test(cell)) {
+    props.setProperty('GH_TOKEN', cell);
+    props.deleteProperty('GH_EXP');
+    update_('설정', '키', '깃허브토큰', { '값': '(저장됨 · 바꾸려면 이 칸에 새 토큰 붙여넣기)' });
+    return cell;
+  }
+  return props.getProperty('GH_TOKEN') || '';
+}
+
+function ghRef_(repo) {
+  const props = PropertiesService.getScriptProperties();
+  let ref = props.getProperty('KICK_REF');
+  if (ref) return ref;
+  const info = gh_('/repos/' + repo);
+  if (info.getResponseCode() !== 200) throw new Error('저장소를 읽지 못함(' + info.getResponseCode() + ') — 토큰 권한을 확인하세요');
+  ref = JSON.parse(info.getContentText()).default_branch;
+  props.setProperty('KICK_REF', ref);
+  return ref;
+}
+
+/** GitHub API 호출. 응답에 실려 오는 토큰 만료일을 기억해 둡니다(만료 30일 전부터 경고) */
+function gh_(path, opt) {
+  const o = opt || {};
+  o.muteHttpExceptions = true;
+  o.headers = { Authorization: 'Bearer ' + ghToken_(), Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
+  const r = UrlFetchApp.fetch('https://api.github.com' + path, o);
+  try {
+    const h = r.getHeaders() || {};
+    Object.keys(h).forEach(function (k) {
+      if (k.toLowerCase() !== 'github-authentication-token-expiration') return;
+      const d = String(h[k]).slice(0, 10), props = PropertiesService.getScriptProperties();
+      if (isDate_(d) && props.getProperty('GH_EXP') !== d) props.setProperty('GH_EXP', d);
+    });
+  } catch (e) { /* 만료일은 참고용 */ }
+  return r;
+}
+
 /** GitHub 에 workflow_dispatch 요청 */
 function kick_(s, k) {
   const repo = s['깃허브저장소'] || 'tnsghd7439-jpg/-';
-  const head = { Authorization: 'Bearer ' + s['깃허브토큰'], Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' };
   try {
-    const props = PropertiesService.getScriptProperties();
-    let ref = props.getProperty('KICK_REF');
-    if (!ref) {
-      const info = UrlFetchApp.fetch('https://api.github.com/repos/' + repo, { headers: head, muteHttpExceptions: true });
-      if (info.getResponseCode() !== 200) return { ok: false, error: '저장소를 읽지 못함(' + info.getResponseCode() + ') — 토큰 권한을 확인하세요' };
-      ref = JSON.parse(info.getContentText()).default_branch;
-      props.setProperty('KICK_REF', ref);
-    }
-    const body = { ref: ref };
+    const body = { ref: ghRef_(repo) };
     if (k.wf === 'board-sa.yml') body.inputs = { notify: k.notify ? 'true' : 'false' };
-    const r = UrlFetchApp.fetch('https://api.github.com/repos/' + repo + '/actions/workflows/' + k.wf + '/dispatches', {
-      method: 'post', contentType: 'application/json', headers: head, payload: JSON.stringify(body), muteHttpExceptions: true });
+    const r = gh_('/repos/' + repo + '/actions/workflows/' + k.wf + '/dispatches', { method: 'post', contentType: 'application/json', payload: JSON.stringify(body) });
     if (r.getResponseCode() === 204) return { ok: true };
     return { ok: false, error: 'GitHub 응답 ' + r.getResponseCode() };
   } catch (e) {
     return { ok: false, error: String(e && e.message || e).slice(0, 120) };
+  }
+}
+
+/** MP AI 매출이 마지막으로 들어온 날(인트라넷 보충분 제외) */
+function mpLatest_() {
+  return rows_('실적_일별').reduce(function (m, r) {
+    const d = String(r['날짜']).slice(0, 10);
+    return String(r['출처']) !== '인트라넷' && d > m ? d : m;
+  }, '');
+}
+
+/**
+ * 하루 한 번(평일 13시 이후) 팀장에게 메일: MP AI 매출이 어제 것까지 안 들어왔을 때, 깃허브 토큰 만료가 30일 안일 때.
+ * 알리미가 꺼져 있어도 알 수 있게 메일로 보냅니다.
+ */
+function watch_(props, day, hm, w) {
+  if (w === 0 || w === 6 || hm < '13:00' || props.getProperty('WATCH_DAY') === day) return;
+  props.setProperty('WATCH_DAY', day);
+  const msgs = [];
+  const mp = mpLatest_(), yest = addDays_(day, -1);
+  if (mp && mp < yest) msgs.push('· MP AI 매출이 ' + mp + ' 까지만 들어왔습니다(어제 ' + yest + ' 분이 없음).\n  팀장 PC 크롬에서 MP AI 로그인과 원보드 알리미를 확인하고, 알리미 아이콘 → "지금 가져오기"를 눌러 주세요.');
+  const exp = props.getProperty('GH_EXP');
+  if (exp) {
+    const left = Math.round((dt_(exp) - dt_(day)) / 864e5);
+    if (left <= 30) msgs.push('· 깃허브 토큰이 ' + exp + ' 에 만료됩니다(' + (left < 0 ? '이미 지남' : left + '일 남음') + '). 만료되면 정시 자동 수집이 멈춥니다.\n  새 토큰: https://github.com/settings/personal-access-tokens → 설정 탭 깃허브토큰 칸에 붙여넣기');
+  }
+  if (!msgs.length) return;
+  const to = Session.getEffectiveUser().getEmail();
+  if (to) MailApp.sendEmail(to, '[원보드] 확인이 필요합니다 (' + day + ')', msgs.join('\n\n') + '\n\n원보드: ' + (settings_()['보드주소'] || ''));
+}
+
+/**
+ * 자동 업데이트: GitHub 기본 브랜치의 naver_board/Code.gs·Index.html 이 바뀌면(=PR을 합치면) 이 스크립트가 스스로
+ * 새 코드를 받아 넣고, 새 버전을 만들어 활성 배포들을 그 버전으로 바꿉니다. 붙여넣기·배포를 손으로 하지 않아도 됩니다.
+ * 필요: Apps Script API 켜기(script.google.com/home/usersettings) + appsscript.json 의 script.projects·script.deployments 권한.
+ * 배포마다 접근 설정(실행 계정·접근 범위)이 다를 수 있어, 설정이 같은 배포끼리 묶어 그 설정을 넣은 버전을 따로 만듭니다.
+ */
+function selfUpdate_(force) {
+  const props = PropertiesService.getScriptProperties();
+  const repo = settings_()['깃허브저장소'] || 'tnsghd7439-jpg/-';
+  const ref = ghRef_(repo);
+  const paths = { Code: 'naver_board/Code.gs', Index: 'naver_board/Index.html' };
+  const shas = Object.keys(paths).map(function (n) {
+    const r = gh_('/repos/' + repo + '/commits?sha=' + encodeURIComponent(ref) + '&path=' + paths[n] + '&per_page=1');
+    if (r.getResponseCode() !== 200) throw new Error('GitHub 변경 확인 실패(' + r.getResponseCode() + ')');
+    return JSON.parse(r.getContentText())[0].sha;
+  });
+  const key = shas.join('|');
+  const seen = props.getProperty('UPD_SEEN');
+  if (!seen && !force) { props.setProperty('UPD_SEEN', key); return { ok: true, msg: '지금 코드를 기준으로 잡았어요. 다음 변경부터 자동 적용됩니다.' }; }
+  if (seen === key && !force) return { ok: true, same: true, msg: '이미 최신입니다.' };
+  const fail = (props.getProperty('UPD_FAIL') || '').split('#');
+  if (!force && fail[0] === key && Number(fail[1]) >= 3) return { ok: false, msg: '같은 변경에서 3번 실패해 멈췄어요. 팀 현황의 "업데이트 확인"을 눌러 주세요.' };
+  try {
+    const src = {};
+    Object.keys(paths).forEach(function (n, i) {
+      const r = UrlFetchApp.fetch('https://raw.githubusercontent.com/' + repo + '/' + shas[i] + '/' + paths[n], { muteHttpExceptions: true });
+      if (r.getResponseCode() !== 200) throw new Error(paths[n] + ' 내려받기 실패(' + r.getResponseCode() + ')');
+      src[n] = r.getContentText('UTF-8');
+    });
+    // 엉뚱한 파일이 들어가 보드가 멈추지 않게 기본 확인
+    if (src.Code.length < 50000 || src.Code.indexOf('function doGet(') < 0 || src.Code.indexOf('function selfUpdate_(') < 0) throw new Error('Code.gs 내용이 이상해 적용하지 않았어요');
+    if (src.Index.length < 50000 || src.Index.indexOf('</html>') < 0) throw new Error('Index.html 내용이 이상해 적용하지 않았어요');
+    const base = 'https://script.googleapis.com/v1/projects/' + ScriptApp.getScriptId();
+    const api = function (path, method, body) {
+      const o = { method: method || 'get', muteHttpExceptions: true, headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() } };
+      if (body) { o.contentType = 'application/json'; o.payload = JSON.stringify(body); }
+      const r = UrlFetchApp.fetch(base + path, o), code = r.getResponseCode();
+      if (code === 403) throw new Error('Apps Script API 권한 없음(403) — API 켜기와 appsscript.json 권한을 확인하세요');
+      if (code < 200 || code > 299) throw new Error('Apps Script API ' + (method || 'get') + ' ' + path.split('?')[0] + ' 실패(' + code + '): ' + r.getContentText().slice(0, 120));
+      return JSON.parse(r.getContentText() || '{}');
+    };
+    const files = api('/content').files || [];
+    const mf = files.filter(function (f) { return f.name === 'appsscript'; })[0];
+    if (!mf || !files.some(function (f) { return f.name === 'Code'; }) || !files.some(function (f) { return f.name === 'Index'; })) throw new Error('편집기 파일 이름이 Code·Index·appsscript 가 아니에요');
+    const deps = (api('/deployments?pageSize=50').deployments || []).filter(function (d) {
+      return d.deploymentConfig && d.deploymentConfig.versionNumber && (d.entryPoints || []).some(function (e) { return e.webApp; });
+    });
+    if (!deps.length) throw new Error('활성 웹 앱 배포를 찾지 못했어요');
+    const groups = {};
+    deps.forEach(function (d) {
+      const c = d.entryPoints.filter(function (e) { return e.webApp; })[0].webApp.entryPointConfig || {};
+      const g = (c.executeAs || 'USER_DEPLOYING') + '|' + (c.access || 'DOMAIN');
+      (groups[g] = groups[g] || []).push(d);
+    });
+    const tag = shas.map(function (x) { return x.slice(0, 7); }).join('·');
+    Object.keys(groups).forEach(function (g) {
+      const manifest = JSON.parse(mf.source);
+      manifest.webapp = { executeAs: g.split('|')[0], access: g.split('|')[1] };
+      api('/content', 'put', { files: files.map(function (f) {
+        return { name: f.name, type: f.type, source: f.name === 'Code' ? src.Code : f.name === 'Index' ? src.Index : f.name === 'appsscript' ? JSON.stringify(manifest, null, 2) : f.source };
+      }) });
+      const v = api('/versions', 'post', { description: '자동 업데이트 ' + tag }).versionNumber;
+      groups[g].forEach(function (d) {
+        api('/deployments/' + d.deploymentId, 'put', { deploymentConfig: {
+          scriptId: ScriptApp.getScriptId(), versionNumber: v, manifestFileName: 'appsscript', description: d.deploymentConfig.description || '' } });
+      });
+    });
+    props.setProperty('UPD_SEEN', key);
+    props.setProperty('UPD_ON', '1');
+    props.deleteProperty('UPD_FAIL');
+    const msg = now_() + ' 적용 완료(' + tag + ', 배포 ' + deps.length + '개)';
+    props.setProperty('UPD_LAST', msg);
+    return { ok: true, msg: msg };
+  } catch (e) {
+    props.setProperty('UPD_FAIL', key + '#' + ((fail[0] === key ? Number(fail[1]) : 0) + 1));
+    throw e;
   }
 }

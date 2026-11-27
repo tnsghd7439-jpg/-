@@ -250,7 +250,8 @@
   .irow>summary,.irow.none{list-style:none;display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:var(--r);margin:0;color:var(--ink);font-size:var(--fs-sm);cursor:pointer}
   .irow>summary::-webkit-details-marker{display:none}
   .irow.warn>summary{background:var(--warn-bg)} .irow.info>summary{background:var(--line2)} .irow.none{cursor:default}
-  .irow .cnt{margin-left:auto;font-weight:800}
+  .irow .cnt{margin-left:auto;font-weight:800;white-space:nowrap;flex:none}
+  .irow>summary>b,.irow.none>b{white-space:nowrap;flex:none}
   .irow.warn .cnt{color:var(--warn)}
   details.kebab{position:relative}
   details.kebab>summary{list-style:none;margin:0;color:var(--ink2)} details.kebab>summary::-webkit-details-marker{display:none}
@@ -325,7 +326,7 @@ var HOUR = 60 * 60 * 1000;
 /* 빠른 화면: 읽기 요청은 마지막 결과를 먼저 보여주고(이 PC에 저장), 뒤에서 새로 받아 바뀌었으면 다시 그림.
    30초 안에 다시 열면 서버에 묻지 않음. 저장·삭제·체크 같은 쓰기 뒤에는 모두 지우고 새로 받음.
    1 = 이 PC에도 저장(다음에 열 때 바로 보임), 2 = 창을 닫으면 사라짐(연락처가 있는 영업노트) */
-var READS = { bootstrap: 1, perf: 1, checkView: 1, goalList: 1, failureList: 1, taskList: 1, noticeList: 1, mediaNoticeList: 1, calendar: 1, teamStats: 1, usageStats: 1, solutions: 1, guideList: 1, leadList: 2, today: 2 };
+var READS = { bootstrap: 1, perf: 1, checkView: 1, goalList: 1, failureList: 1, taskList: 1, noticeList: 1, mediaNoticeList: 1, calendar: 1, teamStats: 1, usageStats: 1, solutions: 1, guideList: 1, leadList: 2, today: 2, gfaActions: 1 };
 var CACHE = {}, FRESH_MS = 30000, CV = 'oc1:';
 function ckey(a, p) { return a + '|' + JSON.stringify(p || {}); }
 function cget(k) {
@@ -446,7 +447,7 @@ function show(d, live) {
 /** 첫 화면이 뜬 뒤, 자주 여는 탭을 하나씩 미리 받아 둠(누르면 바로 보이게) */
 function prefetch() {
   var L = isLead(), me = B.me.email;  // 각 화면이 보내는 값과 똑같이(같은 열쇠로 저장되게)
-  var list = [['taskList', { email: L ? ST.taskWho : me }], ['perf', { email: L ? ST.perfWho : '' }], ['checkView', { email: L ? ST.checkWho : '' }],
+  var list = [['taskList', { email: L ? ST.taskWho : me }], ['perf', { email: L ? ST.perfWho : '' }], ['checkView', { email: L ? ST.checkWho : '' }], ['gfaActions', { email: L ? ST.checkWho : '' }],
     ['goalList', { email: L ? ST.planWho : me }], ['failureList', { email: L ? ST.planWho : me, all: !L }], ['today', undefined], ['noticeList', undefined], ['mediaNoticeList', undefined]];
   (function next(i) {
     if (i >= list.length) return;
@@ -803,9 +804,11 @@ function viewCheck() {
       + '<div class="ts"><b style="color:var(--ink)">' + (miss + fee + trn) + '</b><span>인트라 점검<br><span style="font-weight:500">정보 누락 ' + miss + ' · 신규·이관 ' + trn + '</span></span></div></div>'
       + (acc.length ? '<div style="text-align:right"><div class="small muted">어제 ' + (who ? '' : '팀 전체 ') + '광고비</div><div style="font-size:26px;font-weight:800;color:var(--g900)">' + spend.toLocaleString() + '원</div></div>' : '') + '</div>';
     h += intraBlock(d.intra);
+    h += '<div id="gfaBox" style="margin-top:16px"></div>';
     if (d.empty) h += '<div class="empty" style="margin-top:12px"><b>네이버 SA 점검 결과가 아직 없어요</b>매일 아침 자동 수집이 끝나면 여기에 계정 점검이 나옵니다.</div>';
     else h += '<iframe id="saFrame" title="네이버 SA 점검" style="width:100%;border:0;min-height:600px;display:block;margin-top:12px"></iframe>';
     $('view').innerHTML = h;
+    gfaBlock(who);
     if (d.empty) return;
     var json = JSON.stringify(d.data).replace(/</g, '\\u003c');
     var f = $('saFrame');
@@ -822,7 +825,7 @@ var SA_SKIN = '<style>'
   + ':root,:root:not([data-theme="light"]){--bg:#f4f7f5;--surface:#fff;--ink:#13261d;--muted:#4b5f55;--line:#d8e5dc;--urgent:#b42318;--warn:#c2410c;--orange:#e8894f;--info:#2563a8;--ok:#1d7a52}'
   + 'body{background:transparent!important;font-family:"Pretendard Variable",Pretendard,-apple-system,"Malgun Gothic",sans-serif!important;color:#13261d}'
   + '.wrap{max-width:none!important;padding:0!important}.wrap>header,#guide{display:none!important}'
-  + '#tabMP{display:none!important}' /* 매체 통합 = 회사 PC MP AI 수집 전용. 원보드는 계정별 실적이 같은 내용(MP AI 매체별 전일·당월)을 보여줌 */
+  + '#tabMP,#tabGFA{display:none!important}' /* 매체 통합 = 회사 PC MP AI 수집 전용. 원보드는 계정별 실적이 같은 내용(MP AI 매체별 전일·당월)을 보여줌 */
   + 'section,.ledger{background:#fff;border:1px solid #d8e5dc;border-radius:14px;padding:18px 20px}.grid{gap:16px!important}.ledger{margin-top:16px}'
   + 'h2{font-size:18px!important;font-weight:800!important;color:#13261d!important}'
   + '.tablebox{border:0!important;border-radius:0!important}th{background:#fff!important;border-bottom:2px solid #0f3d2c!important;color:#4b5f55!important;font-weight:600!important}'
@@ -830,6 +833,30 @@ var SA_SKIN = '<style>'
   + '.ledger:has(td.empty){display:none}.summary{font-size:15px}.views button[aria-selected="true"]{background:#0f3d2c!important;color:#fff!important;border-color:#0f3d2c!important}'
   + '</style>';
 /** 인트라 점검: 한 줄 요약(건수) → 누르면 표 */
+/** GFA 액션: MP AI 매출(네이버·네이버GFA)로 고른 할 일. 오늘 점검 아래쪽, 따로 불러옴 */
+function gfaBlock(email) {
+  call('gfaActions', { email: email }).then(function (g) {
+    var box = $('gfaBox'); if (!box) return;
+    if (g.empty) { box.innerHTML = '<div class="empty"><b>GFA 액션을 만들 MP AI 매출이 아직 없어요</b>팀장 알리미가 MP AI 매출을 가져오면 채워집니다.</div>'; return; }
+    var lead = isLead() && !email;
+    var item = function (title, hint, rows, cols, level) {
+      var n = rows.length;
+      var body = '<div class="scroll" style="margin-top:8px"><table class="tbl"><tr><th>광고주</th>' + (lead ? '<th>담당</th>' : '') + cols.map(function (c) { return '<th class="r">' + c[0] + '</th>'; }).join('') + '</tr>'
+        + rows.map(function (r) { return '<tr><td><b>' + esc(r.name) + '</b>' + (r.kind ? ' <span class="tag ' + (/중단|휴면/.test(r.kind) ? 'bad' : /감액/.test(r.kind) ? 'warn' : '') + '">' + esc(r.kind) + '</span>' : '') + '</td>' + (lead ? '<td>' + esc(r.owner) + '</td>' : '')
+          + cols.map(function (c) { var v = c[1](r); return '<td class="r">' + v + '</td>'; }).join('') + '</tr>'; }).join('') + '</table></div>';
+      return n ? '<details class="irow ' + level + '"><summary><b>' + title + '</b><span class="small muted">' + hint + '</span><span class="cnt">' + n + '</span></summary>' + body + '</details>'
+        : '<div class="irow none"><b>' + title + '</b><span class="small muted">' + hint + '</span><span class="cnt up">없음</span></div>';
+    };
+    var m = function (x) { return Number(x.slice(5, 7)) + '월'; };
+    var d = function (r) { return r.lastDay ? md(r.lastDay) : '-'; };
+    box.innerHTML = '<div class="card"><div class="ct" style="justify-content:space-between;margin-bottom:6px"><span class="t">GFA 액션</span><span class="small muted">MP AI 기준 · ' + md(g.latest) + '까지</span></div>'
+      + item('GFA 제안', '검색광고 하루 평균 ' + won(g.saMin) + ' 이상인데 GFA를 안 쓰는 광고주', g.propose, [['검색광고 최근 3일 평균', function (r) { return won(r.last3); }], ['그 전 7일 평균', function (r) { return won(r.prev7); }], [m(g.month) + ' 검색광고', function (r) { return won(r.mtd); }]], 'warn')
+      + item('휴면 재라이브', m(g.prevMonth) + '엔 GFA를 썼는데 ' + m(g.month) + ' 0원', g.dormant, [[m(g.prevMonth) + ' GFA', function (r) { return won(r.prevMonth); }], ['마지막 집행', d]], 'bad')
+      + item('감액·중단', '최근 3일 평균이 그 전 7일보다 20% 넘게 줄었거나 0원', g.down, [['최근 3일 평균', function (r) { return won(r.last3); }], ['그 전 7일 평균', function (r) { return won(r.prev7); }], ['마지막 집행', d]], 'bad')
+      + item('라이브 전환·증액', '잘된 계정(지난달 0원 → 이번 달 집행, 또는 20% 넘게 늘어남)', g.up, [['최근 3일 평균', function (r) { return won(r.last3); }], ['그 전 7일 평균', function (r) { return won(r.prev7); }], [m(g.month) + ' GFA', function (r) { return won(r.mtd); }]], 'info')
+      + '<p class="muted small" style="margin-top:8px">검색광고와 GFA는 광고주명으로 짝을 짓습니다. 이름이 달라 GFA를 쓰는데도 \'GFA 제안\'에 나오면 시트 <code>설정</code> 탭 <code>GFA_연결</code>에 <code>검색광고 이름=GFA 이름</code>으로 적어 주세요.</p></div>';
+  }).catch(function (e) { var box = $('gfaBox'); if (box) box.innerHTML = '<div class="empty"><b>GFA 액션을 불러오지 못했어요</b>' + esc(e.message || e) + '</div>'; });
+}
 function intraBlock(x) {
   if (!x) return '<div class="empty"><b>인트라 점검 결과가 아직 없어요</b>매일 오전 인트라넷 수집 때 함께 들어옵니다.</div>';
   var item = function (title, hint, rows, cols, level) {
@@ -1501,6 +1528,48 @@ function ahiBlock(a) {
 }
 
 /* ───────── 팀 현황 (팀장) ───────── */
+/* 팀 현황 위쪽: 자동 수집·토큰 만료·자동 업데이트 상태 + 팀원 추가 */
+function kickLine(k) {
+  var left = k.exp ? Math.round((new Date(k.exp + 'T00:00:00Z') - new Date(B.today + 'T00:00:00Z')) / 864e5) : null;
+  var soon = left !== null && left <= 30;
+  return '<div class="card" style="margin:-4px 0 14px;padding:12px 16px"><div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap">'
+    + '<div class="small" style="line-height:1.8"><div class="' + (k.token ? 'muted' : 'down') + '">자동 수집: ' + (k.token ? (k.last ? '마지막 ' + esc(k.last) : '토큰 연결됨, 다음 시각에 실행') : '설정 탭 깃허브토큰 칸에 토큰을 넣으면 정해진 시각에 수집이 실행됩니다') + '</div>'
+    + (k.exp ? '<div class="' + (soon ? 'down' : 'muted') + '">' + (soon ? '<b>토큰 만료 ' + (left < 0 ? '지남' : left + '일 전') + '</b> · ' : '토큰 만료 ') + esc(k.exp) + (soon ? ' · 새 토큰을 만들어 설정 탭에 붙여넣어 주세요' : '') + '</div>' : '')
+    + '<div class="muted">자동 업데이트: ' + (k.upd ? esc(k.upd) : (k.updOn ? '켜짐' : '아직 연결 전 — "업데이트 확인"을 한 번 눌러 연결')) + '</div></div>'
+    + '<div class="row" style="gap:8px"><button class="btn sm" onclick="updateNow(this)">업데이트 확인</button><button class="btn sm pri" onclick="memberForm()">팀원 추가</button></div></div></div>';
+}
+function updateNow(b) {
+  b.disabled = true; b.textContent = '확인 중…';
+  call('updateSave').then(function (r) { toast(r.msg || (r.ok ? '완료' : '실패'), !r.ok); if (!r.ok) alert('업데이트 실패\n\n' + r.msg + '\n\n이 문구를 그대로 Claude에게 보내 주세요.'); viewAdmin(); })
+    .catch(function (e) { b.disabled = false; b.textContent = '업데이트 확인'; fail(e); });
+}
+function reBoot() { return net('bootstrap', {}).then(function (d) { B = d; cput(ckey('bootstrap'), 'bootstrap', d); drawTabs(); }); }
+function memberForm() {
+  openModal('<h3>팀원 추가</h3><p class="muted small" style="margin:6px 0 12px">추가하면 그 사람이 회사 구글 계정으로 원보드에 바로 들어올 수 있어요.</p>'
+    + '<div id="m_hint"></div>'
+    + '<label class="f"><span>회사 이메일</span><input type="text" id="m_email" placeholder="mp0000@mymp.co.kr"></label>'
+    + '<div class="grid2"><label class="f"><span>이름</span><input type="text" id="m_name"></label>'
+    + '<label class="f"><span>MP AI 담당자명 (다르면)</span><input type="text" id="m_mgr" placeholder="비우면 이름과 같게"></label></div>'
+    + '<div class="actions"><button class="btn ghost" onclick="closeModal()">닫기</button><button class="btn pri" onclick="memberSave()">추가</button></div>'
+    + '<h3 class="small" style="margin:18px 0 6px">지금 명단 ' + B.members.length + '명</h3>'
+    + B.members.map(function (m) { return '<div class="row small" style="justify-content:space-between;padding:6px 0;border-top:1px solid var(--line2)"><span><b>' + esc(m.name) + '</b> <span class="muted">' + esc(m.email) + (m.role === 'lead' ? ' · 팀장' : '') + '</span></span>'
+      + (m.email === B.me.email ? '' : '<button class="linkbtn" data-e="' + esc(m.email) + '" data-n="' + esc(m.name) + '" onclick="memberDel(this)">빼기</button>') + '</div>'; }).join(''));
+  call('memberHints').then(function (l) {
+    if (!l.length || !$('m_hint')) return;
+    $('m_hint').innerHTML = '<div class="banner" style="margin-bottom:12px"><b class="k">추천</b>영업노트는 쓰는데 명단에 없는 사람: '
+      + l.map(function (x) { return '<button class="chip" data-e="' + esc(x.email) + '" data-n="' + esc(x.name) + '" onclick="$(\'m_email\').value=this.dataset.e;$(\'m_name\').value=this.dataset.n">' + esc(x.name || x.email) + '</button>'; }).join(' ') + '</div>';
+  }).catch(function () {});
+}
+function memberSave() {
+  call('memberSave', { email: val('m_email'), name: val('m_name'), manager: val('m_mgr') }).then(function (r) {
+    toast(r === 'updated' ? '이미 있던 사람이라 정보를 고쳤어요' : '추가했어요');
+    return reBoot();
+  }).then(function () { memberForm(); viewAdmin(); }).catch(fail);
+}
+function memberDel(b) {
+  if (!confirm(b.dataset.n + ' 님을 명단에서 뺄까요? 지난 기록은 남고, 원보드에는 못 들어오게 됩니다.')) return;
+  call('memberDelete', { email: b.dataset.e }).then(reBoot).then(function () { toast('뺐어요'); memberForm(); viewAdmin(); }).catch(fail);
+}
 function viewAdmin() {
   var month = ST.adminMonth || B.today.slice(0, 7);
   Promise.all([call('teamStats', { month: month }), call('usageStats', { month: month })]).then(function (r) {
@@ -1513,7 +1582,7 @@ function viewAdmin() {
         return '<div class="todo-strip"><button class="ts' + (talk ? ' bad' : '') + '" onclick="go(\'plan\')"><b>' + talk + '</b>소통 대기</button><button class="ts' + (pend ? ' warn' : '') + '" onclick="go(\'plan\')"><b>' + pend + '</b>승인 대기</button>'
           + '<div class="ts' + (low.length ? ' warn' : '') + '"><b>' + low.length + '</b>달성 비율 60% 미만' + (low.length ? ' · ' + low.map(function (m) { return esc(m.name); }).join(', ') : '') + '</div></div>';
       })()
-      + (d.kick ? '<p class="small ' + (d.kick.token ? 'muted' : 'down') + '" style="margin:-6px 0 12px">자동 수집 실행: ' + (d.kick.token ? (d.kick.last ? '마지막 ' + esc(d.kick.last) : '토큰 연결됨, 다음 시각에 실행') : '설정 탭에 깃허브토큰을 넣으면 정해진 시각에 오늘 점검·인트라넷 수집이 실행됩니다') + '</p>' : '')
+      + (d.kick ? kickLine(d.kick) : '')
       + '<div class="scroll"><table class="tbl"><tr><th>팀원</th><th class="r">달성</th><th class="r">실패</th><th class="r">달성 비율</th><th class="r">소통 대기</th><th class="r">승인 대기</th><th class="r">진행 목표</th><th class="r">미확인 공지</th><th>마지막 체크</th><th>알리미</th><th></th></tr>'
       + d.members.slice().sort(function (a, b) { return ((b.talkPending || 0) + (b.pending || 0) + (b.rate !== null && b.rate < 60 ? 1 : 0)) - ((a.talkPending || 0) + (a.pending || 0) + (a.rate !== null && a.rate < 60 ? 1 : 0)); }).map(function (m) {
         var hot = m.rate !== null && m.rate < 60;

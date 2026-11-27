@@ -13,11 +13,12 @@
 - 고친 뒤 아래 점검을 돌려 숫자를 비교하고 결과를 사용자에게 한 줄로 알린다. 탭별 시트 읽기 횟수가 늘면 안 된다.
   ```
   python3 naver_board/dev/build.py
-  node naver_board/dev/speed.js naver_board/dev/out   # 탭별 시트 읽기 횟수 (2026-11-26 기준: 첫 화면 9, 캘린더 6, 팀 현황 7)
+  node naver_board/dev/speed.js naver_board/dev/out   # 탭별 시트 읽기 횟수 (2026-11-27 기준: 첫 화면 9, 캘린더 6, 팀 현황 7, GFA 액션 4)
   node naver_board/dev/shot.js naver_board/dev/out    # 화면 오류·가로 넘침
   node naver_board/dev/act.js naver_board/dev/out     # 실패 사유·소통완료·평가자료·권한·알리미
   node naver_board/dev/sales_test.js naver_board/dev/out  # 영업노트·할일·오늘·이용 기록·권한
   node naver_board/dev/check_test.js naver_board/dev/out <latest.json>  # 오늘 점검(일일점검 화면·바로가기·팀원 필터)
+  node naver_board/dev/ops_test.js naver_board/dev/out    # 토큰 보관·경고 메일·자동 업데이트·팀원 추가
   node naver_board/dev/cache_test.js naver_board/dev/out  # 빠른 화면: 다시 열기·탭 이동이 저장분으로 바로 뜨는지(요청 1.5초 가정)
   ```
 
@@ -38,7 +39,10 @@
   - Secrets: https://github.com/tnsghd7439-jpg/-/settings/secrets/actions
   - Actions 실행 기록: https://github.com/tnsghd7439-jpg/-/actions
   - 토큰 만들기: https://github.com/settings/personal-access-tokens/new
-  - PR은 만들 때마다 링크를 준다. 앱스 스크립트 편집기·원보드 시트 주소는 사용자에게 한 번 받아 여기에 적는다(아직 없음).
+  - 앱스 스크립트 편집기: https://script.google.com/home/my → '네이버 전담팀 원보드' (시트에 붙은 스크립트라 드라이브 검색으로 직접 주소를 못 찾음. 사용자가 편집기 주소를 주면 여기 바꿔 적기)
+  - 원보드 시트: https://docs.google.com/spreadsheets/d/14jm4LA64KFsiw8yeTHmcNLUTIC5-ocuAE0T5H-JuY2o/edit
+  - 붙여넣기용 원문: https://raw.githubusercontent.com/tnsghd7439-jpg/-/claude/intranet-weekly-data-collection-dbpzld/naver_board/Code.gs , …/Index.html (blob 링크를 주면 사용자가 편집 화면으로 잘못 들어감 → raw 링크만)
+  - PR은 만들 때마다 링크를 준다. 초안 PR은 Merge 버튼이 안 보이므로 합치라고 할 때는 내가 먼저 초안을 푼다.
 
 ### 3. 데이터 기준 (확인 완료, 다시 묻지 않는다)
 - 매출 출처: MP AI 우선(팀장 알리미가 수집). MP AI에 없는 11번가·카카오·에이블리만 인트라넷 보충(GitHub Actions `board-sync`).
@@ -67,6 +71,18 @@
   ③ 매체별 가이드에 "교육·영업 자료" 묶음(드라이브 링크). 통화 건수(녹취 데이터)는 출처 확인 후 결정.
 - 흡수하지 않음: 개별 프로그램(솔루션 탭 연결로 충분), 일회성 작업 도구, 광고주용 결과물 스킬(배너·제안서).
 
+## 운영(2026-11-27): 자동 업데이트·경고 메일·팀원 추가·토큰 보관
+- **자동 업데이트(selfUpdate_)**: 기본 브랜치의 naver_board/Code.gs·Index.html 이 바뀌면(=PR 합치면) kickRunner(10분)가 Apps Script API로 코드를 넣고
+  새 버전을 만들어 활성 배포를 모두 바꿈(접근 설정이 다른 배포는 버전을 따로). 연결되면(팀 현황 '자동 업데이트: … 적용 완료') **적용 안내는 "PR 합치기"뿐** — 붙여넣기·배포 안내를 하지 않는다.
+  연결 전이거나 실패가 보이면 예전 방식(붙여넣기 → 배포 2개)으로 안내. 연결 조건: Apps Script API 켜기 + naver_board/appsscript.json 권한(편집기에 한 번 붙여넣기) + 팀 현황 '업데이트 확인' 1회.
+  appsscript.json(권한)은 자동으로 안 바뀜 → 새 구글 서비스를 쓰면 사용자가 다시 붙여넣고 권한 허용해야 함(가급적 피한다). 실제 구글 API로는 첫 연결 때 처음 검증됨(모의 테스트만 통과).
+  버전이 업데이트마다 1~2개씩 늘어남(앱스 스크립트 버전 수 제한에 닿으면 편집기에서 옛 버전 삭제).
+- **경고 메일(watch_)**: 평일 13시 이후 하루 한 번 팀장에게 — MP AI 매출이 어제 것까지 없을 때, 깃허브 토큰 만료 30일 전부터. 예비 수집자는 두지 않음(사용자 지시).
+- **토큰**: 설정 탭 '깃허브토큰' 칸에 붙여넣으면 10분 안에 ScriptProperties(GH_TOKEN)로 옮기고 칸은 안내 글만. 시트·영업노트_DB 공유 범위(회사 전체 편집)는 사용자가 그대로 두기로 함 — 다시 권하지 않는다.
+- **팀원 추가**: 팀 현황 '팀원 추가'(memberSave/memberDelete=사용 N/memberHints=영업노트 사용자 추천). 시트를 직접 고치라고 안내하지 않는다.
+- 실데이터 검증 대기: GFA 액션 이름 짝짓기, 할일 가져오기 업체명(todos.json 필요), 알리미 1.4.0 수집, 자동 업데이트 첫 연결.
+## GFA 액션(2026-11-27): 오늘 점검 아래 블록(gfaActions_, 따로 불러옴). MP AI 매출(네이버·네이버GFA)만 씀, 새 수집 없음. GFA 제안(검색광고 7일 평균≥설정 'GFA_SA기준' & GFA 0)·휴면 재라이브·감액/중단·라이브 전환/증액.
+   검색광고↔GFA는 광고주명(bizKey_)으로 짝, 안 맞으면 설정 'GFA_연결'. 사용자 지시: GFA 월 목표 안 잡음, 월간보고 따로 안 넣음(MP AI 매체 합계에 이미 포함). 예전 일일점검 GFA 탭은 SA_SKIN으로 숨김.
 ## 속도(2026-11-26): 화면 쪽 저장(Index.html READS/call): 읽기 결과를 이 PC(localStorage, 영업노트·오늘은 창 메모리만)에 두고 먼저 그린 뒤 뒤에서 새로 받아 바뀌면 다시 그림.
    30초 안 재요청은 서버 안 감, 쓰기(Save·Delete·Done·Ack·Undo·Talked·Review·Import) 뒤 전부 비움, 첫 화면 뒤 자주 쓰는 탭 미리 받기(prefetch). 새 읽기 요청을 만들면 READS에 넣는다.
 ## 디자인 v1(2026-11-26, Claude Design 시안 적용): 토큰은 Index.html :root(--bad/--warn/--ok/--info 3단계+정보, --bg 회색 배경),
