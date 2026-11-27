@@ -34,6 +34,8 @@ const DEFAULT_SETTINGS = [
   ['VAT포함매체', '', 'MP AI가 공급가액을 주므로 보통 비워둡니다. 넣은 매체(이름 일부만 맞아도 적용)는 1.1로 나눠 저장'],
   ['제외계정', '', '실적에서 뺄 광고주ID (쉼표로 구분). 월간보고 제외 계정과 같게'],
   ['절반반영계정', '', 'MP AI 공유 비율과 별개로 50%만 반영할 광고주ID (쉼표로 구분). 보통 비워둡니다'],
+  ['GFA_SA기준', '10000', 'GFA 액션: 검색광고 최근 7일 하루 평균이 이 금액(원) 이상인데 GFA를 안 쓰는 광고주를 GFA 제안 대상으로 보여줌'],
+  ['GFA_연결', '', 'GFA 액션: 검색광고와 GFA 광고주명이 달라 짝이 안 맞을 때 "검색광고 이름=GFA 이름" 을 쉼표로 이어 적기'],
   ['인트라넷보충매체', '11번가,카카오,에이블리', 'MP AI에 아직 없는 매체만 인트라넷에서 보충. MP AI에 들어오기 시작하면 여기서 지우세요(겹치는 기간은 자동으로 MP AI 우선)'],
   ['수집토큰', '', '인트라넷 보충 수집기(GitHub Actions)가 보낼 때 쓰는 비밀 문자열. BOARD_TOKEN 과 같은 값'],
   ['마지막인트라넷수집', '', '자동으로 기록됩니다'],
@@ -1171,6 +1173,66 @@ function salesRows_(managers) {
   };
 }
 
+/** 광고주명 짝 맞추기용: (주)·주식회사·공백·특수문자 빼고 소문자 */
+function bizKey_(n) {
+  return String(n || '').toLowerCase().replace(/\(주\)|㈜|주식회사|유한회사|농업회사법인|\(유\)/g, '').replace(/[^0-9a-z가-힣]/g, '');
+}
+
+function gfaActions_(me, p) {
+  const data = salesRows_(managersFor_(me, p));
+  const s = settings_();
+  const saMin = num_(s['GFA_SA기준']) || 10000;
+  const link = {};
+  list_(s['GFA_연결']).forEach(function (pair) { const x = pair.split('='); if (x.length === 2) link[bizKey_(x[0])] = bizKey_(x[1]); });
+  const isG = function (m) { return /gfa/i.test(m); }, isS = function (m) { return mediaKey_(m) === '네이버'; };
+  // 기준일: GFA·검색광고 MP AI 데이터가 들어온 마지막 날
+  const latest = data.daily.reduce(function (m, r) { return (isG(r.media) || isS(r.media)) && r.src !== '인트라넷' && r.date > m ? r.date : m; }, '');
+  if (!latest) return { empty: true };
+  const cm = monthOf_(latest), pm = addMonths_(cm, -1);
+  const d3 = addDays_(latest, -2), d10 = addDays_(latest, -9);
+  const who = {};
+  members_().forEach(function (m) { ids_(m).forEach(function (k) { who[low_(k)] = m.name; }); });
+  const acc = {};
+  const get = function (r) {
+    const k = r.media + '|' + r.id;
+    return acc[k] = acc[k] || { media: r.media, id: r.id, name: r.name, owner: who[low_(r.mgr)] || r.mgr, last3: 0, prev7: 0, mtd: 0, prevMonth: 0, lastDay: '' };
+  };
+  data.daily.forEach(function (r) {
+    if (!isG(r.media) && !isS(r.media)) return;
+    const a = get(r);
+    if (r.date > latest) return;
+    if (r.date >= d3) a.last3 += r.amt / 3;
+    else if (r.date >= d10) a.prev7 += r.amt / 7;
+    if (monthOf_(r.date) === cm) a.mtd += r.amt;
+    if (monthOf_(r.date) === pm) a.prevMonth += r.amt;
+    if (r.amt > 0 && r.date > a.lastDay) a.lastDay = r.date;
+  });
+  // 지난달은 월별 시트가 더 정확(일별이 비어 있을 수 있음)
+  const pmBy = {};
+  data.monthly.forEach(function (r) { if (r.month === pm && (isG(r.media) || isS(r.media))) { get(r); pmBy[r.media + '|' + r.id] = (pmBy[r.media + '|' + r.id] || 0) + r.amt; } });
+  Object.keys(pmBy).forEach(function (k) { acc[k].prevMonth = Math.max(acc[k].prevMonth, pmBy[k]); });
+  const all = Object.keys(acc).map(function (k) { const a = acc[k]; a.last3 = Math.round(a.last3); a.prev7 = Math.round(a.prev7); return a; });
+  const gfa = all.filter(function (a) { return isG(a.media); }), sa = all.filter(function (a) { return isS(a.media); });
+  const gfaLive = {};
+  gfa.forEach(function (a) { if (a.mtd > 0 || a.prevMonth > 0) gfaLive[bizKey_(a.name)] = true; });
+  const out = { latest: latest, month: cm, prevMonth: pm, saMin: saMin, propose: [], dormant: [], down: [], up: [] };
+  sa.forEach(function (a) {
+    const k = bizKey_(a.name);
+    if (a.prev7 + a.last3 > 0 && (a.prev7 * 7 + a.last3 * 3) / 10 >= saMin && !gfaLive[link[k] || k]) out.propose.push(a);
+  });
+  gfa.forEach(function (a) {
+    if (a.prevMonth > 0 && a.mtd === 0) { a.kind = '휴면'; out.dormant.push(a); return; }
+    if (a.prev7 >= 5000 && a.last3 === 0) { a.kind = '중단'; out.down.push(a); return; }
+    if (a.prev7 >= 5000 && a.last3 < a.prev7 * 0.8) { a.kind = '감액'; out.down.push(a); return; }
+    if (a.prevMonth === 0 && a.mtd > 0) { a.kind = '라이브 전환'; out.up.push(a); return; }
+    if (a.last3 >= 5000 && a.last3 >= a.prev7 * 1.2) { a.kind = '증액'; out.up.push(a); }
+  });
+  const by = function (f) { return function (x, y) { return y[f] - x[f]; }; };
+  out.propose.sort(function (x, y) { return (y.prev7 + y.last3) - (x.prev7 + x.last3); });
+  out.dormant.sort(by('prevMonth')); out.down.sort(by('prev7')); out.up.sort(by('last3'));
+  return out;
+}
+
 /** 실적의 '담당자'는 MP AI 담당자 이메일(또는 예전 방식의 이름)이라 둘 다로 찾습니다 */
 function ids_(m) { return [m.email, m.manager].filter(String); }
 function managersFor_(me, p) {
@@ -1714,6 +1776,9 @@ function salesSummary_(email, from, to) {
 
 const SALES_ACTIONS = {
   /** 영업노트_DB 의 내 가망건(팀장은 전체·팀원 선택). 저장·수정은 기존 영업노트 앱에서 합니다. */
+  /** 오늘 점검 'GFA 액션': MP AI 매출(네이버·네이버GFA)로 팀원이 할 일을 고름. 새 수집 없음 */
+  gfaActions: function (me, p) { return gfaActions_(me, p); },
+
   leadList: function (me, p) {
     const emails = scopeEmails_(me, p.email);
     const db = noteDb_();

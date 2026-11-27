@@ -325,7 +325,7 @@ var HOUR = 60 * 60 * 1000;
 /* 빠른 화면: 읽기 요청은 마지막 결과를 먼저 보여주고(이 PC에 저장), 뒤에서 새로 받아 바뀌었으면 다시 그림.
    30초 안에 다시 열면 서버에 묻지 않음. 저장·삭제·체크 같은 쓰기 뒤에는 모두 지우고 새로 받음.
    1 = 이 PC에도 저장(다음에 열 때 바로 보임), 2 = 창을 닫으면 사라짐(연락처가 있는 영업노트) */
-var READS = { bootstrap: 1, perf: 1, checkView: 1, goalList: 1, failureList: 1, taskList: 1, noticeList: 1, mediaNoticeList: 1, calendar: 1, teamStats: 1, usageStats: 1, solutions: 1, guideList: 1, leadList: 2, today: 2 };
+var READS = { bootstrap: 1, perf: 1, checkView: 1, goalList: 1, failureList: 1, taskList: 1, noticeList: 1, mediaNoticeList: 1, calendar: 1, teamStats: 1, usageStats: 1, solutions: 1, guideList: 1, leadList: 2, today: 2, gfaActions: 1 };
 var CACHE = {}, FRESH_MS = 30000, CV = 'oc1:';
 function ckey(a, p) { return a + '|' + JSON.stringify(p || {}); }
 function cget(k) {
@@ -446,7 +446,7 @@ function show(d, live) {
 /** 첫 화면이 뜬 뒤, 자주 여는 탭을 하나씩 미리 받아 둠(누르면 바로 보이게) */
 function prefetch() {
   var L = isLead(), me = B.me.email;  // 각 화면이 보내는 값과 똑같이(같은 열쇠로 저장되게)
-  var list = [['taskList', { email: L ? ST.taskWho : me }], ['perf', { email: L ? ST.perfWho : '' }], ['checkView', { email: L ? ST.checkWho : '' }],
+  var list = [['taskList', { email: L ? ST.taskWho : me }], ['perf', { email: L ? ST.perfWho : '' }], ['checkView', { email: L ? ST.checkWho : '' }], ['gfaActions', { email: L ? ST.checkWho : '' }],
     ['goalList', { email: L ? ST.planWho : me }], ['failureList', { email: L ? ST.planWho : me, all: !L }], ['today', undefined], ['noticeList', undefined], ['mediaNoticeList', undefined]];
   (function next(i) {
     if (i >= list.length) return;
@@ -803,9 +803,11 @@ function viewCheck() {
       + '<div class="ts"><b style="color:var(--ink)">' + (miss + fee + trn) + '</b><span>인트라 점검<br><span style="font-weight:500">정보 누락 ' + miss + ' · 신규·이관 ' + trn + '</span></span></div></div>'
       + (acc.length ? '<div style="text-align:right"><div class="small muted">어제 ' + (who ? '' : '팀 전체 ') + '광고비</div><div style="font-size:26px;font-weight:800;color:var(--g900)">' + spend.toLocaleString() + '원</div></div>' : '') + '</div>';
     h += intraBlock(d.intra);
+    h += '<div id="gfaBox" style="margin-top:16px"></div>';
     if (d.empty) h += '<div class="empty" style="margin-top:12px"><b>네이버 SA 점검 결과가 아직 없어요</b>매일 아침 자동 수집이 끝나면 여기에 계정 점검이 나옵니다.</div>';
     else h += '<iframe id="saFrame" title="네이버 SA 점검" style="width:100%;border:0;min-height:600px;display:block;margin-top:12px"></iframe>';
     $('view').innerHTML = h;
+    gfaBlock(who);
     if (d.empty) return;
     var json = JSON.stringify(d.data).replace(/</g, '\\u003c');
     var f = $('saFrame');
@@ -822,7 +824,7 @@ var SA_SKIN = '<style>'
   + ':root,:root:not([data-theme="light"]){--bg:#f4f7f5;--surface:#fff;--ink:#13261d;--muted:#4b5f55;--line:#d8e5dc;--urgent:#b42318;--warn:#c2410c;--orange:#e8894f;--info:#2563a8;--ok:#1d7a52}'
   + 'body{background:transparent!important;font-family:"Pretendard Variable",Pretendard,-apple-system,"Malgun Gothic",sans-serif!important;color:#13261d}'
   + '.wrap{max-width:none!important;padding:0!important}.wrap>header,#guide{display:none!important}'
-  + '#tabMP{display:none!important}' /* 매체 통합 = 회사 PC MP AI 수집 전용. 원보드는 계정별 실적이 같은 내용(MP AI 매체별 전일·당월)을 보여줌 */
+  + '#tabMP,#tabGFA{display:none!important}' /* 매체 통합 = 회사 PC MP AI 수집 전용. 원보드는 계정별 실적이 같은 내용(MP AI 매체별 전일·당월)을 보여줌 */
   + 'section,.ledger{background:#fff;border:1px solid #d8e5dc;border-radius:14px;padding:18px 20px}.grid{gap:16px!important}.ledger{margin-top:16px}'
   + 'h2{font-size:18px!important;font-weight:800!important;color:#13261d!important}'
   + '.tablebox{border:0!important;border-radius:0!important}th{background:#fff!important;border-bottom:2px solid #0f3d2c!important;color:#4b5f55!important;font-weight:600!important}'
@@ -830,6 +832,30 @@ var SA_SKIN = '<style>'
   + '.ledger:has(td.empty){display:none}.summary{font-size:15px}.views button[aria-selected="true"]{background:#0f3d2c!important;color:#fff!important;border-color:#0f3d2c!important}'
   + '</style>';
 /** 인트라 점검: 한 줄 요약(건수) → 누르면 표 */
+/** GFA 액션: MP AI 매출(네이버·네이버GFA)로 고른 할 일. 오늘 점검 아래쪽, 따로 불러옴 */
+function gfaBlock(email) {
+  call('gfaActions', { email: email }).then(function (g) {
+    var box = $('gfaBox'); if (!box) return;
+    if (g.empty) { box.innerHTML = '<div class="empty"><b>GFA 액션을 만들 MP AI 매출이 아직 없어요</b>팀장 알리미가 MP AI 매출을 가져오면 채워집니다.</div>'; return; }
+    var lead = isLead() && !email;
+    var item = function (title, hint, rows, cols, level) {
+      var n = rows.length;
+      var body = '<div class="scroll" style="margin-top:8px"><table class="tbl"><tr><th>광고주</th>' + (lead ? '<th>담당</th>' : '') + cols.map(function (c) { return '<th class="r">' + c[0] + '</th>'; }).join('') + '</tr>'
+        + rows.map(function (r) { return '<tr><td><b>' + esc(r.name) + '</b>' + (r.kind ? ' <span class="tag ' + (/중단|휴면/.test(r.kind) ? 'bad' : /감액/.test(r.kind) ? 'warn' : '') + '">' + esc(r.kind) + '</span>' : '') + '</td>' + (lead ? '<td>' + esc(r.owner) + '</td>' : '')
+          + cols.map(function (c) { var v = c[1](r); return '<td class="r">' + v + '</td>'; }).join('') + '</tr>'; }).join('') + '</table></div>';
+      return n ? '<details class="irow ' + level + '"><summary><b>' + title + '</b><span class="small muted">' + hint + '</span><span class="cnt">' + n + '</span></summary>' + body + '</details>'
+        : '<div class="irow none"><b>' + title + '</b><span class="small muted">' + hint + '</span><span class="cnt up">없음</span></div>';
+    };
+    var m = function (x) { return Number(x.slice(5, 7)) + '월'; };
+    var d = function (r) { return r.lastDay ? md(r.lastDay) : '-'; };
+    box.innerHTML = '<div class="card"><div class="ct" style="justify-content:space-between;margin-bottom:6px"><span class="t">GFA 액션</span><span class="small muted">MP AI 기준 · ' + md(g.latest) + '까지</span></div>'
+      + item('GFA 제안', '검색광고 하루 평균 ' + won(g.saMin) + ' 이상인데 GFA를 안 쓰는 광고주', g.propose, [['검색광고 최근 3일 평균', function (r) { return won(r.last3); }], ['그 전 7일 평균', function (r) { return won(r.prev7); }], [m(g.month) + ' 검색광고', function (r) { return won(r.mtd); }]], 'warn')
+      + item('휴면 재라이브', m(g.prevMonth) + '엔 GFA를 썼는데 ' + m(g.month) + ' 0원', g.dormant, [[m(g.prevMonth) + ' GFA', function (r) { return won(r.prevMonth); }], ['마지막 집행', d]], 'bad')
+      + item('감액·중단', '최근 3일 평균이 그 전 7일보다 20% 넘게 줄었거나 0원', g.down, [['최근 3일 평균', function (r) { return won(r.last3); }], ['그 전 7일 평균', function (r) { return won(r.prev7); }], ['마지막 집행', d]], 'bad')
+      + item('라이브 전환·증액', '잘된 계정(지난달 0원 → 이번 달 집행, 또는 20% 넘게 늘어남)', g.up, [['최근 3일 평균', function (r) { return won(r.last3); }], ['그 전 7일 평균', function (r) { return won(r.prev7); }], [m(g.month) + ' GFA', function (r) { return won(r.mtd); }]], 'info')
+      + '<p class="muted small" style="margin-top:8px">검색광고와 GFA는 광고주명으로 짝을 짓습니다. 이름이 달라 GFA를 쓰는데도 \'GFA 제안\'에 나오면 시트 <code>설정</code> 탭 <code>GFA_연결</code>에 <code>검색광고 이름=GFA 이름</code>으로 적어 주세요.</p></div>';
+  }).catch(function (e) { var box = $('gfaBox'); if (box) box.innerHTML = '<div class="empty"><b>GFA 액션을 불러오지 못했어요</b>' + esc(e.message || e) + '</div>'; });
+}
 function intraBlock(x) {
   if (!x) return '<div class="empty"><b>인트라 점검 결과가 아직 없어요</b>매일 오전 인트라넷 수집 때 함께 들어옵니다.</div>';
   var item = function (title, hint, rows, cols, level) {
