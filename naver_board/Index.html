@@ -1528,6 +1528,48 @@ function ahiBlock(a) {
 }
 
 /* ───────── 팀 현황 (팀장) ───────── */
+/* 팀 현황 위쪽: 자동 수집·토큰 만료·자동 업데이트 상태 + 팀원 추가 */
+function kickLine(k) {
+  var left = k.exp ? Math.round((new Date(k.exp + 'T00:00:00Z') - new Date(B.today + 'T00:00:00Z')) / 864e5) : null;
+  var soon = left !== null && left <= 30;
+  return '<div class="card" style="margin:-4px 0 14px;padding:12px 16px"><div class="row" style="justify-content:space-between;gap:10px;flex-wrap:wrap">'
+    + '<div class="small" style="line-height:1.8"><div class="' + (k.token ? 'muted' : 'down') + '">자동 수집: ' + (k.token ? (k.last ? '마지막 ' + esc(k.last) : '토큰 연결됨, 다음 시각에 실행') : '설정 탭 깃허브토큰 칸에 토큰을 넣으면 정해진 시각에 수집이 실행됩니다') + '</div>'
+    + (k.exp ? '<div class="' + (soon ? 'down' : 'muted') + '">' + (soon ? '<b>토큰 만료 ' + (left < 0 ? '지남' : left + '일 전') + '</b> · ' : '토큰 만료 ') + esc(k.exp) + (soon ? ' · 새 토큰을 만들어 설정 탭에 붙여넣어 주세요' : '') + '</div>' : '')
+    + '<div class="muted">자동 업데이트: ' + (k.upd ? esc(k.upd) : (k.updOn ? '켜짐' : '아직 연결 전 — "업데이트 확인"을 한 번 눌러 연결')) + '</div></div>'
+    + '<div class="row" style="gap:8px"><button class="btn sm" onclick="updateNow(this)">업데이트 확인</button><button class="btn sm pri" onclick="memberForm()">팀원 추가</button></div></div></div>';
+}
+function updateNow(b) {
+  b.disabled = true; b.textContent = '확인 중…';
+  call('updateSave').then(function (r) { toast(r.msg || (r.ok ? '완료' : '실패'), !r.ok); if (!r.ok) alert('업데이트 실패\n\n' + r.msg + '\n\n이 문구를 그대로 Claude에게 보내 주세요.'); viewAdmin(); })
+    .catch(function (e) { b.disabled = false; b.textContent = '업데이트 확인'; fail(e); });
+}
+function reBoot() { return net('bootstrap', {}).then(function (d) { B = d; cput(ckey('bootstrap'), 'bootstrap', d); drawTabs(); }); }
+function memberForm() {
+  openModal('<h3>팀원 추가</h3><p class="muted small" style="margin:6px 0 12px">추가하면 그 사람이 회사 구글 계정으로 원보드에 바로 들어올 수 있어요.</p>'
+    + '<div id="m_hint"></div>'
+    + '<label class="f"><span>회사 이메일</span><input type="text" id="m_email" placeholder="mp0000@mymp.co.kr"></label>'
+    + '<div class="grid2"><label class="f"><span>이름</span><input type="text" id="m_name"></label>'
+    + '<label class="f"><span>MP AI 담당자명 (다르면)</span><input type="text" id="m_mgr" placeholder="비우면 이름과 같게"></label></div>'
+    + '<div class="actions"><button class="btn ghost" onclick="closeModal()">닫기</button><button class="btn pri" onclick="memberSave()">추가</button></div>'
+    + '<h3 class="small" style="margin:18px 0 6px">지금 명단 ' + B.members.length + '명</h3>'
+    + B.members.map(function (m) { return '<div class="row small" style="justify-content:space-between;padding:6px 0;border-top:1px solid var(--line2)"><span><b>' + esc(m.name) + '</b> <span class="muted">' + esc(m.email) + (m.role === 'lead' ? ' · 팀장' : '') + '</span></span>'
+      + (m.email === B.me.email ? '' : '<button class="linkbtn" data-e="' + esc(m.email) + '" data-n="' + esc(m.name) + '" onclick="memberDel(this)">빼기</button>') + '</div>'; }).join(''));
+  call('memberHints').then(function (l) {
+    if (!l.length || !$('m_hint')) return;
+    $('m_hint').innerHTML = '<div class="banner" style="margin-bottom:12px"><b class="k">추천</b>영업노트는 쓰는데 명단에 없는 사람: '
+      + l.map(function (x) { return '<button class="chip" data-e="' + esc(x.email) + '" data-n="' + esc(x.name) + '" onclick="$(\'m_email\').value=this.dataset.e;$(\'m_name\').value=this.dataset.n">' + esc(x.name || x.email) + '</button>'; }).join(' ') + '</div>';
+  }).catch(function () {});
+}
+function memberSave() {
+  call('memberSave', { email: val('m_email'), name: val('m_name'), manager: val('m_mgr') }).then(function (r) {
+    toast(r === 'updated' ? '이미 있던 사람이라 정보를 고쳤어요' : '추가했어요');
+    return reBoot();
+  }).then(function () { memberForm(); viewAdmin(); }).catch(fail);
+}
+function memberDel(b) {
+  if (!confirm(b.dataset.n + ' 님을 명단에서 뺄까요? 지난 기록은 남고, 원보드에는 못 들어오게 됩니다.')) return;
+  call('memberDelete', { email: b.dataset.e }).then(reBoot).then(function () { toast('뺐어요'); memberForm(); viewAdmin(); }).catch(fail);
+}
 function viewAdmin() {
   var month = ST.adminMonth || B.today.slice(0, 7);
   Promise.all([call('teamStats', { month: month }), call('usageStats', { month: month })]).then(function (r) {
@@ -1540,7 +1582,7 @@ function viewAdmin() {
         return '<div class="todo-strip"><button class="ts' + (talk ? ' bad' : '') + '" onclick="go(\'plan\')"><b>' + talk + '</b>소통 대기</button><button class="ts' + (pend ? ' warn' : '') + '" onclick="go(\'plan\')"><b>' + pend + '</b>승인 대기</button>'
           + '<div class="ts' + (low.length ? ' warn' : '') + '"><b>' + low.length + '</b>달성 비율 60% 미만' + (low.length ? ' · ' + low.map(function (m) { return esc(m.name); }).join(', ') : '') + '</div></div>';
       })()
-      + (d.kick ? '<p class="small ' + (d.kick.token ? 'muted' : 'down') + '" style="margin:-6px 0 12px">자동 수집 실행: ' + (d.kick.token ? (d.kick.last ? '마지막 ' + esc(d.kick.last) : '토큰 연결됨, 다음 시각에 실행') : '설정 탭에 깃허브토큰을 넣으면 정해진 시각에 오늘 점검·인트라넷 수집이 실행됩니다') + '</p>' : '')
+      + (d.kick ? kickLine(d.kick) : '')
       + '<div class="scroll"><table class="tbl"><tr><th>팀원</th><th class="r">달성</th><th class="r">실패</th><th class="r">달성 비율</th><th class="r">소통 대기</th><th class="r">승인 대기</th><th class="r">진행 목표</th><th class="r">미확인 공지</th><th>마지막 체크</th><th>알리미</th><th></th></tr>'
       + d.members.slice().sort(function (a, b) { return ((b.talkPending || 0) + (b.pending || 0) + (b.rate !== null && b.rate < 60 ? 1 : 0)) - ((a.talkPending || 0) + (a.pending || 0) + (a.rate !== null && a.rate < 60 ? 1 : 0)); }).map(function (m) {
         var hot = m.rate !== null && m.rate < 60;
