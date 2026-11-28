@@ -330,7 +330,10 @@ def collect_account(api, acc, team, direct, P) -> dict:
         "roas7": roas(s["last7"]),
         "roas14": roas(s["last14"]),
         "roasLastMonth": roas(s["last_month"]),
-        "purchase": {k: {"amt": s[k][1], "cnt": s[k][2]} for k in ("last7", "last14", "last_month")},
+        "roasMonth": roas(s["month"]),      # 이번 달 누적 효율 (원보드 광고 관리 월간 보고)
+        # 원보드 광고 관리 보고문용 기간 합계 (일평균을 다시 곱하면 몇 원씩 어긋나서 합계를 따로 둔다)
+        "last7Spend": s["last7"][0], "last14Spend": s["last14"][0], "lastMonthSpend": s["last_month"][0],
+        "purchase": {k: {"amt": s[k][1], "cnt": s[k][2]} for k in ("last7", "last14", "last_month", "month")},
         "bizmoney": int(biz.get("bizmoney") or 0),
         "budgetLock": bool(biz.get("budgetLock")),
         "campaigns": {

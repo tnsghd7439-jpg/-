@@ -5,7 +5,7 @@ const { chromium } = require('playwright');
   const r=await p.evaluate(()=>{ window.__USER='lead@mymp.co.kr'; const out={};
     const m=(n,a,pl)=>{ window.__CALLS=0; api(a,pl||{}); out[n]=window.__CALLS; };
     m('첫 화면(bootstrap)','bootstrap'); m('계정별 실적','perf'); m('액션플랜','goalList'); m('실패 목록','failureList');
-    m('공지','noticeList'); m('매체공지','mediaNoticeList'); m('캘린더','calendar',{month:today_().slice(0,7)}); m('팀 현황','teamStats');
+    m('공지','noticeList'); m('매체공지','mediaNoticeList'); m('캘린더','calendar',{month:today_().slice(0,7)}); m('팀 현황','teamStats'); m('광고 관리','adList');
     return out; });
   console.log(JSON.stringify(r)); await b.close();
 })();

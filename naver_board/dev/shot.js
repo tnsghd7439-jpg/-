@@ -14,7 +14,7 @@ const { chromium } = require('playwright');
       await p.evaluate(()=>closeModal());
       const tabs = await p.$$eval('.tab', t => t.map(x => x.textContent));
       if (vp.n==='d') errs.push(`[${who}] tabs: ${tabs.join(' | ')}`);
-      for (const id of ['perf','plan','notice','solution','guide','calendar','admin']) {
+      for (const id of ['perf','ad','plan','notice','solution','guide','calendar','admin']) {
         const has = await p.evaluate(id => B.tabs.some(t=>t.id===id), id);
         if (!has) continue;
         await p.evaluate(id => go(id), id);
