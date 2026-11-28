@@ -298,6 +298,25 @@
     .tbl.cardable td[data-label]:not(:first-child)::before{content:attr(data-label) ' ';color:var(--ink3);font-size:var(--fs-xs);margin-right:6px}
     .tbl.cardable td:empty{display:none}
   }
+  /* 광고 관리 */
+  .ad-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+  .ad-name{font-size:16px;font-weight:800;min-width:0;overflow-wrap:anywhere}
+  .ad-name a,.ad-look a{color:inherit;text-decoration:underline;text-underline-offset:3px}
+  .ad-nums{display:flex;flex-wrap:wrap;gap:2px 14px;font-size:var(--fs-sm);color:var(--ink2);margin-top:6px}
+  .ad-nums b{color:var(--ink)}
+  .ad-look{list-style:none;margin-top:8px}
+  .ad-look li{position:relative;padding:2px 0 2px 14px;overflow-wrap:anywhere}
+  .ad-look li::before{content:'';position:absolute;left:1px;top:11px;width:6px;height:6px;border-radius:50%;background:var(--ink3)}
+  .ad-look li.bad{color:var(--bad);font-weight:600} .ad-look li.bad::before{background:var(--bad)} .ad-look li.warn::before{background:var(--warn)}
+  .ad-memo{font-size:var(--fs-sm);margin-top:6px;padding-top:6px;border-top:1px dashed var(--line);overflow-wrap:anywhere}
+  .ad-memo+.ad-memo{border-top:none;margin-top:0;padding-top:2px}
+  .ad-write{display:flex;gap:6px;margin-top:10px}
+  .ad-write select{width:auto;flex:0 0 auto} .ad-write input{flex:1;min-width:0}
+  .rp-opt{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;position:relative}
+  .rp-opt label.btn{display:inline-flex;align-items:center;cursor:pointer}
+  .rp-target{margin-left:auto;white-space:nowrap} .rp-target input{width:84px;min-height:32px;padding:4px 8px}
+  .rp-ask{margin-top:10px;border:1px solid var(--warn-line);background:var(--warn-bg);border-radius:var(--r);padding:10px 12px}
+  .rp-ask input{flex:1;min-width:0}
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -325,7 +344,7 @@ var HOUR = 60 * 60 * 1000;
 /* 빠른 화면: 읽기 요청은 마지막 결과를 먼저 보여주고(이 PC에 저장), 뒤에서 새로 받아 바뀌었으면 다시 그림.
    30초 안에 다시 열면 서버에 묻지 않음. 저장·삭제·체크 같은 쓰기 뒤에는 모두 지우고 새로 받음.
    1 = 이 PC에도 저장(다음에 열 때 바로 보임), 2 = 창을 닫으면 사라짐(연락처가 있는 영업노트) */
-var READS = { bootstrap: 1, perf: 1, checkView: 1, goalList: 1, failureList: 1, taskList: 1, noticeList: 1, mediaNoticeList: 1, calendar: 1, teamStats: 1, usageStats: 1, solutions: 1, guideList: 1, leadList: 2, today: 2 };
+var READS = { bootstrap: 1, perf: 1, checkView: 1, goalList: 1, failureList: 1, taskList: 1, noticeList: 1, mediaNoticeList: 1, calendar: 1, teamStats: 1, usageStats: 1, solutions: 1, guideList: 1, adList: 1, leadList: 2, today: 2 };
 var CACHE = {}, FRESH_MS = 30000, CV = 'oc1:';
 function ckey(a, p) { return a + '|' + JSON.stringify(p || {}); }
 function cget(k) {
@@ -349,7 +368,7 @@ function freshArrived(a) {
     var ae = document.activeElement;
     if (!CUR || CUR === 'more' || ($('modal') && !$('modal').hidden) || (ae && /INPUT|SELECT|TEXTAREA/.test(ae.tagName) && $('view').contains(ae))) return;
     var y = window.scrollY;
-    ({ perf: viewPerf, check: viewCheck, plan: viewPlan, sales: viewSales, task: viewTask, notice: viewNotice, solution: viewSolution, guide: viewGuide, calendar: viewCalendar, admin: viewAdmin }[CUR] || function () {})();
+    ({ perf: viewPerf, check: viewCheck, ad: viewAd, plan: viewPlan, sales: viewSales, task: viewTask, notice: viewNotice, solution: viewSolution, guide: viewGuide, calendar: viewCalendar, admin: viewAdmin }[CUR] || function () {})();
     setTimeout(function () { try { window.scrollTo(0, y); } catch (e) {} }, 60);
   }, 150);
 }
@@ -457,8 +476,8 @@ function prefetch() {
 }
 
 /* 메뉴: PC 왼쪽 4묶음(오늘·성과·자료·팀장 전용), 모바일 아래 5칸(점검·할일·영업노트·실적·더보기) */
-var NAV_GROUPS = [['오늘', ['check', 'task', 'sales', 'calendar']], ['성과', ['perf', 'plan']], ['자료', ['notice', 'solution', 'guide']]];
-var NAV_SHORT = { check: '점검', task: '할일', sales: '영업노트', perf: '실적', plan: '액션플랜', calendar: '캘린더', notice: '공지', solution: '솔루션', guide: '가이드', admin: '팀 현황' };
+var NAV_GROUPS = [['오늘', ['check', 'ad', 'task', 'sales', 'calendar']], ['성과', ['perf', 'plan']], ['자료', ['notice', 'solution', 'guide']]];
+var NAV_SHORT = { check: '점검', ad: '광고 관리', task: '할일', sales: '영업노트', perf: '실적', plan: '액션플랜', calendar: '캘린더', notice: '공지', solution: '솔루션', guide: '가이드', admin: '팀 현황' };
 function navBadges() {
   var b = B.badges || {};
   // 빨강 = 오늘 손댈 것, 연초록 = 남은 개수, 0이면 숨김
@@ -510,7 +529,7 @@ function go(id) {
   CUR = id; store('ob-tab', id); drawTabs();
   $('view').innerHTML = '<div class="loading">불러오는 중…</div>';
   if (id !== 'more' && window.scrollTo) try { window.scrollTo(0, 0); } catch (e) {}
-  ({ more: viewMore, perf: viewPerf, check: viewCheck, plan: viewPlan, sales: viewSales, task: viewTask, notice: viewNotice, solution: viewSolution, guide: viewGuide, calendar: viewCalendar, admin: viewAdmin }[id] || viewPlan)();
+  ({ more: viewMore, perf: viewPerf, check: viewCheck, ad: viewAd, plan: viewPlan, sales: viewSales, task: viewTask, notice: viewNotice, solution: viewSolution, guide: viewGuide, calendar: viewCalendar, admin: viewAdmin }[id] || viewPlan)();
 }
 function refreshBadges() { return call('badges').then(function (b) { B.badges = b; drawTabs(); return b; }); }
 
@@ -1539,6 +1558,453 @@ function alertSetup(renew) {
   }).catch(fail);
 }
 function copyCode() { var i = $('a_code'); i.select(); try { document.execCommand('copy'); toast('복사했어요'); } catch (e) { toast('직접 선택해서 복사하세요', true); } }
+
+/* ───────── 광고 관리 (내 담당 네이버 검색광고: 점검 + 메모 + 보고문) ─────────
+   원보드는 광고를 바꾸지 않음. 변경이력 엑셀은 이 화면(브라우저)에서만 읽고 서버로 올리지 않음.
+   변경이력 해석·이유 추정·문장 조립은 sa_change_report/report.py, 말투는 STYLE.md 를 옮긴 것.
+   원보드에는 소재·키워드 단위 성과가 없어 이유는 캠페인 단위(campaignPerf) 숫자로만 판단하고, 모르면 지어내지 않고 묻는다. */
+var AD = null, RP = null;
+function adUrl(a, path) {
+  if (!a.adAccountNo) return '';
+  return 'https://ads.naver.com/manage/ad-accounts/' + a.adAccountNo + (path || '/dashboard') + (a.accessManagerAccountNo ? '?accessManagerAccountNo=' + a.accessManagerAccountNo : '');
+}
+function adA(text, a, path) { var u = adUrl(a, path); return u ? '<a href="' + esc(u) + '" target="_blank" rel="noopener">' + esc(text) + '</a>' : esc(text); }
+function adHas(a, type, levels) { return (a.alerts || []).some(function (x) { return x.type === type && (!levels || levels.indexOf(x.level) >= 0); }); }
+/** 급한 순서: 0 비즈머니 부족 → 1 급감(어제 0원 포함) → 2 예산 조기 소진 → 3 7일 넘게 미수정 → 4 나머지 */
+function adRank(a) {
+  if (adHas(a, 'bizmoney', ['urgent', 'warn'])) return 0;
+  if (adHas(a, 'off', ['urgent']) || adHas(a, 'drop')) return 1;
+  if ((a.budgetHits || []).length) return 2;
+  if (a.daysSinceEdit != null && a.daysSinceEdit >= 7) return 3;
+  return 4;
+}
+function adLive(a) { return !!(a.avg7 || a.yesterday || a.monthSpend || a.last7Avg); }
+function pct(v) { return v == null ? '-' : Math.round(v).toLocaleString() + '%'; }
+/** 오늘 볼 것 2~3줄 */
+function adLooks(a) {
+  var out = [];
+  (a.alerts || []).filter(function (x) { return x.level === 'urgent' || x.level === 'warn'; })
+    .sort(function (x, y) { return (x.level === 'urgent' ? 0 : 1) - (y.level === 'urgent' ? 0 : 1); }).slice(0, 2)
+    .forEach(function (x) { out.push({ lv: x.level === 'urgent' ? 'bad' : 'warn', html: esc(x.text) }); });
+  var h = (a.budgetHits || [])[0];
+  if (h) out.push({ lv: 'warn', html: adA(h.name, a, '/sa/campaigns/' + h.id) + ' 일예산 ' + won(h.budget) + ' · 최근 7일 중 ' + h.hitDays + '일 다 씀' + (h.avgHitTime ? ' (평균 ' + esc(h.avgHitTime) + '쯤 꺼짐)' : '') + (h.limitedNow ? ' · 지금 예산 부족으로 멈춤' : '') });
+  var c = (a.campaignPerf || []).filter(function (c) { return c.avg7 > 0 && c.roasLM && c.roas7 != null && c.roas7 < c.roasLM * 0.7; })[0];
+  if (c) out.push({ lv: 'warn', html: adA(c.name, a, '/sa/campaigns/' + c.id) + ' 효율 최근 7일 ' + pct(c.roas7) + ' (지난달 ' + pct(c.roasLM) + ')' });
+  if (a.daysSinceEdit != null && a.daysSinceEdit >= 7 && !out.some(function (o) { return o.html.indexOf('수정') >= 0; }))
+    out.push({ lv: 'warn', html: a.daysSinceEdit + '일째 수정 없음' + (a.lastEditWhat ? ' · 마지막 ' + adA(a.lastEditWhat.label, a, a.lastEditWhat.path) : '') });
+  if (!out.length) out.push({ lv: '', html: '특이사항 없음' + (a.roas7 != null ? ' · 최근 7일 효율 ' + pct(a.roas7) : '') });
+  return out.slice(0, 3);
+}
+function adMemos(cid) { return (AD.memos || []).filter(function (m) { return m.cid === String(cid); }); }
+function viewAd() {
+  call('adList').then(function (d) {
+    AD = d;
+    var live = d.accounts.filter(adLive).sort(function (x, y) { return adRank(x) - adRank(y) || (y.avg7 || 0) - (x.avg7 || 0); });
+    var rest = d.accounts.filter(function (a) { return !adLive(a); });
+    AD.list = live.concat(rest);
+    var n = [0, 0, 0, 0, 0]; live.forEach(function (a) { n[adRank(a)]++; });
+    var spend = live.reduce(function (t, a) { return t + (Number(a.yesterday) || 0); }, 0);
+    var h = '<div class="head"><div><h2>광고 관리</h2><p>' + (d.baseDate ? esc(md(d.baseDate)) + ' 광고비 기준 · ' : '') + '내 담당 네이버 검색광고를 급한 순서로 봅니다. 계정명·캠페인을 누르면 광고센터로 이동해요. 원보드는 광고를 바꾸지 않습니다.</p></div></div>';
+    if (d.empty) { $('view').innerHTML = h + '<div class="empty"><b>네이버 SA 점검 결과가 아직 없어요</b>매일 아침 자동 수집이 끝나면 여기에 내 담당 계정이 나옵니다.</div>'; return; }
+    if (!d.accounts.length) { $('view').innerHTML = h + '<div class="empty"><b>내 담당으로 잡힌 네이버 검색광고 계정이 없어요</b>오늘 점검 탭에서 담당자 이름이 맞게 나오는지 확인해 주세요.</div>'; return; }
+    h += '<div class="row" style="justify-content:space-between;align-items:flex-end;margin-bottom:16px"><div class="todo-strip" style="margin:0">'
+      + '<div class="ts' + (n[0] ? ' bad' : '') + '"><b>' + n[0] + '</b>비즈머니 부족</div>'
+      + '<div class="ts' + (n[1] ? ' bad' : '') + '"><b>' + n[1] + '</b>급감</div>'
+      + '<div class="ts' + (n[2] ? ' warn' : '') + '"><b>' + n[2] + '</b>예산 조기 소진</div>'
+      + '<div class="ts' + (n[3] ? ' warn' : '') + '"><b>' + n[3] + '</b>7일 넘게 미수정</div></div>'
+      + '<div style="text-align:right"><div class="small muted">어제 내 담당 광고비 · 계정 ' + live.length + '개</div><div style="font-size:26px;font-weight:800;color:var(--g900)">' + spend.toLocaleString() + '원</div></div></div>';
+    h += live.map(function (a) { return adCard(a, AD.list.indexOf(a)); }).join('');
+    if (rest.length) h += fold('광고비가 없는 계정', rest.length + '개', '<p class="small">' + rest.map(function (a) { return adA(a.name, a); }).join(' · ') + '</p>');
+    $('view').innerHTML = h;
+  }).catch(fail);
+}
+function adCard(a, i) {
+  var r = adRank(a), tag = ['<span class="tag bad">비즈머니 부족</span>', '<span class="tag bad">급감</span>', '<span class="tag warn">예산 조기 소진</span>', '<span class="tag warn">' + a.daysSinceEdit + '일째 미수정</span>', ''][r];
+  var ms = adMemos(a.customerId), kinds = (AD.kinds || []);
+  var nums = ['어제 <b>' + won(a.yesterday) + '</b>', '7일 평균 ' + won(a.avg7), '이번 달 ' + won(a.monthSpend),
+    '효율 <b>' + pct(a.roas7) + '</b>' + (a.roasLastMonth != null ? ' (지난달 ' + pct(a.roasLastMonth) + ')' : ''), '비즈머니 ' + won(a.bizmoney)];
+  if (a.daysSinceEdit != null) nums.push('마지막 수정 ' + (a.daysSinceEdit <= 0 ? '오늘' : a.daysSinceEdit + '일 전'));
+  return '<div class="card ad-card' + (r < 2 ? ' hot' : '') + '">'
+    + '<div class="ad-top"><div class="ad-name">' + adA(a.name, a) + ' ' + tag + '</div>'
+    + '<div class="row" style="flex-wrap:nowrap"><button class="btn pri sm" onclick="adReport(' + i + ')">보고문 만들기</button>'
+    + '<details class="kebab"><summary class="btn sm more" aria-label="더보기">···</summary><div class="menu">'
+    + '<button onclick="adMemoAll(' + i + ')">메모 모두 보기' + (ms.length ? ' (' + ms.length + ')' : '') + '</button>'
+    + (adUrl(a) ? '<button onclick="window.open(\'' + esc(adUrl(a)) + '\',\'_blank\',\'noopener\')">광고센터 열기</button>' : '') + '</div></details></div></div>'
+    + '<div class="ad-nums">' + nums.map(function (x) { return '<span>' + x + '</span>'; }).join('') + '</div>'
+    + '<ul class="ad-look">' + adLooks(a).map(function (o) { return '<li class="' + o.lv + '">' + o.html + '</li>'; }).join('') + '</ul>'
+    + ms.slice(0, 2).map(function (m) { return '<div class="ad-memo"><span class="muted">' + esc(md(m.date)) + ' ' + esc(m.kind) + '</span> ' + esc(m.text) + '</div>'; }).join('')
+    + '<div class="ad-write"><select id="am_k' + i + '" aria-label="메모 분류">' + opts(kinds, kinds[0]) + '</select>'
+    + '<input type="text" id="am_t' + i + '" maxlength="500" placeholder="한 줄 메모 · 왜 바꿨는지, 통화 내용, 다음 계획" onkeydown="if(event.key===\'Enter\')adMemoSave(' + i + ')">'
+    + '<button class="btn sm" onclick="adMemoSave(' + i + ')">저장</button></div></div>';
+}
+function adMemoSave(i) {
+  var a = AD.list[i], t = val('am_t' + i).trim();
+  if (!t) return toast('메모 내용을 적어주세요', true);
+  call('adMemoSave', { cid: a.customerId, name: a.name, kind: val('am_k' + i), text: t }).then(function () { toast('메모를 남겼어요'); viewAd(); }).catch(fail);
+}
+function adMemoAll(i) {
+  var a = AD.list[i], ms = adMemos(a.customerId);
+  openModal('<h3>메모 · ' + esc(a.name) + '</h3><p class="muted small" style="margin:4px 0 10px">최근 두 달 메모입니다. 보고문을 만들 때 기간에 맞는 메모가 자동으로 들어가요.</p>'
+    + (ms.length ? '<div class="scroll"><table class="tbl"><tr><th>날짜</th><th>분류</th><th>내용</th><th></th></tr>' + ms.map(function (m) {
+      return '<tr><td>' + esc(md(m.date)) + '</td><td>' + esc(m.kind) + '</td><td>' + esc(m.text) + '</td><td><button class="btn sm no" onclick="adMemoDel(\'' + esc(m.id) + '\')">삭제</button></td></tr>';
+    }).join('') + '</table></div>' : '<div class="empty">아직 메모가 없어요.</div>')
+    + '<div class="actions"><button class="btn pri" onclick="closeModal()">닫기</button></div>');
+}
+function adMemoDel(id) { if (!confirm('이 메모를 지울까요?')) return; call('adMemoDelete', { id: id }).then(function () { closeModal(); toast('지웠어요'); viewAd(); }).catch(fail); }
+
+/* ── 변경이력 파일 읽기 (report.py read_rows·parse_change 를 옮김) ── */
+var CH_COLS = { '변경일자': 'when', '변경일시': 'when', '일시': 'when', '변경유형': 'kind', '변경자': 'who', '캠페인': 'campaign', '광고그룹': 'adgroup', '변경내용': 'detail' };
+var CH_TARGET = { nad: '소재', nkw: '키워드', grp: '광고그룹', cmp: '캠페인' };
+function chNorm(s) { return String(s == null ? '' : s).replace(/\s+/g, ''); }
+function chCsv(text) {
+  text = text.replace(/^﻿/, '');
+  var d = (text.split('\t').length > text.split(',').length) ? '\t' : ',', rows = [], row = [], cur = '', q = false;
+  for (var i = 0; i < text.length; i++) {
+    var c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+    else if (c === '"' && cur === '') q = true;
+    else if (c === d) { row.push(cur); cur = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; }
+    else cur += c;
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows;
+}
+/** 파일 내용(ArrayBuffer) → 표(문자열 2차원 배열). 엑셀은 SheetJS, csv·txt 는 직접 읽음(utf-8 → 안 되면 cp949) */
+function chTable(buf, name) {
+  if (/\.(xlsx|xlsm|xls)$/i.test(name)) {
+    if (!window.XLSX) throw new Error('엑셀 도구를 불러오지 못했어요. 새로고침 후 다시 시도하세요.');
+    var wb = XLSX.read(buf, { type: 'array', cellDates: true }), ws = wb.Sheets[wb.SheetNames[0]];
+    var p2 = function (n) { return ('0' + n).slice(-2); };
+    return XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' }).map(function (r) {
+      return r.map(function (v) {
+        if (v instanceof Date) return v.getFullYear() + '-' + p2(v.getMonth() + 1) + '-' + p2(v.getDate()) + ' ' + p2(v.getHours()) + ':' + p2(v.getMinutes());
+        return v == null ? '' : String(v);
+      });
+    });
+  }
+  var text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { text = new TextDecoder('euc-kr').decode(buf); }
+  return chCsv(text);
+}
+function chRows(table) {
+  var hi = -1;
+  for (var i = 0; i < Math.min(20, table.length) && hi < 0; i++) if (table[i].filter(function (c) { return CH_COLS[chNorm(c)]; }).length >= 3) hi = i;
+  if (hi < 0) throw new Error('변경이력 칸(변경일자·변경 유형·캠페인·광고그룹·변경 내용)을 찾지 못했어요. 광고센터 변경이력에서 내려받은 파일을 그대로 넣어주세요.');
+  var keys = table[hi].map(function (c) { return CH_COLS[chNorm(c)]; }), rows = [];
+  table.slice(hi + 1).forEach(function (r) {
+    var row = {}; keys.forEach(function (k, j) { if (k) row[k] = String(r[j] == null ? '' : r[j]).trim(); });
+    if (row.detail || row.kind) rows.push(row);
+  });
+  return rows;
+}
+function chWhen(s) { var m = /(\d{4})[.\-\/]\s*(\d{1,2})[.\-\/]\s*(\d{1,2})/.exec(s || ''); return m ? m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2) : ''; }
+function chSide(text) {
+  var out = {};
+  String(text || '').split(/[\n·•]/).forEach(function (line) {
+    var k = line.indexOf(':'); if (k < 0) return;
+    var key = chNorm(line.slice(0, k)); if (key) out[key] = line.slice(k + 1).trim();
+  });
+  return out;
+}
+function chNum(v) { v = String(v == null ? '' : v).replace(/[^\d.\-]/g, ''); return v === '' || v === '-' || v === '.' || isNaN(Number(v)) ? null : Number(v); }
+function chParse(row) {
+  var detail = row.detail || '', m = /\b((?:nad|nkw|grp|cmp)-[a-z0-9-]+)/.exec(detail), tid = m ? m[1] : '', before = {}, after = {};
+  var sp = /변경\s*전/.exec(detail);
+  if (sp) {
+    var body = detail.slice(sp.index + sp[0].length), af = /변경\s*후/.exec(body);
+    before = chSide(af ? body.slice(0, af.index) : body); after = af ? chSide(body.slice(af.index + af[0].length)) : {};
+  }
+  var kind = chNorm(row.kind), action = '기타', delta = null, bb = chNum(before['입찰가']), ba = chNum(after['입찰가']);
+  var bk = Object.keys(after).filter(function (k) { return k.indexOf('예산') >= 0; })[0];
+  var ok = Object.keys(after).filter(function (k) { return ['상태', '노출상태', 'ON/OFF', '사용여부'].indexOf(k) >= 0 || k.toLowerCase().indexOf('on/off') >= 0; })[0];
+  if (bb !== null && ba !== null && bb !== ba) { action = ba > bb ? '입찰가 상향' : '입찰가 하향'; delta = [bb, ba]; }
+  else if (bk && before[bk] !== after[bk]) { var b = chNum(before[bk]), a2 = chNum(after[bk]); action = (b || 0) < (a2 || 0) ? '예산 상향' : '예산 하향'; delta = [b, a2]; }
+  else if (ok) { var v = after[ok].toUpperCase(); action = (v.indexOf('OFF') >= 0 || v.indexOf('중지') >= 0 || v.indexOf('꺼') >= 0) ? 'OFF' : 'ON'; }
+  else if (kind.indexOf('등록') >= 0 || detail.indexOf('등록') >= 0 || kind.indexOf('추가') >= 0) action = '등록';
+  else if (kind.indexOf('삭제') >= 0 || detail.indexOf('삭제') >= 0) action = '삭제';
+  return { date: chWhen(row.when), campaign: String(row.campaign || '').replace(/^[^\p{L}\p{N}_\[(]+/u, ''), adgroup: row.adgroup || '', id: tid,
+    target: tid ? (CH_TARGET[tid.slice(0, 3)] || '설정') : '설정', action: action, delta: delta, kind: row.kind || '' };
+}
+function chRead(buf, name) { return chRows(chTable(buf, name)).map(chParse).filter(function (c) { return c.action !== '기타' || c.kind; }); }
+
+/* ── 숫자·말투 (STYLE.md) ── */
+function rpMan(v) { v = Math.round(Number(v) || 0); return v >= 10000 ? Math.round(v / 10000).toLocaleString() + '만원' : v.toLocaleString() + '원'; }
+function rpWon(v) { return Math.round(Number(v) || 0).toLocaleString() + '원'; }
+/** 효율을 말로: 480 → '400% 후반대', 1230 → '1,200%대' */
+function rpRoas(v) {
+  v = Math.round(v);
+  if (v < 100) return v + '%';
+  var h = Math.floor(v / 100) * 100, r = v - h;
+  if (v >= 1000) return h.toLocaleString() + '%대';
+  return h + '% ' + (r < 34 ? '초반대' : r < 67 ? '중반대' : '후반대');
+}
+function rpPick(list, seed, salt) { return list[((seed || 0) + (salt || 0)) % list.length]; }
+/** 직접 적은 이유를 문장에 잇기: '시즌 종료 대비' → '시즌 종료 대비로' (이미 이어지는 말로 끝나면 그대로) */
+function rpJoin(s) {
+  s = String(s).trim().replace(/[.。!]+$/, '');
+  if (!s || /(어|해|여|서|라|고|며|으로|로|위해|때문에|되어|하여|아)$/.test(s)) return s;
+  var c = s.charCodeAt(s.length - 1);
+  if (c < 0xAC00 || c > 0xD7A3) return s + '(으)로';
+  var j = (c - 0xAC00) % 28;
+  return s + (j === 0 || j === 8 ? '로' : '으로');
+}
+function rpShort(name) { return String(name || '').replace(/\(.*?\)\s*$/, '').trim() || String(name || ''); }
+function rpGreet(seed, now) {
+  var dow = now.getDay(), am = now.getHours() < 12;
+  if (am && dow === 1) return rpPick(['좋은아침 이십니다. 이번주도 파이팅입니다!', '안녕하세요 좋은한주파이팅입니다!'], seed);
+  if (am && dow === 5) return rpPick(['좋은아침 이십니다. 한주 고생하셨습니다!', '안녕하세요 좋은아침 이십니다.'], seed);
+  if (am) return rpPick(['안녕하세요 좋은아침 이십니다.', '좋은아침 이십니다.'], seed);
+  if (dow === 5) return rpPick(['안녕하세요. 한주 고생하셨습니다!', '안녕하세요.'], seed);
+  return '안녕하세요.';
+}
+var RP_FOLLOW = {
+  '입찰가 하향': ['효율 회복되는지 지속체크하겠습니다.', '데이터 지켜보면서 조정하겠습니다.', '효율 올라오는지 체크해보겠습니다.'],
+  'OFF': ['비효율 정리 후 남은 예산 효율 지켜보겠습니다.', '정리 이후 효율 변화 지켜보고 말씀드리겠습니다.'],
+  '예산 하향': ['효율 회복되는지 지속체크하겠습니다.', '소진 흐름 지켜보면서 조정하겠습니다.'],
+  '입찰가 상향': ['노출·효율 같이 지켜보면서 조정하겠습니다.', '효율 유지되는지 지켜보고 말씀드리겠습니다.'],
+  '예산 상향': ['효율 무너지지 않는지 지켜보면서 조정하겠습니다.', '소진 흐름 지켜보고 말씀드리겠습니다.'],
+  'ON': ['반응 지켜보면서 판단하겠습니다.', '데이터 좀더 지켜보고 판단할 예정입니다.'],
+  '등록': ['데이터 쌓이는대로 정리해서 말씀드리겠습니다.', '데이터 쌓이면 체크해보겠습니다.'],
+  '삭제': ['']
+};
+var RP_CLOSE = ['데이터 지켜보면서 지속 말씀드리겠습니다.', '지속체크하면서 말씀드리겠습니다.', '데이터 체크 후 지속 말씀드리겠습니다.'];
+
+/* ── 이유 추정 (report.py guess_reason 을 캠페인 단위 숫자에 맞게) ──
+   c = campaignPerf 한 줄(최근 7일·지난달 일평균 광고비와 구매완료 효율), hit = 그 캠페인의 예산 소진 기록.
+   숫자로 설명되지 않으면 cat 'unknown' — 이유를 지어내지 않고 직접 적게 한다. */
+function adGuess(action, c, hit, target, seed) {
+  var no = { cat: 'unknown', text: '' };
+  if (!c || !(c.avg7 * 7 >= 10000)) return no;      // 성과가 없거나 7일 광고비 1만원 미만: 판단 보류
+  var r = c.roas7, lm = c.roasLM, trend = lm ? '(지난달 ' + pct(lm) + ')' : '';
+  if (action === '입찰가 하향' || action === 'OFF' || action === '예산 하향') {
+    if (!r) return { cat: 'no_conv', text: rpPick(['최근 7일 광고비 ' + rpMan(c.avg7 * 7) + ' 소진 대비 구매가 없어', '최근 7일 ' + rpMan(c.avg7 * 7) + ' 소진대비 효율이 없어'], seed) };
+    if (r < target) return { cat: 'below', text: rpPick(['최근 7일 구매완료 효율이 ' + pct(r) + trend + '로 기준(' + target + '%)보다 낮아', '최근 7일 효율이 ' + pct(r) + trend + '로 기준(' + target + '%) 대비 낮은 부분이 확인되어'], seed) };
+    if (lm && r < lm * 0.7) return { cat: 'drop', text: '효율이 지난달 ' + pct(lm) + '에서 최근 7일 ' + pct(r) + '로 하락해' };
+    if (c.avgLM && c.avg7 > c.avgLM * 1.5) return { cat: 'spend_up', text: '광고비가 지난달 일평균 대비 ' + (c.avg7 / c.avgLM).toFixed(1) + '배로 늘어 소진 관리를 위해' };
+    return no;
+  }
+  if (action === '입찰가 상향' || action === 'ON' || action === '예산 상향') {
+    if (action === '예산 상향' && hit) return { cat: 'budget', text: '일예산이 최근 7일 중 ' + hit.hitDays + '일 일찍 소진되어 노출 확보를 위해' };
+    if (r != null && r >= target) return { cat: 'high', text: rpPick(['최근 7일 구매완료 효율 ' + pct(r) + trend + '로 기준 이상이라 노출 확대를 위해', '최근 7일 효율이 ' + pct(r) + trend + '로 높은편이라 노출을 더 가져가기 위해'], seed) };
+  }
+  return no;
+}
+function adCamp(a, name) {
+  var n = chNorm(name), list = a.campaignPerf || [];
+  if (!n) return null;
+  return list.filter(function (c) { return chNorm(c.name) === n; })[0] || list.filter(function (c) { var m = chNorm(c.name); return m && (m.indexOf(n) >= 0 || n.indexOf(m) >= 0); })[0] || null;
+}
+/** 변경 묶기(캠페인 × 변경 × 대상) → 문장 재료. reasons[key] = 직접 적은 이유, memos = 그날 '조정 이유' 메모 */
+function adGroups(a, changes, opt) {
+  var map = {}, order = [];
+  changes.forEach(function (c) { var k = c.campaign + '|' + c.action + '|' + c.target; if (!map[k]) { map[k] = []; order.push(k); } map[k].push(c); });
+  return order.map(function (k, idx) {
+    var cs = map[k], c0 = cs[0], n = cs.length, camp = adCamp(a, c0.campaign);
+    var hit = camp ? (a.budgetHits || []).filter(function (h) { return h.id === camp.id; })[0] : null;
+    var cnt = n > 1 ? c0.target + ' ' + n + '개' : c0.target, act = c0.action, what;
+    if (act.indexOf('입찰가') === 0) {
+      var bs = cs.filter(function (c) { return c.delta && c.delta[0]; }).map(function (c) { return (c.delta[1] - c.delta[0]) / c.delta[0] * 100; });
+      var avg = bs.length ? bs.reduce(function (s, x) { return s + x; }, 0) / bs.length : 0;
+      what = cnt + ' 입찰가 ' + (n > 1 ? '평균 ' : '') + Math.abs(avg).toFixed(0) + '% ' + act.slice(-2) + ' 조정';
+    } else if (act.indexOf('예산') === 0) what = cnt + ' 예산 ' + act.slice(-2) + ' 조정';
+    else if (act === 'ON' || act === 'OFF') what = cnt + ' ' + act + ' 처리';
+    else if (act === '기타') what = c0.target + ' ' + (c0.kind || '설정') + ' ' + n + '건 진행';
+    else what = cnt + ' ' + act;
+    var typed = (opt.reasons || {})[k], memo = !typed && (opt.memos || []).filter(function (m) { var s = chNorm(rpShort(c0.campaign)); return s && chNorm(m.text).indexOf(s) >= 0; })[0];
+    var g = opt.noGuess ? { text: '' } : adGuess(act, camp, hit, opt.target, opt.seed + idx), reason = '', basis = '-';
+    if (typed) { reason = rpJoin(typed); basis = '직접 입력'; }
+    else if (memo) { reason = rpJoin(memo.text.replace(new RegExp('^\\s*' + rpShort(c0.campaign).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*[:\\-·,]?\\s*'), '')); basis = '메모'; }
+    else if (g.text) { reason = (c0.target === '캠페인' ? '' : '캠페인 기준 ') + g.text; basis = '캠페인 숫자'; }
+    var follow = rpPick(RP_FOLLOW[act] || ['데이터 지켜보면서 조정하겠습니다.'], opt.seed, idx);
+    if ((act === '입찰가 하향' || act === '예산 하향') && camp && camp.roas7 != null && camp.roas7 >= opt.target) follow = '효율 유지되는지 지켜보면서 조정하겠습니다.';
+    return { key: k, campaign: c0.campaign, action: act, target: c0.target, n: n, what: what, reason: reason, basis: basis, camp: camp, follow: follow, usedMemo: memo ? memo.id : '',
+      line: ('- ' + (reason ? reason + ' ' : '') + what + '하였습니다. ' + follow).trim() };
+  });
+}
+/** 계정 현황 한 줄 (당일 보고용) */
+function rpStatus(a, seed) {
+  if (!a.last7Avg && !a.avg7) return '- 현재 최근 7일 소진이 없는 상황입니다.';
+  var avg = rpMan(a.last7Avg || a.avg7), r = a.roas7, lm = a.roasLastMonth;
+  if (r == null) return '- 현재 최근 7일 일평균 광고비 ' + avg + ' 소진중입니다.';
+  if (r === 0) return '- 현재 최근 7일 일평균 광고비 ' + avg + ' 소진중이며 구매완료 전환은 아직 없는 상황입니다.';
+  var s = rpPick(['- 현재 최근 7일 일평균 광고비 ' + avg + ', 효율은 ' + rpRoas(r) + ' 상황입니다.', '- 최근 7일 기준 일평균 ' + avg + ' 소진중이며 효율은 ' + rpRoas(r) + '로 확인됩니다.'], seed);
+  if (lm) s += r < lm * 0.85 ? ' 지난달(' + pct(lm) + ') 대비 다소 떨어진 부분이 있습니다.' : r > lm * 1.15 ? ' 지난달(' + pct(lm) + ')보다 올라온 상황입니다.' : ' 지난달과 비슷하게 유지되고 있습니다.';
+  return s;
+}
+function rpBetween(list, from, to) { return list.filter(function (x) { return x.date >= from && x.date <= to; }); }
+function rpChgWord(cur, prev) { var p = (cur / prev - 1) * 100; return Math.abs(p) < 3 ? '비슷한 수준이고' : '약 ' + Math.abs(p).toFixed(0) + '% ' + (p > 0 ? '늘었고' : '줄었고'); }
+function rpRoasMove(cur, prev) { return cur > prev * 1.05 ? '올라온 상황입니다.' : cur < prev * 0.95 ? '다소 낮아진 상황입니다.' : '비슷하게 유지되고 있습니다.'; }
+/** 기간 안의 조정 내용 줄(엑셀 변경 + 메모) */
+function rpAdjust(a, o, from, to) {
+  var ch = rpBetween(o.changes || [], from, to), covered = {}; ch.forEach(function (c) { covered[c.date] = 1; });
+  var why = rpBetween(o.memos, from, to).filter(function (m) { return m.kind === '조정 이유'; }), used = {};
+  // 주간·월간은 조정 요약만: 지금의 최근 7일 숫자는 그때 숫자가 아니라서 이유로 붙이지 않음(직접 적은 이유·메모만 반영)
+  var gs = adGroups(a, ch, { reasons: o.reasons, target: o.target, seed: o.seed, noGuess: true, memos: why });
+  gs.forEach(function (g) { if (g.usedMemo) used[g.usedMemo] = 1; });
+  var lines = gs.slice(0, 8).map(function (g) { return '- ' + rpShort(g.campaign) + ' : ' + (g.reason ? g.reason + ' ' : '') + g.what + '하였습니다.'; });
+  if (gs.length > 8) lines.push('- 그 외 ' + (gs.length - 8) + '건도 조정 진행하였습니다.');
+  rpBetween(o.memos, from, to).filter(function (m) { return (m.kind === '조정 이유' && !used[m.id]) || (m.kind === '변경 요약' && !covered[m.date]); }).reverse()
+    .forEach(function (m) {
+      if (m.kind === '변경 요약') m.text.split(' / ').forEach(function (t) { lines.push('- ' + md(m.date) + ' ' + t + '하였습니다.'); });
+      else lines.push('- ' + m.text);
+    });
+  return { lines: lines, groups: gs };
+}
+/**
+ * 보고문 만들기. a = 계정, o = { type: day|week|month, fmt: kakao|mail, month: this|last, seed, target, changes, reasons,
+ *   memos(이 계정 메모), today('YYYY-MM-DD'), base(광고비 기준일), now(Date), me(보내는 사람 이름) }
+ * 돌려줌: { text, groups(근거표), ask(이유를 직접 적어야 하는 묶음), note(화면 안내), day }
+ */
+function adReportText(a, o) {
+  var L = [], seed = o.seed || 0, memos = o.memos || [], base = o.base || o.today, groups = [], note = [];
+  var needCharge = adHas(a, 'bizmoney', ['urgent', 'warn']);
+  var plan = function (from, to) { return rpBetween(memos, from, to).filter(function (m) { return m.kind === '다음 계획'; }).map(function (m) { return m.text; }); };
+  if (o.type === 'day') {
+    var dates = (o.changes || []).map(function (c) { return c.date; }).filter(String).sort(), day = dates.length ? dates[dates.length - 1] : o.today;
+    var ch = (o.changes || []).filter(function (c) { return !c.date || c.date === day; });
+    var dm = memos.filter(function (m) { return m.date === day || m.date === o.today; });
+    var stale = day < addDays(base, -1);   // '최근 7일' 숫자는 수집 기준일 것이라, 오래된 변경의 이유로는 쓰지 않음
+    groups = adGroups(a, ch, { reasons: o.reasons, target: o.target, seed: seed, noGuess: stale, memos: dm.filter(function (m) { return m.kind === '조정 이유'; }) });
+    if (stale && groups.length) note.push('변경일(' + md(day) + ')이 며칠 지나서, 지금의 최근 7일 숫자로는 이유를 붙이지 않았어요.');
+    var used = {}; groups.forEach(function (g) { if (g.usedMemo) used[g.usedMemo] = 1; });
+    L.push(rpGreet(seed, o.now), '', '네이버 검색광고', rpStatus(a, seed));
+    var by = {}, ord = [];
+    groups.forEach(function (g) { if (!by[g.campaign]) { by[g.campaign] = []; ord.push(g.campaign); } by[g.campaign].push(g.line); });
+    ord.slice(0, 6).forEach(function (c) { L.push('', rpShort(c)); L = L.concat(by[c]); });
+    if (ord.length > 6) L.push('', '- 그 외 ' + (ord.length - 6) + '개 캠페인도 조정 진행하였습니다.');
+    var extra = dm.filter(function (m) { return m.kind === '조정 이유' && !used[m.id]; });
+    if (extra.length) { if (groups.length) L.push(''); extra.forEach(function (m) { L.push('- ' + m.text); }); }
+    L.push('');
+    if (needCharge) L.push('더불어 비즈머니 잔액이 얼마 남지 않아 네이버 검색광고 광고비 충전한번 부탁드립니다!');
+    var pl = plan(day < o.today ? day : o.today, o.today);
+    L = L.concat(pl.length ? pl : [rpPick(RP_CLOSE, seed)]);
+    if (!groups.length && !extra.length) note.push('변경이력 엑셀도 오늘 메모도 없어 성과 숫자만 들어갔어요.');
+    return { text: L.join('\n'), groups: groups, ask: groups.filter(function (g) { return !g.reason; }), note: note, day: day, used: ch.length };
+  }
+  var mail = o.fmt === 'mail', head = function (n, t) { return mail ? n + '. ' + t : t; };
+  if (o.type === 'week') {
+    var from = addDays(base, -6), rng = md(from) + '~' + md(base);
+    var sp = a.last7Spend != null ? a.last7Spend : (a.last7Avg || 0) * 7, exact = a.last7Spend != null, p7 = (a.purchase || {}).last7 || {}, p14 = (a.purchase || {}).last14 || {};
+    var sp14 = a.last14Spend != null ? a.last14Spend : (a.roas14 ? (p14.amt || 0) / a.roas14 * 100 : null);
+    var psp = sp14 != null ? sp14 - sp : null, proas = psp > 0 ? Math.round(((p14.amt || 0) - (p7.amt || 0)) / psp * 100) : null;
+    if (mail) L.push('제목: [네이버 검색광고] 주간 보고 (' + rng + ')', '', '안녕하세요. ' + (o.me || '') + '입니다.', '네이버 검색광고 주간 현황 보고드립니다.', '', '1. 성과 (' + rng + ')');
+    else L.push(rpGreet(seed, o.now), rpPick(['네이버 검색광고 주간 현황 말씀드립니다.', '이번주 네이버 검색광고 현황 공유드립니다.'], seed), '', '네이버 검색광고 (' + rng + ')');
+    L.push('- 광고비 : ' + (exact ? rpWon(sp) : '약 ' + rpMan(sp)));
+    if (p7.amt != null) L.push('- 구매완료 매출 : ' + rpWon(p7.amt));
+    L.push('- 효율 : ' + pct(a.roas7));
+    var cmp = '';
+    if (psp > 0 && proas != null && a.roas7 != null) cmp = '전주 대비 광고비는 ' + rpChgWord(sp, psp) + ' 효율은 ' + pct(proas) + ' → ' + pct(a.roas7) + '로 ' + rpRoasMove(a.roas7, proas);
+    else if (a.lastMonthAvg && a.roas7 != null && a.roasLastMonth) cmp = '지난달 대비 일평균 광고비는 ' + rpChgWord(sp / 7, a.lastMonthAvg) + ' 효율은 ' + pct(a.roasLastMonth) + ' → ' + pct(a.roas7) + '로 ' + rpRoasMove(a.roas7, a.roasLastMonth);
+    if (cmp) L.push('', cmp);
+    if (psp > 0 && a.roasLastMonth && a.roas7 != null) L.push((a.roas7 < a.roasLastMonth * 0.85 ? '다만 ' : '더불어 ') + '지난달 평균 효율(' + pct(a.roasLastMonth) + ')과 비교하면 ' + (a.roas7 < a.roasLastMonth * 0.85 ? '다소 낮은 상황입니다.' : a.roas7 > a.roasLastMonth * 1.15 ? '높은 상황입니다.' : '비슷한 수준입니다.'));
+    var adj = rpAdjust(a, o, from, o.today); groups = adj.groups;
+    L.push('', head(2, '이번주 조정 내용'));
+    if (adj.lines.length) L = L.concat(adj.lines);
+    else if (a.daysSinceEdit != null && a.daysSinceEdit > 7) L.push('- 이번주는 별도 조정 없이 현재 입찰가로 유지하였습니다.');
+    else L.push('- (이번주 조정 내용을 적어주세요' + (a.lastEdit ? ' · 마지막 수정 ' + md(a.lastEdit.slice(0, 10)) + (a.lastEditWhat ? ' ' + a.lastEditWhat.label : '') : '') + ')');
+    var wp = plan(from, o.today);
+    L.push('', head(3, '다음주 계획'));
+    L = L.concat(wp.length ? wp.map(function (t) { return '- ' + t; }) : ['- (다음주 계획을 적어주세요)']);
+    if (needCharge) L.push('', '더불어 비즈머니 잔액이 얼마 남지 않아 네이버 검색광고 광고비 충전한번 부탁드립니다!');
+    L.push('');
+    if (mail) L.push('확인 후 궁금하신 부분 말씀주시면 답변드리겠습니다.', '감사합니다.'); else L.push('감사합니다!');
+    if (!exact) note.push('광고비는 일평균으로 계산한 값이라 "약"으로 적었어요(다음 수집부터 정확한 합계가 들어옵니다).');
+    return { text: L.join('\n'), groups: groups, ask: [], note: note };
+  }
+  // 월간
+  var last = o.month === 'last', m0 = base.slice(0, 7), mm = last ? addMonths(m0, -1) : m0, mn = Number(mm.slice(5)) + '월';
+  var mfrom = mm + '-01', mto = last ? addDays(m0 + '-01', -1) : base, days = Number(mto.slice(8));
+  var msp, mroas, mamt, mexact = true;
+  if (last) { msp = a.lastMonthSpend != null ? a.lastMonthSpend : (mexact = false, (a.lastMonthAvg || 0) * days); mroas = a.roasLastMonth; mamt = ((a.purchase || {}).last_month || {}).amt; }
+  else { msp = a.monthSpend || 0; mroas = a.roasMonth; mamt = ((a.purchase || {}).month || {}).amt; }
+  var title = '네이버 검색광고 ' + mn + (last ? ' 결과' : ' 현황');
+  if (mail) L.push('제목: [네이버 검색광고] ' + mn + ' 월간 보고', '', '안녕하세요. ' + (o.me || '') + '입니다.', title + ' 보고드립니다.' + (last ? '' : ' (' + Number(base.slice(8)) + '일 기준)'), '', '1. 성과 (' + md(mfrom) + '~' + md(mto) + ')');
+  else L.push(rpGreet(seed, o.now), title + ' 말씀드립니다.' + (last ? '' : ' (' + Number(base.slice(8)) + '일 기준)'), '', '네이버 검색광고 (' + md(mfrom) + '~' + md(mto) + ')');
+  L.push('- 광고비 : ' + (mexact ? rpWon(msp) : '약 ' + rpMan(msp)) + ' (일평균 ' + rpMan(msp / days) + ')');
+  if (mamt != null) L.push('- 구매완료 매출 : ' + rpWon(mamt));
+  if (mroas != null) L.push('- 효율 : ' + pct(mroas));
+  else { L.push('- 효율 : 최근 7일 ' + pct(a.roas7)); note.push('이번 달 누적 효율은 다음 수집부터 들어옵니다. 지금은 최근 7일 효율로 적었어요.'); }
+  if (!last && a.lastMonthAvg && mroas != null && a.roasLastMonth)
+    L.push('', '지난달 대비 일평균 광고비는 ' + rpChgWord(msp / days, a.lastMonthAvg) + ' 효율은 ' + pct(a.roasLastMonth) + ' → ' + pct(mroas) + '로 ' + rpRoasMove(mroas, a.roasLastMonth));
+  if (last) note.push('지난달 마감 보고에는 전전월 비교가 없습니다(원보드가 받는 숫자에 없어요).');
+  var madj = rpAdjust(a, o, mfrom, last ? mto : o.today); groups = madj.groups;
+  L.push('', head(2, '주요 조정'));
+  L = L.concat(madj.lines.length ? madj.lines : ['- (주요 조정 내용을 적어주세요)']);
+  L.push('', head(3, '제안드릴 내용'));
+  var hit = (a.budgetHits || [])[0];
+  if (!last && hit) L.push('- ' + rpShort(hit.name) + ' 캠페인은 일예산이 일찍 소진되는 날이 있어 예산 증액해도 될지 판단해서 말씀주시면 반영하겠습니다.');
+  if (mroas != null && mroas >= o.target * 1.3) L.push('- 효율이 기준 대비 높은편이라 예산을 조금 더 가져가는 방향도 괜찮으실까요?');
+  L.push('- (제안 내용을 적어주세요)', '');
+  if (mail) L.push('확인 후 궁금하신 부분 말씀주시면 답변드리겠습니다.', '감사합니다.'); else L.push('감사합니다!');
+  if (!mexact) note.push('지난달 광고비는 일평균으로 계산한 값이라 "약"으로 적었어요.');
+  return { text: L.join('\n'), groups: groups, ask: [], note: note };
+}
+
+/* ── 보고문 만들기 창 ── */
+function adReport(i) {
+  var a = AD.list[i], base = AD.baseDate || B.today;
+  RP = { i: i, type: 'day', fmt: 'kakao', month: Number(base.slice(8)) <= 7 ? 'last' : 'this', seed: 0, changes: null, file: '', reasons: {}, target: (AD.targets || {})[a.customerId] || 400 };
+  adReportDraw();
+}
+function adReportMake() {
+  var a = AD.list[RP.i];
+  return adReportText(a, { type: RP.type, fmt: RP.fmt, month: RP.month, seed: RP.seed, target: RP.target, changes: RP.changes, reasons: RP.reasons,
+    memos: adMemos(a.customerId), today: B.today, base: AD.baseDate || B.today, now: new Date(), me: B.me.name });
+}
+function adReportDraw() {
+  var a = AD.list[RP.i], r = adReportMake(); RP.out = r;
+  var chip = function (on, js, label) { return '<button class="chip' + (on ? ' on' : '') + '" onclick="' + js + ';adReportDraw()">' + label + '</button>'; };
+  var h = '<h3>보고문 만들기 · ' + esc(a.name) + '</h3>'
+    + '<div class="chips" style="margin:12px 0 8px">' + chip(RP.type === 'day', "RP.type='day'", '당일 카톡') + chip(RP.type === 'week', "RP.type='week'", '주간') + chip(RP.type === 'month', "RP.type='month'", '월간') + '</div>';
+  if (RP.type !== 'day') h += '<div class="chips" style="margin-bottom:8px">' + chip(RP.fmt === 'kakao', "RP.fmt='kakao'", '카톡용') + chip(RP.fmt === 'mail', "RP.fmt='mail'", '메일용')
+    + (RP.type === 'month' ? '<span style="width:8px"></span>' + chip(RP.month === 'this', "RP.month='this'", '이번 달 누적') + chip(RP.month === 'last', "RP.month='last'", '지난달 마감') : '') + '</div>';
+  h += '<div class="rp-opt"><label class="btn sm" for="rp_file">변경이력 엑셀 올리기 (선택)</label><input type="file" id="rp_file" accept=".xlsx,.xlsm,.xls,.csv,.txt" onchange="adReportFile(this)" style="position:absolute;opacity:0;width:1px;height:1px">'
+    + '<span class="small muted">' + (RP.changes ? esc(RP.file) + ' · 변경 ' + RP.changes.length + '건' + (RP.type === 'day' && r.day ? ' 중 ' + esc(md(r.day)) + ' ' + r.used + '건 사용' : '') : '광고센터 변경이력에서 내려받은 파일. 이 PC에서만 읽고 올리지 않아요.') + '</span>'
+    + '<span class="rp-target small">기준 효율 <input type="number" id="rp_target" value="' + RP.target + '" min="50" max="5000" step="50" onchange="adTarget(this.value)" aria-label="기준 효율"> %</span></div>';
+  if (r.ask.length) h += '<div class="rp-ask"><b>이유를 숫자로 알 수 없는 조정 ' + r.ask.length + '건</b><span class="small muted"> · 짧게 적으면 문장에 들어갑니다(비워두면 이유 없이 작성)</span>'
+    + r.ask.map(function (g) { return '<div class="row" style="margin-top:6px;flex-wrap:nowrap"><span class="small" style="flex:0 1 46%;min-width:0">' + esc(rpShort(g.campaign)) + ' · ' + esc(g.what) + '</span><input type="text" placeholder="예: 시즌 종료 대비" data-k="' + esc(g.key) + '" onchange="RP.reasons[this.dataset.k]=this.value.trim();adReportDraw()"></div>'; }).join('') + '</div>';
+  h += '<textarea id="rp_text" rows="15" style="margin-top:10px;font-size:14px;line-height:1.55" aria-label="보고문">' + esc(r.text) + '</textarea>';
+  var notes = r.note.slice();
+  if (/- \(/.test(r.text)) notes.push('괄호 ( ) 자리는 직접 채워서 보내주세요.');
+  if (adMemos(a.customerId).length) notes.push('메모는 적은 그대로 들어갑니다. 보내기 전에 말투만 다듬어 주세요.');
+  if (r.groups.some(function (g) { return g.basis === '캠페인 숫자'; })) notes.push('이유는 캠페인 단위 숫자로 추정한 것입니다. 실제 이유와 다르면 고쳐 주세요.');
+  if (notes.length) h += '<ul class="small muted" style="margin:8px 0 0 18px">' + notes.map(function (n) { return '<li>' + esc(n) + '</li>'; }).join('') + '</ul>';
+  if (r.groups.length) h += fold('근거표', '조정 ' + r.groups.length + '묶음', '<div class="scroll"><table class="tbl"><tr><th>캠페인</th><th>대상</th><th>변경</th><th>건수</th><th>7일 일평균</th><th>7일 효율</th><th>지난달 효율</th><th>이유</th><th>근거</th></tr>'
+    + r.groups.map(function (g) { var c = g.camp || {}; return '<tr><td>' + esc(g.campaign) + '</td><td>' + esc(g.target) + '</td><td>' + esc(g.action) + '</td><td>' + g.n + '</td><td>' + (g.camp ? won(c.avg7) : '-') + '</td><td>' + (g.camp ? pct(c.roas7) : '-') + '</td><td>' + (g.camp ? pct(c.roasLM) : '-') + '</td><td>' + esc(g.reason || '확인 필요') + '</td><td>' + esc(g.basis) + '</td></tr>'; }).join('') + '</table></div>');
+  h += '<div class="actions"><button class="btn ghost" onclick="closeModal()">닫기</button>'
+    + (RP.type === 'day' && r.groups.length ? '<button class="btn" onclick="adChangeMemo()">조정 내용 메모로 남기기</button>' : '')
+    + '<button class="btn" onclick="RP.seed++;adReportDraw()">다른 표현으로</button><button class="btn pri" onclick="adCopy()">복사</button></div>';
+  openModal(h, true);
+}
+function adReportFile(inp) {
+  var f = inp.files && inp.files[0]; if (!f) return;
+  var fr = new FileReader();
+  fr.onload = function () {
+    try { RP.changes = chRead(fr.result, f.name); RP.file = f.name; RP.reasons = {}; if (!RP.changes.length) toast('변경 내역이 비어 있어요', true); adReportDraw(); } catch (e) { fail(e); }
+  };
+  fr.onerror = function () { fail(new Error('파일을 읽지 못했어요.')); };
+  fr.readAsArrayBuffer(f);
+}
+function adTarget(v) {
+  v = Math.round(Number(v)); var a = AD.list[RP.i];
+  if (!(v >= 50 && v <= 5000)) return toast('기준 효율은 50~5000 사이로 적어주세요', true);
+  RP.target = v; AD.targets = AD.targets || {}; AD.targets[a.customerId] = v; adReportDraw();
+  call('adMemoSave', { cid: a.customerId, name: a.name, kind: '기준효율', text: v }).catch(fail);
+}
+function adCopy() {
+  var el = $('rp_text'), t = el.value, done = function () { toast(/- \(/.test(t) ? '복사했어요 · 괄호 ( ) 자리는 채워서 보내주세요' : '복사했어요'); };
+  var old = function () { el.select(); try { document.execCommand('copy'); done(); } catch (e) { toast('직접 선택해서 복사하세요', true); } };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(done, old); else old();
+}
+/** 엑셀에서 읽은 그날 조정을 한 줄 메모('변경 요약')로 남김 → 주간·월간 보고에 자동으로 들어감 */
+function adChangeMemo() {
+  var a = AD.list[RP.i], r = RP.out, t = r.groups.map(function (g) { return rpShort(g.campaign) + ' ' + g.what; }).join(' / ').slice(0, 500);
+  call('adMemoSave', { cid: a.customerId, name: a.name, kind: '변경 요약', text: t, date: r.day }).then(function () {
+    toast('메모로 남겼어요 · 주간·월간 보고에 들어갑니다');
+    return call('adList');
+  }).then(function (d) { var list = AD.list, tg = AD.targets; AD = d; AD.list = list; AD.targets = tg; }).catch(fail);
+}
 
 start();
 </script>

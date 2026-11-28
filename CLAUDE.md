@@ -13,11 +13,12 @@
 - 고친 뒤 아래 점검을 돌려 숫자를 비교하고 결과를 사용자에게 한 줄로 알린다. 탭별 시트 읽기 횟수가 늘면 안 된다.
   ```
   python3 naver_board/dev/build.py
-  node naver_board/dev/speed.js naver_board/dev/out   # 탭별 시트 읽기 횟수 (2026-11-26 기준: 첫 화면 9, 캘린더 6, 팀 현황 7)
+  node naver_board/dev/speed.js naver_board/dev/out   # 탭별 시트 읽기 횟수 (2026-11-28 기준: 첫 화면 9, 캘린더 6, 팀 현황 7, 광고 관리 2)
   node naver_board/dev/shot.js naver_board/dev/out    # 화면 오류·가로 넘침
   node naver_board/dev/act.js naver_board/dev/out     # 실패 사유·소통완료·평가자료·권한·알리미
   node naver_board/dev/sales_test.js naver_board/dev/out  # 영업노트·할일·오늘·이용 기록·권한
   node naver_board/dev/check_test.js naver_board/dev/out <latest.json>  # 오늘 점검(일일점검 화면·바로가기·팀원 필터)
+  node naver_board/dev/ad_test.js naver_board/dev/out     # 광고 관리: 가짜 변경이력 → 보고문·메모·권한·바로가기·390px
   node naver_board/dev/cache_test.js naver_board/dev/out  # 빠른 화면: 다시 열기·탭 이동이 저장분으로 바로 뜨는지(요청 1.5초 가정)
   ```
 
@@ -51,6 +52,19 @@
 
 ### 5. 크레딧
 주간 사용량이 70%를 넘으면 사용자에게 알린다. 무거운 작업(대량 재수집, 전체 재빌드)은 시작 전에 한 줄로 알린다.
+
+## 완료(2026-11-28): 광고 관리 탭 — 내 담당 네이버 검색광고 점검 + 메모 + 보고문(당일 카톡·주간·월간)
+- 시험 운영: 팀장만(`TABS`의 `pilot: true` + `adAllowed_`). 팀원에게 열 때는 이 둘만 지운다(계정은 항상 본인 담당만).
+- 원보드는 광고를 바꾸지 않는다. 데이터는 매일 받는 SA 점검 결과(`blobRead_('sa')`) 그대로, 급한 순서 = 비즈머니 부족 → 급감 → 예산 조기 소진 → 7일 넘게 미수정 → 나머지.
+- 메모는 '광고메모' 시트(처음 저장할 때 자동 생성; 분류 조정 이유·통화·다음 계획·변경 요약, '기준효율'은 계정당 한 줄).
+- 보고문은 화면(Index.html `adReportText`)에서 틀로 만든다(AI 호출 없음). `sa_change_report/report.py`·`STYLE.md`(브랜치 `claude/youthful-clarke-zcs2ot`)를 옮긴 것.
+  문장 틀을 바꿀 때는 STYLE.md 를 기준으로 하고 '다른 표현으로'(seed)로 돌려 본다.
+- **한계(사용자에게 다시 잘못 말하지 말 것)**: 변경 내용(입찰가 얼마→얼마)은 API로 못 가져온다. 광고센터 변경이력에서 내려받은 파일을 화면에 올려야 하고,
+  파일은 브라우저에서만 읽는다(서버·시트로 안 올림). 이유 추정은 캠페인 단위 숫자뿐이라 수집 기준일 근처(당일 보고)에만 붙이고, 주간·월간과 오래된 변경에는 붙이지 않는다.
+  숫자로 설명 안 되면 지어내지 않고 이유 칸에서 직접 받는다. 메모는 적은 그대로 들어간다(말투 변환 없음).
+- 실제 변경이력 파일로는 아직 확인 못 했다(칸 이름은 report.py 기준). 사용자가 실제 파일 1개를 주면 `chRead`로 먼저 확인할 것.
+- 월 누적 효율·기간 합계(`roasMonth`·`last7Spend`·`last14Spend`·`lastMonthSpend`)는 collect.py 에 이번에 추가 → 합친 뒤 다음 수집부터 들어온다. 없으면 "약 N만원"·최근 7일 효율로 적는다.
+- 다음: 실제 파일 검증 → 팀원 확대 → 다른 매체(GFA 등).
 
 ## 진행(2026-11-25): 6팀 일일점검을 원보드로 흡수 — '오늘 점검' 탭(일일점검 화면 그대로 + 인트라 점검), GitHub Actions board-sa(회사 PC 불필요)
 일일점검(`naver_dash`, 브랜치 `claude/funny-mccarthy-tfc8gd`)은 폐기하고 원보드에서만 운영한다. 팀원이 위화감 없게:

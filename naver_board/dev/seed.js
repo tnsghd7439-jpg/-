@@ -127,6 +127,35 @@
     window.__PROPS['U|'+addDays_(T,-1)+'|'+A]=JSON.stringify({f:'09:01',l:'18:20','접속':4,'실적':2,'영업노트':5});
     delete window.__PROPS['U|flushed']; // 실제로는 어제 기록이 오늘 첫 요청보다 먼저 있음
   })();
+
+  // 광고 관리 테스트 데이터: 가짜 SA 점검 결과(팀장 담당 5개 + 팀원A 1개 + 광고비 없는 계정 1개)와 메모
+  (function(){
+    const T=today_(), Y=addDays_(T,-1);
+    const acc=(i,name,owner,o)=>Object.assign({ customerId:String(3000000+i), adAccountNo:String(900000+i), accessManagerAccountNo:'77001', name:name, owners:[owner],
+      memberAccess:{}, alerts:[], yesterday:130000, avg7:128000, last7Avg:130000, monthAvg:126000, monthSpend:126000*Number(Y.slice(8)), lastMonthAvg:120000,
+      roas7:482, roas14:455, roasLastMonth:520, roasMonth:470, last7Spend:910150, last14Spend:1770150, lastMonthSpend:3720000,
+      purchase:{ last7:{amt:4386900,cnt:61}, last14:{amt:8054000,cnt:118}, last_month:{amt:19344000,cnt:270}, month:{amt:15990000,cnt:230} },
+      campaignPerf:[], budgetHits:[], bizmoney:2400000, lastEdit:addDays_(T,-2)+' 16:20', lastEditWhat:{label:'캠페인 쇼핑검색_주력상품',path:'/sa/campaigns/cmp-a001-01'}, daysSinceEdit:2 }, o);
+    const camps=[
+      {id:'cmp-a001-01',name:'쇼핑검색_주력상품',type:'SHOPPING',avg7:70000,avgLM:60000,roas7:310,roasLM:540,convLoss:40000},
+      {id:'cmp-a001-02',name:'파워링크_브랜드',type:'WEB_SITE',avg7:40000,avgLM:42000,roas7:820,roasLM:760,convLoss:-5000},
+      {id:'cmp-a001-03',name:'파워링크_일반키워드',type:'WEB_SITE',avg7:18000,avgLM:15000,roas7:0,roasLM:210,convLoss:4000},
+      {id:'cmp-a001-04',name:'쇼핑검색_신상품',type:'SHOPPING',avg7:900,avgLM:0,roas7:null,roasLM:null,convLoss:0}];
+    const data={ baseDate:Y, accounts:[
+      acc(1,'가상_캠핑용품','팀장',{ campaignPerf:camps, budgetHits:[{id:'cmp-a001-02',name:'파워링크_브랜드',budget:50000,hitDays:4,days:[],lastHit:Y,limitedNow:false,avgHitTime:'15시'}] }),
+      acc(2,'가상_꽃집','팀장',{ bizmoney:95000, avg7:60000, last7Avg:61000, yesterday:58000, alerts:[{type:'bizmoney',level:'urgent',text:'비즈머니 95,000원, 약 1.6일분 남음'}] }),
+      acc(3,'가상_반려용품','팀장',{ yesterday:21000, avg7:90000, alerts:[{type:'drop',level:'warn',text:'어제 21,000원, 7일 평균 90,000원 대비 77% 감소'}], accessManagerAccountNo:'' }),
+      acc(4,'가상_커피원두 스토어(이름이 아주 긴 계정 예시입니다)','팀장',{ daysSinceEdit:12, lastEdit:addDays_(T,-12)+' 10:00', roas7:640, roasLastMonth:610, last7Spend:null, last14Spend:null, lastMonthSpend:null, roasMonth:null }),
+      acc(5,'가상_가구','팀장',{ roas7:910, roasLastMonth:700, roasMonth:880 }),
+      acc(6,'가상_휴면계정','팀장',{ yesterday:0, avg7:0, last7Avg:0, monthAvg:0, monthSpend:0, roas7:null, daysSinceEdit:null, lastEdit:null }),
+      acc(7,'가상_팀원A계정','팀원A',{}) ] };
+    data.accounts.forEach(a=>{ Object.keys(a).forEach(k=>{ if(a[k]===null) delete a[k]; }); });
+    blobWrite_('sa', JSON.stringify(data));
+    const R=(u,a,p)=>{ window.__USER=u; const r=JSON.parse(api(a,p)); if(!r.ok) throw new Error(a+': '+r.error); return r.data; };
+    R(LEAD,'adMemoSave',{cid:'3000001',name:'가상_캠핑용품',kind:'조정 이유',text:'파워링크_일반키워드 시즌 종료 대비',date:T});
+    R(LEAD,'adMemoSave',{cid:'3000001',name:'가상_캠핑용품',kind:'통화',text:'대표님 통화, 다음달 신상품 입고 예정',date:addDays_(T,-3)});
+    R(LEAD,'adMemoSave',{cid:'3000001',name:'가상_캠핑용품',kind:'다음 계획',text:'주말 데이터 좀더 지켜보고 월요일에 말씀드리겠습니다.',date:T});
+  })();
   window.__USER='a@mymp.co.kr'; const acode=JSON.parse(api('alertCode',{})).data.code;
   console.log('membercode', doPost({postData:{contents:JSON.stringify({code:acode,daily:{dates:[],rows:[]}})}}).text);
   const d=rows_('실적_일별'); const raw=drows.filter(r=>r['날짜']===dates[0]);

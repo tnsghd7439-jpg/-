@@ -23,6 +23,7 @@ const SCHEMA = {
   '할일': ['id', '이메일', '분류', '제목', '메모', '반복', '반복값', '기한', '시간', '시작일', '상태', '작성일', '업체'],
   '할일완료': ['id', '할일id', '이메일', '날짜', '완료시각'],
   '이용기록': ['날짜', '이메일', '기록'],
+  '광고메모': ['id', '이메일', '계정', '계정명', '날짜', '분류', '내용', '작성시각'],
   '실적_일별': ['날짜', '담당자', '매체', '광고주ID', '광고주명', '매출', '출처'],
   '실적_월별': ['월', '담당자', '매체', '광고주ID', '광고주명', '매출', '출처'],
 };
@@ -63,10 +64,12 @@ const GOAL_CATEGORIES = ['광고매출', '계정 맵핑', '신규 계약', '영�
 const EVENT_TYPES = ['팀', '개인', '미팅', '프로모션'];
 const GUIDE_SECTIONS = ['맵핑 방법', '세팅 방법', '문의 경로'];
 
-/** 탭 목록. lead: true 는 팀장에게만 보입니다. 팀장 전용 탭은 여기에 한 줄 추가하면 됩니다. */
+/** 탭 목록. lead: true 는 팀장에게만 보입니다. 팀장 전용 탭은 여기에 한 줄 추가하면 됩니다.
+ *  pilot: true 는 시험 운영 중이라 우선 팀장에게만 보이는 탭(메뉴 자리는 일반 탭과 같음). 팀원에게 열 때는 pilot 만 지웁니다. */
 const TABS = [
   { id: 'perf', name: '계정별 실적' },
   { id: 'check', name: '오늘 점검' },
+  { id: 'ad', name: '광고 관리', pilot: true },
   { id: 'plan', name: '개인별 액션플랜' },
   { id: 'sales', name: '영업노트' },
   { id: 'task', name: '할일' },
@@ -559,7 +562,7 @@ const ACTIONS = {
     return {
       me: { email: me.email, name: me.name, role: me.role, manager: me.manager },
       members: mem.map(function (m) { return { email: m.email, name: m.name, role: m.role, manager: m.manager }; }),
-      tabs: TABS.filter(function (t) { return !t.lead || isLead_(me); }),
+      tabs: TABS.filter(function (t) { return !(t.lead || t.pilot) || isLead_(me); }),
       today: today_(),
       options: {
         noticeTypes: NOTICE_TYPES, goalPeriods: GOAL_PERIODS, goalCategories: GOAL_CATEGORIES,
@@ -1613,7 +1616,7 @@ function todayBundle_(m) {
 /* ── 이용 기록: 스크립트 저장소에 하루치를 모았다가, 다음 날 첫 요청 때 '이용기록' 시트에 한 번에 씀 ── */
 const USAGE_TAB_ = {
   bootstrap: '접속', perf: '실적', goalList: '액션플랜', leadList: '영업노트', taskList: '할일', noticeList: '공지', solutions: '솔루션',
-  guideList: '가이드', calendar: '캘린더', teamStats: '팀현황',
+  guideList: '가이드', calendar: '캘린더', teamStats: '팀현황', adList: '광고관리',
 };
 
 function useMark_(email, key) {
@@ -1904,6 +1907,86 @@ ACTIONS.checkView = function (me, p) {
   return { empty: false, template: tpl, data: data, intra: intraOut, updatedAt: settings_()['마지막SA수집'] || '' };
 };
 USAGE_TAB_.checkView = '오늘점검';
+
+
+/* ───────────────────────── 광고 관리 (내 담당 네이버 검색광고: 점검 + 메모 + 보고문) ─────────────────────────
+ * 원보드는 광고를 바꾸지 않습니다. 매일 받는 SA 점검 결과(blob 'sa')에서 내 담당 계정만 골라 보여주고,
+ * 한 줄 메모(왜 바꿨는지·통화·다음 계획)를 '광고메모' 시트에 남깁니다. 보고문은 화면(브라우저)에서 만듭니다.
+ * 변경이력 엑셀은 화면에서만 읽고 서버·시트로 올리지 않습니다.
+ */
+const AD_MEMO_KINDS = ['조정 이유', '통화', '다음 계획', '변경 요약'];
+const AD_FIELDS = ['customerId', 'adAccountNo', 'name', 'alerts', 'yesterday', 'avg7', 'last7Avg', 'monthAvg', 'monthSpend',
+  'lastMonthAvg', 'roas7', 'roas14', 'roasLastMonth', 'roasMonth', 'last7Spend', 'last14Spend', 'lastMonthSpend', 'purchase', 'campaignPerf', 'budgetHits',
+  'bizmoney', 'lastEdit', 'lastEditWhat', 'daysSinceEdit'];
+
+/** 시험 운영: 우선 팀장만. 팀원에게 열 때는 TABS 의 pilot 과 이 줄만 지우면 됩니다(계정은 항상 본인 담당만). */
+function adAllowed_(me) { if (TABS.some(function (t) { return t.id === 'ad' && t.pilot; })) needLead_(me); }
+
+function adMemoRows_() {
+  // 시트가 아직 없으면(메모를 한 번도 안 씀) 읽지 않습니다. 처음 저장할 때 sheet_() 가 만듭니다.
+  return SpreadsheetApp.getActive().getSheetByName('광고메모') ? rows_('광고메모') : [];
+}
+
+ACTIONS.adList = function (me) {
+  adAllowed_(me);
+  const names = [me.manager, me.name].filter(String);
+  const raw = blobRead_('sa');
+  const data = raw ? JSON.parse(raw) : null;
+  const mine = ((data && data.accounts) || []).filter(function (a) {
+    return (a.owners || []).some(function (o) { return names.indexOf(o) >= 0; });
+  }).map(function (a) {
+    const o = {};
+    AD_FIELDS.forEach(function (k) { if (a[k] !== undefined && a[k] !== null) o[k] = a[k]; });
+    // 관리계정을 거쳐 여는 계정: 내 권한이 있는 관리계정 번호를 우선(일일점검 팀원별 화면과 같은 규칙)
+    const via = names.map(function (n) { return (a.memberAccess || {})[n]; }).filter(Boolean)[0];
+    o.accessManagerAccountNo = via || a.accessManagerAccountNo || '';
+    return o;
+  });
+  const since = addDays_(today_(), -62);
+  const memos = [], targets = {};
+  adMemoRows_().forEach(function (r) {
+    if (low_(r['이메일']) !== me.email) return;
+    if (r['분류'] === '기준효율') { targets[r['계정']] = num_(r['내용']); return; }
+    if (String(r['날짜']) >= since) memos.push({ id: r.id, cid: String(r['계정']), date: String(r['날짜']), kind: r['분류'], text: String(r['내용']) });
+  });
+  memos.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+  return { empty: !data, baseDate: data ? data.baseDate || '' : '', accounts: mine, memos: memos, targets: targets, kinds: AD_MEMO_KINDS.slice(0, 3) };
+};
+
+/** 메모 한 줄 저장. kind '기준효율' 은 계정마다 한 줄만 두고 값을 바꿉니다. */
+ACTIONS.adMemoSave = function (me, p) {
+  adAllowed_(me);
+  const cid = text_(p.cid, 40), kind = text_(p.kind, 20);
+  if (!cid) throw new Error('계정을 찾을 수 없습니다.');
+  if (kind === '기준효율') {
+    const v = Math.round(num_(p.text));
+    if (!(v >= 50 && v <= 5000)) throw new Error('기준 효율은 50~5000 사이 숫자(%)로 적어주세요.');
+    return locked_(function () {
+      const old = adMemoRows_().find(function (r) { return low_(r['이메일']) === me.email && String(r['계정']) === cid && r['분류'] === '기준효율'; });
+      if (old) update_('광고메모', 'id', old.id, { '내용': String(v), '작성시각': now_() });
+      else insert_('광고메모', { id: uid_(), '이메일': me.email, '계정': cid, '계정명': text_(p.name, 100), '날짜': today_(), '분류': '기준효율', '내용': String(v), '작성시각': now_() });
+      return v;
+    });
+  }
+  if (AD_MEMO_KINDS.indexOf(kind) < 0) throw new Error('메모 분류를 확인해주세요.');
+  const body = text_(p.text, 500);
+  if (!body) throw new Error('메모 내용을 적어주세요.');
+  const date = isDate_(p.date) ? p.date : today_();
+  const id = uid_();
+  return locked_(function () {
+    insert_('광고메모', { id: id, '이메일': me.email, '계정': cid, '계정명': text_(p.name, 100), '날짜': date, '분류': kind, '내용': body, '작성시각': now_() });
+    return id;
+  });
+};
+
+ACTIONS.adMemoDelete = function (me, p) {
+  adAllowed_(me);
+  return locked_(function () {
+    const n = remove_('광고메모', function (r) { return String(r.id) === String(p.id) && low_(r['이메일']) === me.email; });
+    if (!n) throw new Error('본인이 쓴 메모만 지울 수 있습니다.');
+    return n;
+  });
+};
 
 
 /* ───────────────────────── 가이드 초안 ───────────────────────── */
